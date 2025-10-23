@@ -21,15 +21,25 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import UserLayout from '@/components/UserLayout';
+import { FiInfo, FiPlay } from 'react-icons/fi';
 
-import {
-  FiInfo,
-  FiPlay
-} from 'react-icons/fi';
-
-import { Strategy, getAllStrategies } from '@/db/dbService';
-
-// No need for mock data - we'll fetch from the database
+// Local Strategy type to avoid importing server modules in client
+interface Strategy {
+  id: string;
+  name: string;
+  description: string;
+  performance: number;
+  riskLevel: 'Low' | 'Medium' | 'High';
+  category: 'Growth' | 'Income' | 'Momentum' | 'Value';
+  imageUrl: string;
+  details: string;
+  parameters: Record<string, string>;
+  contentType?: 'html' | 'pdf';
+  contentUrl?: string;
+  enabled?: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
 const StrategiesPageContent: React.FC = () => {
   const { data: session } = useSession();
@@ -39,19 +49,21 @@ const StrategiesPageContent: React.FC = () => {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch strategies from the database
+  // Fetch strategies from the API
   useEffect(() => {
-    const fetchStrategies = () => {
+    const fetchStrategies = async () => {
       try {
-        // Force a fresh read from localStorage to get the latest strategies
-        if (typeof window !== 'undefined') {
-          // Clear any cached data
-          localStorage.removeItem('strategies_cache');
+        setLoading(true);
+        const response = await fetch('/api/strategies');
+        if (!response.ok) {
+          console.error('Failed to fetch strategies:', response.status);
+          setStrategies([]);
+          return;
         }
-        
-        // Get all strategies from the database with a fresh read
-        const allStrategies = getAllStrategies();
-        setStrategies(allStrategies);
+        const data = await response.json();
+        // Only show enabled strategies to users
+        const enabledStrategies = data.strategies?.filter((s: Strategy) => s.enabled !== false) || [];
+        setStrategies(enabledStrategies);
       } catch (error) {
         console.error('Error fetching strategies:', error);
       } finally {
@@ -60,11 +72,7 @@ const StrategiesPageContent: React.FC = () => {
     };
     
     fetchStrategies();
-    
-    // Set up a refresh interval to check for new strategies
     const refreshInterval = setInterval(fetchStrategies, 5000);
-    
-    // Clean up the interval on component unmount
     return () => clearInterval(refreshInterval);
   }, []);
 
@@ -77,7 +85,6 @@ const StrategiesPageContent: React.FC = () => {
   };
 
   const handleDeploy = (strategy: Strategy) => {
-    // Redirect to chatbox with strategy ID
     router.push(`/dashboard?tab=chat&strategy=${strategy.id}`);
   };
 
@@ -87,16 +94,99 @@ const StrategiesPageContent: React.FC = () => {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Trading Strategies</h1>
-        <div className="flex items-center space-x-4">
-          <span className="text-sm text-muted-foreground">
-            Welcome, {session?.user?.name}
-          </span>
+      <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+        <div className="px-4 py-5 sm:px-6">
+          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+            Trading Strategies
+          </h3>
+          <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
+            Explore and deploy trading strategies to optimize your investments.
+          </p>
+        </div>
+
+        <div className="border-t border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-5 sm:p-6">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Strategy Categories
+            </label>
+            <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="mt-2">
+              <TabsList className="grid w-full md:w-auto grid-cols-4">
+                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="growth">Growth</TabsTrigger>
+                <TabsTrigger value="value">Value</TabsTrigger>
+                <TabsTrigger value="income">Income</TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+              {loading ? (
+                Array(3).fill(0).map((_, index) => (
+                  <Card key={`loading-${index}`} className="hover:shadow-lg transition-shadow">
+                    <div className="h-48 bg-muted animate-pulse"></div>
+                    <CardHeader>
+                      <CardTitle className="h-6 bg-muted animate-pulse rounded w-3/4"></CardTitle>
+                      <CardDescription className="h-4 bg-muted animate-pulse rounded mt-2"></CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="w-full h-4 bg-muted animate-pulse rounded"></div>
+                      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-muted animate-pulse rounded-full w-1/2"></div>
+                      </div>
+                    </CardContent>
+                    <CardFooter className="flex space-x-2">
+                      <div className="flex-1 h-9 bg-muted animate-pulse rounded"></div>
+                      <div className="flex-1 h-9 bg-muted animate-pulse rounded"></div>
+                    </CardFooter>
+                  </Card>
+                ))
+              ) : strategies.length === 0 ? (
+                <Card className="col-span-full p-8 text-center">
+                  <p className="text-gray-500 dark:text-gray-400">No strategies available at this time.</p>
+                </Card>
+              ) : filteredStrategies.map((strategy) => (
+                <Card key={strategy.id} className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <CardTitle>{strategy.name}</CardTitle>
+                      <span className={`text-sm font-semibold px-2 py-1 rounded ${strategy.performance >= 0 ? 'text-green-600 bg-green-100 dark:bg-green-900/30' : 'text-red-600 bg-red-100 dark:bg-red-900/30'}`}>
+                        {strategy.performance >= 0 ? '+' : ''}{strategy.performance}%
+                      </span>
+                    </div>
+                    <CardDescription>{strategy.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-center justify-center">
+                    <Image
+                      src={strategy.imageUrl}
+                      alt={strategy.name}
+                      width={150}
+                      height={150}
+                      className="w-32 h-32 object-contain opacity-60"
+                    />
+                  </CardContent>
+                  <CardFooter className="flex space-x-2">
+                    <Button 
+                      variant="outline" 
+                      className="w-full flex items-center justify-center"
+                      onClick={() => handleViewInfo(strategy)}
+                    >
+                      <FiInfo className="mr-2" />
+                      Info
+                    </Button>
+                    <Button 
+                      className="w-full flex items-center justify-center"
+                      onClick={() => handleDeploy(strategy)}
+                    >
+                      <FiPlay className="mr-2" />
+                      Deploy
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
-      
-      {/* Strategy Info Modal */}
+
       <Dialog open={!!selectedStrategy} onOpenChange={(open) => !open && setSelectedStrategy(null)}>
         <DialogContent className="max-w-3xl">
           {selectedStrategy && (
@@ -118,6 +208,31 @@ const StrategiesPageContent: React.FC = () => {
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Strategy Details</h3>
                   <p>{selectedStrategy.details}</p>
+                  
+                  {selectedStrategy.contentUrl && selectedStrategy.contentType && (
+                    <div className="mt-6">
+                      <h3 className="text-lg font-semibold mb-2">Strategy Content</h3>
+                      {selectedStrategy.contentType === 'html' ? (
+                        <div className="border rounded-md p-4 bg-white">
+                          <iframe 
+                            src={selectedStrategy.contentUrl} 
+                            className="w-full h-96 border-0" 
+                            title={`${selectedStrategy.name} Content`}
+                          />
+                        </div>
+                      ) : selectedStrategy.contentType === 'pdf' ? (
+                        <div className="border rounded-md p-4 bg-white">
+                          <iframe 
+                            src={selectedStrategy.contentUrl} 
+                            className="w-full h-96 border-0" 
+                            title={`${selectedStrategy.name} PDF`}
+                          />
+                        </div>
+                      ) : (
+                        <p>No content available</p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -125,7 +240,7 @@ const StrategiesPageContent: React.FC = () => {
                     <ul className="space-y-2">
                       {Object.entries(selectedStrategy.parameters).map(([key, value]) => (
                         <li key={key} className="flex justify-between">
-                          <span className="text-muted-foreground">{key}:</span>
+                          <span className="text-gray-500 dark:text-gray-400">{key}:</span>
                           <span className="font-medium">{value}</span>
                         </li>
                       ))}
@@ -135,17 +250,17 @@ const StrategiesPageContent: React.FC = () => {
                     <h3 className="text-lg font-semibold mb-2">Performance</h3>
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Performance:</span>
+                        <span className="text-gray-500 dark:text-gray-400">Performance:</span>
                         <span className={`font-medium ${selectedStrategy.performance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {selectedStrategy.performance >= 0 ? '+' : ''}{selectedStrategy.performance}%
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Risk Level:</span>
+                        <span className="text-gray-500 dark:text-gray-400">Risk Level:</span>
                         <span className="font-medium">{selectedStrategy.riskLevel}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Category:</span>
+                        <span className="text-gray-500 dark:text-gray-400">Category:</span>
                         <span className="font-medium">{selectedStrategy.category}</span>
                       </div>
                     </div>
@@ -162,177 +277,8 @@ const StrategiesPageContent: React.FC = () => {
           )}
         </DialogContent>
       </Dialog>
-          
-          <div className="space-y-6">
-            {/* Strategy categories tabs */}
-            <div className="bg-card rounded-lg p-4">
-              <h2 className="text-xl font-semibold mb-4">Strategy Categories</h2>
-              <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full md:w-auto grid-cols-4">
-                  <TabsTrigger value="all">All</TabsTrigger>
-                  <TabsTrigger value="growth">Growth</TabsTrigger>
-                  <TabsTrigger value="value">Value</TabsTrigger>
-                  <TabsTrigger value="income">Income</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-            
-            {/* Strategies grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {loading ? (
-                // Loading state
-                Array(3).fill(0).map((_, index) => (
-                  <Card key={`loading-${index}`} className="overflow-hidden">
-                    <div className="h-48 bg-muted animate-pulse"></div>
-                    <CardHeader>
-                      <CardTitle className="h-6 bg-muted animate-pulse rounded w-3/4"></CardTitle>
-                      <CardDescription className="h-4 bg-muted animate-pulse rounded mt-2"></CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="w-full h-4 bg-muted animate-pulse rounded"></div>
-                      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-muted animate-pulse rounded-full w-1/2"></div>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex space-x-2">
-                      <div className="flex-1 h-9 bg-muted animate-pulse rounded"></div>
-                      <div className="flex-1 h-9 bg-muted animate-pulse rounded"></div>
-                    </CardFooter>
-                  </Card>
-                ))
-              ) : strategies.length === 0 ? (
-                // Empty state
-                <Card className="col-span-full p-8 text-center">
-                  <p className="text-muted-foreground">No strategies available at this time.</p>
-                </Card>
-              ) : filteredStrategies.map((strategy) => (
-                <Card key={strategy.id} className="overflow-hidden transition-all duration-300 hover:shadow-lg hover:scale-[1.02] group">
-                  <div className="relative h-48 bg-gradient-to-br from-primary/20 to-primary/5 group-hover:from-primary/30 group-hover:to-primary/10 transition-colors duration-300">
-                    <Image
-                      src={strategy.imageUrl}
-                      alt={strategy.name}
-                      width={200}
-                      height={200}
-                      className="absolute inset-0 w-full h-full object-contain p-6"
-                    />
-                    <div className="absolute top-3 right-3 bg-white dark:bg-gray-800 px-2 py-1 rounded-full text-xs font-medium">
-                      {strategy.riskLevel}
-                    </div>
-                  </div>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-xl">{strategy.name}</CardTitle>
-                      <span className={`text-sm font-semibold px-2 py-1 rounded ${strategy.performance >= 0 ? 'text-green-600 bg-green-100 dark:bg-green-900/30' : 'text-red-600 bg-red-100 dark:bg-red-900/30'}`}>
-                        {strategy.performance >= 0 ? '+' : ''}{strategy.performance}%
-                      </span>
-                    </div>
-                    <CardDescription>{strategy.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Category</span>
-                      <span className="text-sm font-medium capitalize">{strategy.category}</span>
-                    </div>
-                    <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full ${strategy.performance >= 0 ? 'bg-green-500' : 'bg-red-500'}`} 
-                        style={{ width: `${Math.min(Math.abs(strategy.performance) * 3, 100)}%` }}
-                      ></div>
-                    </div>
-                  </CardContent>
-                  <CardFooter className="flex space-x-2">
-                    <Button 
-                      variant="outline"
-                      className="flex-1 flex items-center justify-center"
-                      onClick={() => handleViewInfo(strategy)}
-                    >
-                      <FiInfo className="mr-2" />
-                      Info
-                    </Button>
-                    <Button 
-                      variant="default"
-                      className="flex-1 flex items-center justify-center"
-                      onClick={() => handleDeploy(strategy)}
-                    >
-                      <FiPlay className="mr-2" />
-                      Deploy
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
-          </div>
-          
-          {/* Strategy info modal (simplified as conditional rendering) */}
-          {selectedStrategy && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-              <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                <div className="relative h-64 bg-gradient-to-br from-primary/20 to-primary/5">
-                  <Image
-                    src={selectedStrategy.imageUrl}
-                    alt={selectedStrategy.name}
-                    width={300}
-                    height={300}
-                    className="absolute inset-0 w-full h-full object-contain p-8"
-                  />
-                  <Button 
-                    variant="outline" 
-                    className="absolute top-2 right-2 p-2 h-auto"
-                    onClick={() => setSelectedStrategy(null)}
-                  >
-                    ✕
-                  </Button>
-                </div>
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <CardTitle className="text-2xl">{selectedStrategy.name}</CardTitle>
-                    <span className={`text-sm font-semibold px-2 py-1 rounded ${selectedStrategy.performance >= 0 ? 'text-green-600 bg-green-100 dark:bg-green-900/30' : 'text-red-600 bg-red-100 dark:bg-red-900/30'}`}>
-                      {selectedStrategy.performance >= 0 ? '+' : ''}{selectedStrategy.performance}%
-                    </span>
-                  </div>
-                  <div className="flex gap-2 mt-2">
-                    <span className="text-xs font-medium px-2 py-1 bg-primary/10 text-primary rounded-full">
-                      {selectedStrategy.category}
-                    </span>
-                    <span className="text-xs font-medium px-2 py-1 bg-muted rounded-full">
-                      Risk: {selectedStrategy.riskLevel}
-                    </span>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-medium mb-2">Strategy Details</h3>
-                    <p className="text-muted-foreground">{selectedStrategy.details}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-lg font-medium mb-3">Parameters</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {Object.entries(selectedStrategy.parameters).map(([key, value]) => (
-                        <div key={key} className="p-2 bg-muted/50 rounded">
-                          <span className="text-sm font-medium">{key}</span>
-                          <p className="text-sm text-muted-foreground">{String(value)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter className="flex justify-end">
-                  <Button 
-                    className="bg-primary hover:bg-primary/90"
-                    onClick={() => {
-                      handleDeploy(selectedStrategy);
-                      setSelectedStrategy(null);
-                    }}
-                  >
-                    <FiPlay className="mr-2 h-4 w-4" /> Deploy Strategy
-                  </Button>
-                </CardFooter>
-              </Card>
-            </div>
-          )}
-        </div>
-      );
+    </div>
+  );
 };
 
 // Main page with UserLayout wrapper

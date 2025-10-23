@@ -8,6 +8,7 @@ import UserManagement from '@/components/admin/UserManagement';
 import StrategyManagement from '@/components/admin/StrategyManagement';
 import PaymentVerification from '@/components/admin/PaymentVerification';
 import AnalyticsDashboard from '@/components/admin/AnalyticsDashboard';
+import PaymentNotifications from '@/components/admin/PaymentNotifications';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Card, { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 
@@ -63,6 +64,7 @@ export default function AdminPage() {
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Admin Dashboard ({session.user.name})</h1>
+        <PaymentNotifications />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

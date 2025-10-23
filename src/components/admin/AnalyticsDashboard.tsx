@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import Card, { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
-import { getAnalyticsData } from '@/db/dbService';
 import { FiUsers, FiDollarSign, FiTrendingUp, FiActivity } from 'react-icons/fi';
 
 interface AnalyticsData {
@@ -46,8 +45,19 @@ export default function AnalyticsDashboard() {
   });
 
   useEffect(() => {
-    const data = getAnalyticsData();
-    setAnalyticsData(data);
+    const fetchAnalytics = async () => {
+      try {
+        const response = await fetch('/api/admin/analytics');
+        if (!response.ok) {
+          throw new Error('Failed to fetch analytics');
+        }
+        const data = await response.json();
+        setAnalyticsData(data);
+      } catch (err) {
+        console.error('Error fetching analytics:', err);
+      }
+    };
+    fetchAnalytics();
   }, []);
 
   // Prepare data for charts

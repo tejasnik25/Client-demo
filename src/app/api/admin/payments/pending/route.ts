@@ -1,0 +1,56 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { getAllTransactions, getUserById } from '@/db/dbService';
+
+export async function GET(request: NextRequest) {
+  try {
+    // Check if user is authenticated and is admin
+    const session = await getServerSession(authOptions);
+    
+    if (!session || session.user?.role !== 'ADMIN') {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Get all transactions (not just pending) for admin review
+    const allTransactions = await getAllTransactions();
+
+    // Hydrate with user info and include MT details
+    const transactions = await Promise.all(
+      allTransactions.map(async (transaction) => {
+        const user = transaction.user_id ? await getUserById(transaction.user_id) : null;
+        return {
+          id: transaction.id,
+          user_id: transaction.user_id,
+          amount: transaction.amount,
+          transaction_type: transaction.transaction_type,
+          payment_method: transaction.payment_method,
+          transaction_id: transaction.transaction_id, 
+          receipt_path: transaction.receipt_path,
+          platform: transaction.platform,
+          mt_account_id: transaction.mt_account_id,
+          mt_account_password: transaction.mt_account_password,
+          terms_accepted: transaction.terms_accepted,
+          status: transaction.status,
+          created_at: transaction.created_at,
+          updated_at: transaction.updated_at,
+          user: user ? { name: user.name, email: user.email } : undefined,
+        };
+      })
+    );
+
+    return NextResponse.json({
+      success: true,
+      transactions,
+    });
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to fetch transactions' },
+      { status: 500 }
+    );
+  }
+}

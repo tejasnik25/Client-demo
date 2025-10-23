@@ -96,17 +96,8 @@ export const authOptions: NextAuthOptions = {
     updateAge: 24 * 60 * 60, // 24 hours
   },
   secret: process.env.NEXTAUTH_SECRET || 'your-secret-key', // Provide a default secret for development
-  cookies: {
-    sessionToken: {
-      name: 'next-auth.session-token',
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
-  },
+  // trustHost helps when running behind proxies or non-standard dev setups
+  trustHost: true,
 };
 
 declare module "next-auth" {

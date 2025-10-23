@@ -11,43 +11,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import UserLayout from '@/components/UserLayout';
 
-// Define type for analysis history items
-type AnalysisHistoryItem = {
-  id: number;
-  createdAt: Date;
-  analysisType: string;
-  stockName: string;
-};
-
-
-
 // Dashboard page content
 function DashboardPageContent() {
   const { data: session } = useSession();
   const router = useRouter();
-  const [history, setHistory] = useState<AnalysisHistoryItem[]>([]);
-
-  useEffect(() => {
-    // Simulate loading data
-    const timer = setTimeout(() => {
-      if (session?.user) {
-        // Type assertion for the analysisHistory property
-        const userWithHistory = session.user as typeof session.user & {
-          analysisHistory?: AnalysisHistoryItem[];
-        };
-        setHistory(userWithHistory.analysisHistory || [
-          { id: 1, createdAt: new Date(), analysisType: 'Technical', stockName: 'AAPL' },
-          { id: 2, createdAt: new Date(Date.now() - 86400000), analysisType: 'Fundamental', stockName: 'MSFT' },
-          { id: 3, createdAt: new Date(Date.now() - 172800000), analysisType: 'Sentiment', stockName: 'TSLA' },
-        ]);
-      }
-    }, 1000);
-    
-    return () => clearTimeout(timer);
-  }, [session]);
+  // Removed analysis history logic
 
   return (
-    <div className="container mx-auto py-6 sm:px-6 lg:px-8">
+    <div className="container mx-auto py-6 space-y-6">
       {/* Navigation Boxes */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
         <button 
@@ -63,19 +34,7 @@ function DashboardPageContent() {
           <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-primary/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
         </button>
         
-        <button 
-          onClick={() => router.push('/analysis')}
-          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-card shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent group-hover:from-blue-500/10 transition-colors duration-300"></div>
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-blue-500/10 text-blue-600 group-hover:bg-blue-500/20 transition-colors duration-300">
-            <FiBarChart2 className="h-8 w-8" />
-          </div>
-          <h3 className="text-base font-medium text-center">Analysis</h3>
-          <p className="text-xs text-muted-foreground text-center mt-1">Stock analysis tools</p>
-          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-blue-500/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
-        </button>
-        
+
         <button 
           onClick={() => router.push('/wallet')}
           className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-card shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
@@ -113,53 +72,19 @@ function DashboardPageContent() {
         <TabsContent value="overview" className="mt-6 space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Recent Analysis</CardTitle>
+              <CardTitle>Overview</CardTitle>
               <CardDescription>
-                View your recent stock analysis history
+                Quick access to key features
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {history.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead>
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {history.map((analysis) => (
-                        <tr key={analysis.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(analysis.createdAt).toLocaleDateString()}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{analysis.analysisType}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{analysis.stockName || 'N/A'}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <Button variant="outline" onClick={() => router.push(`/analysis/${analysis.id}`)}>
-                              View
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <FiBarChart2 className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground mb-4">No analysis history yet</p>
-                  <Button onClick={() => router.push('/analysis/new')}>
-                    New Analysis
-                  </Button>
-                </div>
-              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Button onClick={() => router.push('/strategies')} className="w-full">Explore Strategies</Button>
+                <Button onClick={() => router.push('/wallet')} className="w-full">Manage Wallet</Button>
+              </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={() => router.push('/analysis/new')} className="w-full">
-                New Analysis
-              </Button>
+              <Button onClick={() => router.push('/strategies')} className="w-full">Get Started</Button>
             </CardFooter>
           </Card>
         </TabsContent>
@@ -169,7 +94,7 @@ function DashboardPageContent() {
             <CardHeader>
               <CardTitle>Purchase Tokens</CardTitle>
               <CardDescription>
-                Buy tokens to perform stock analysis
+                Buy tokens for platform features
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -231,9 +156,7 @@ function DashboardPageContent() {
                   <span className="text-3xl font-bold">$19.99</span>
                   <span className="ml-2">/month</span>
                 </div>
-                <Button variant="secondary">
-                  {session?.user?.stockAnalysisAccess ? 'Manage Subscription' : 'Subscribe Now'}
-                </Button>
+                <Button variant="secondary">Subscribe Now</Button>
               </div>
             </CardContent>
           </Card>
@@ -275,7 +198,7 @@ function DashboardPageContent() {
                   <input 
                     type="text" 
                     className="w-full p-2 border rounded-md" 
-                    value={session?.user?.stockAnalysisAccess ? 'Premium' : 'Basic'} 
+                    value={'Standard'} 
                     readOnly 
                   />
                 </div>

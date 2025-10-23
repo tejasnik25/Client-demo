@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Button from '@/components/ui/Button';
 import  Input  from '@/components/ui/Input';
-import { Switch } from '@/components/ui/switch';
+
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Card from '@/components/ui/Card'; // Default import
 import { CardContent, CardHeader, CardTitle } from '@/components/ui/Card'; // Named imports
@@ -43,7 +43,6 @@ export default function UserManagement() {
     email: '',
     password: '',
     role: 'user',
-    stockAnalysisAccess: false,
     walletBalance: 0,
   });
 
@@ -112,7 +111,7 @@ export default function UserManagement() {
         name: user.name || '',
         email: user.email || '',
         role: user.role || 'USER',
-        stockAnalysisAccess: user.stock_analysis_access || false,
+        password: '', // Provide empty password to satisfy formData type
         walletBalance: user.wallet_balance || 0,
       });
     setIsEditDialogOpen(true);
@@ -206,7 +205,6 @@ export default function UserManagement() {
       email: '',
       password: '',
       role: 'user',
-      stockAnalysisAccess: false,
       walletBalance: 0,
     });
     setIsAddDialogOpen(true);
@@ -225,7 +223,6 @@ export default function UserManagement() {
           email: formData.email,
           password: formData.password,
           role: formData.role,
-          stockAnalysisAccess: formData.stockAnalysisAccess,
           walletBalance: formData.walletBalance,
         }),
       });
@@ -267,7 +264,6 @@ export default function UserManagement() {
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead>Analysis Access</TableHead>
                 <TableHead>Wallet Balance</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -275,7 +271,7 @@ export default function UserManagement() {
             <TableBody>
               {users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-4">
+                  <TableCell colSpan={5} className="text-center py-4">
                     No users found
                   </TableCell>
                 </TableRow>
@@ -287,11 +283,6 @@ export default function UserManagement() {
                     <TableCell>
                       <span className={`px-2 py-1 rounded-full text-xs ${user.role === 'ADMIN' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
                         {user.role}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs ${user.stock_analysis_access ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {user.stock_analysis_access ? 'Enabled' : 'Disabled'}
                       </span>
                     </TableCell>
                     <TableCell>${user.wallet_balance?.toFixed(2)}</TableCell>
@@ -377,21 +368,6 @@ export default function UserManagement() {
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="stockAnalysisAccess" className="text-right">
-                Analysis Access
-              </Label>
-              <div className="flex items-center space-x-2 col-span-3">
-                <Switch
-                  id="stockAnalysisAccess"
-                  checked={formData.stockAnalysisAccess}
-                  onCheckedChange={(checked) => setFormData({ ...formData, stockAnalysisAccess: checked })}
-                />
-                <Label htmlFor="stockAnalysisAccess">
-                  {formData.stockAnalysisAccess ? 'Enabled' : 'Disabled'}
-                </Label>
-              </div>
-            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
@@ -471,21 +447,6 @@ export default function UserManagement() {
                 onChange={(e) => setFormData({ ...formData, walletBalance: parseFloat(e.target.value) || 0 })}
                 className="col-span-3"
               />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="new-stockAnalysisAccess" className="text-right">
-                Analysis Access
-              </Label>
-              <div className="flex items-center space-x-2 col-span-3">
-                <Switch
-                  id="new-stockAnalysisAccess"
-                  checked={formData.stockAnalysisAccess}
-                  onCheckedChange={(checked) => setFormData({ ...formData, stockAnalysisAccess: checked })}
-                />
-                <Label htmlFor="new-stockAnalysisAccess">
-                  {formData.stockAnalysisAccess ? 'Enabled' : 'Disabled'}
-                </Label>
-              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2">

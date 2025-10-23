@@ -22,15 +22,25 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import ScrollArea from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import Badge from '@/components/ui/badge';
+import Badge from '@/components/ui/Badge';
 
-import { 
-  Strategy, 
-  getAllStrategies, 
-  createStrategy, 
-  updateStrategy, 
-  deleteStrategy 
-} from '@/db/dbService';
+// Local Strategy type to avoid importing server modules in client
+interface Strategy {
+  id: string;
+  name: string;
+  description: string;
+  performance: number;
+  riskLevel: 'Low' | 'Medium' | 'High';
+  category: 'Growth' | 'Income' | 'Momentum' | 'Value';
+  imageUrl: string;
+  details: string;
+  parameters: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  contentType: 'html' | 'pdf' | 'text';
+  contentUrl: string;
+  enabled: boolean;
+}
 
 interface ParameterRow {
   key: string;
@@ -48,13 +58,19 @@ const StrategyManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [expandedParameters, setExpandedParameters] = useState<Record<string, boolean>>({});
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [contentType, setContentType] = useState<'html' | 'pdf' | 'text'>('html');
 
-  // Fetch strategies from the database
-  const fetchStrategies = () => {
+  // Fetch strategies from the API
+  const fetchStrategies = async () => {
     try {
       setLoading(true);
-      const allStrategies = getAllStrategies();
-      setStrategies(allStrategies);
+      const response = await fetch('/api/strategies');
+      if (!response.ok) {
+        throw new Error('Failed to fetch strategies');
+      }
+      const data = await response.json();
+      setStrategies(data.strategies || []);
     } catch (err) {
       setError('Failed to fetch strategies');
       console.error('Error fetching strategies:', err);
@@ -77,11 +93,15 @@ const StrategyManagement: React.FC = () => {
       riskLevel: 'Medium',
       category: 'Growth',
       imageUrl: '/strategy1.svg',
-      details: ''
+      details: '',
+      enabled: true,
+      contentType: 'html'
     });
     setParameters([{ key: '', value: '', id: `param-${Date.now()}` }]);
     setError(null);
     setSuccess(null);
+    setSelectedFile(null);
+    setContentType('html');
   };
 
   // Open add strategy dialog
@@ -111,6 +131,30 @@ const StrategyManagement: React.FC = () => {
     setCurrentStrategy(prev => ({
       ...prev,
       [name]: name === 'performance' ? parseFloat(value) || 0 : value
+    }));
+  };
+  
+  // Handle file selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+  
+  // Handle content type change
+  const handleContentTypeChange = (value: 'html' | 'pdf' | 'text') => {
+    setContentType(value);
+    setCurrentStrategy(prev => ({
+      ...prev,
+      contentType: value
+    }));
+  };
+  
+  // Handle enabled status change
+  const handleEnabledChange = (checked: boolean) => {
+    setCurrentStrategy(prev => ({
+      ...prev,
+      enabled: checked
     }));
   };
 
@@ -152,27 +196,54 @@ const StrategyManagement: React.FC = () => {
       setError('Detailed description is required');
       return;
     }
-    if (parameters.some(param => !param.key.trim() || !param.value.trim())) {
-      setError('All parameters must have a key and value');
+
+    if (!selectedFile && isAdding) {
+      setError('Please upload a strategy document (HTML or PDF)');
       return;
     }
 
     try {
-      const strategyData = {
-        ...currentStrategy,
-        parameters: parameters.reduce((acc, param) => {
-          if (param.key.trim() && param.value.trim()) {
-            acc[param.key.trim()] = param.value.trim();
-          }
-          return acc;
-        }, {} as Record<string, string>)
-      } as Omit<Strategy, 'id' | 'created_at' | 'updated_at'>;
+      // Create FormData for file upload
+      const formData = new FormData();
+      
+      // Append individual fields to formData (no performance/risk/category/parameters)
+      formData.append('name', currentStrategy.name || '');
+      formData.append('description', currentStrategy.description || '');
+      formData.append('details', currentStrategy.details || '');
+      formData.append('imageUrl', currentStrategy.imageUrl || '/strategy1.svg');
+      formData.append('contentType', contentType);
+      formData.append('enabled', String(currentStrategy.enabled ?? true));
+
+      // Add file if selected
+      if (selectedFile) {
+        formData.append('file', selectedFile);
+      }
 
       let result;
       if (isAdding) {
-        result = await createStrategy(strategyData);
+        // Create new strategy via API
+        const response = await fetch('/api/strategies/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to create strategy');
+        }
+        
+        result = await response.json();
       } else if (isEditing && currentStrategy.id) {
-        result = await updateStrategy(currentStrategy.id, strategyData);
+        // Update existing strategy via API
+        const response = await fetch(`/api/strategies/upload?id=${currentStrategy.id}`, {
+          method: 'PUT',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to update strategy');
+        }
+        
+        result = await response.json();
       }
 
       if (result?.success) {
@@ -200,7 +271,16 @@ const StrategyManagement: React.FC = () => {
     }
 
     try {
-      const result = await deleteStrategy(id);
+      const response = await fetch(`/api/strategies?id=${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete strategy');
+      }
+      
+      const result = await response.json();
+      
       if (result.success) {
         fetchStrategies(); // Refresh the list
         setSuccess('Strategy deleted successfully');
@@ -392,6 +472,49 @@ const StrategyManagement: React.FC = () => {
           
           <ScrollArea className="h-[60vh] pr-4">
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="contentType">Content Type</Label>
+                  <Select
+                    value={contentType}
+                    onValueChange={(value) => handleContentTypeChange(value as 'html' | 'pdf' | 'text')}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select content type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="html">HTML Document</SelectItem>
+                      <SelectItem value="pdf">PDF Document</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="file">Upload Strategy Document</Label>
+                  <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-md p-4">
+                    <Input
+                      id="file"
+                      type="file"
+                      accept={contentType === 'html' ? '.html,.htm' : '.pdf'}
+                      onChange={handleFileChange}
+                      className="cursor-pointer"
+                    />
+                    <p className="text-xs text-gray-500 mt-2">
+                      {contentType === 'html' ? 'Upload HTML file with strategy details' : 'Upload PDF document with strategy details'}
+                    </p>
+                    {selectedFile && (
+                      <div className="mt-2 text-sm text-green-600 dark:text-green-400">
+                        Selected: {selectedFile.name}
+                      </div>
+                    )}
+                    {currentStrategy.contentUrl && !selectedFile && (
+                      <div className="mt-2 text-sm">
+                        Current file: <a href={currentStrategy.contentUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">View</a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
               {/* Basic Information */}
               <div className="space-y-2">
                 <Label htmlFor="name">Strategy Name *</Label>
@@ -433,59 +556,6 @@ const StrategyManagement: React.FC = () => {
               {/* Strategy Settings */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="performance">Performance (%)</Label>
-                  <Input
-                    id="performance"
-                    name="performance"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={currentStrategy.performance || 0}
-                    onChange={handleInputChange}
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="riskLevel">Risk Level</Label>
-                  <Select
-                    value={currentStrategy.riskLevel}
-                    onValueChange={(value: string) => 
-                      setCurrentStrategy(prev => ({ ...prev, riskLevel: value as 'Low' | 'Medium' | 'High' }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select risk level" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Low">Low</SelectItem>
-                      <SelectItem value="Medium">Medium</SelectItem>
-                      <SelectItem value="High">High</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={currentStrategy.category}
-                    onValueChange={(value: string) => 
-                      setCurrentStrategy(prev => ({ ...prev, category: value as 'Growth' | 'Income' | 'Momentum' | 'Value' }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Growth">Growth</SelectItem>
-                      <SelectItem value="Income">Income</SelectItem>
-                      <SelectItem value="Momentum">Momentum</SelectItem>
-                      <SelectItem value="Value">Value</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
                   <Label htmlFor="imageUrl">Image URL</Label>
                   <Input
                     id="imageUrl"
@@ -495,59 +565,30 @@ const StrategyManagement: React.FC = () => {
                     placeholder="/strategy1.svg"
                   />
                 </div>
-              </div>
-              
-              {/* Parameters */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <Label>Parameters</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={addParameter}
-                    className="h-8 text-primary"
-                  >
-                    <FiPlus className="mr-1 h-3 w-3" /> Add Parameter
-                  </Button>
-                </div>
                 
                 <div className="space-y-2">
-                  {parameters.map((param, index) => (
-                    <div key={param.id} className="flex space-x-2 items-end">
-                      <div className="flex-1 space-y-1">
-                        <Label htmlFor={`param-key-${index}`} className="text-xs">Key</Label>
-                        <Input
-                          id={`param-key-${index}`}
-                          value={param.key}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleParameterChange(param.id, 'key', e.target.value)}
-                          placeholder="Parameter name"
-                          className="bg-muted/50"
-                        />
-                      </div>
-                      <div className="flex-1 space-y-1">
-                        <Label htmlFor={`param-value-${index}`} className="text-xs">Value</Label>
-                        <Input
-                          id={`param-value-${index}`}
-                          value={param.value}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleParameterChange(param.id, 'value', e.target.value)}
-                          placeholder="Parameter value"
-                          className="bg-muted/50"
-                        />
-                      </div>
-                      {parameters.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9 w-9 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => removeParameter(param.id)}
-                        >
-                          <FiTrash2 className="h-4 w-4" />
-                          <span className="sr-only">Remove parameter</span>
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+                  <Label htmlFor="enabled">Status</Label>
+                  <div className="flex items-center space-x-2">
+                    <Switch 
+                      id="enabled" 
+                      checked={currentStrategy.enabled !== false}
+                      onCheckedChange={handleEnabledChange}
+                    />
+                    <Label htmlFor="enabled" className="cursor-pointer">
+                      {currentStrategy.enabled !== false ? 'Enabled' : 'Disabled'}
+                    </Label>
+                  </div>
                 </div>
+              </div>
+              
+              {/* Strategy Content Upload */}
+              <div className="space-y-3">
+                <Label>Upload Strategy Document (HTML or PDF) *</Label>
+                <Input
+                  type="file"
+                  accept={contentType === 'pdf' ? 'application/pdf' : '.html,text/html'}
+                  onChange={handleFileChange}
+                />
               </div>
             </form>
           </ScrollArea>

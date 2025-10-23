@@ -2,6 +2,48 @@
 import bcrypt from 'bcryptjs';
 import { hashPassword } from '@/lib/auth';
 import pool from './db'; // Import centralized database connection
+// NOTE: Avoid importing Node modules at top-level to keep this file safe
+// when bundled into client components. We'll resolve fs/path inside
+// server-only functions at runtime.
+
+// Read database from JSON file
+export const readDatabase = () => {
+  // Prevent client-side usage; this is server-only.
+  if (typeof window !== 'undefined') {
+    console.warn('readDatabase() is server-only and should not run in the browser.');
+    return { users: [] };
+  }
+  try {
+    const path = require('path');
+    const fs = require('fs');
+    const DB_FILE_PATH = path.join(process.cwd(), 'src', 'db', 'database.json');
+    const data = fs.readFileSync(DB_FILE_PATH, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error reading database file:', error);
+    // Return default structure if file doesn't exist or is invalid
+    return { users: [] };
+  }
+};
+
+// Write database to JSON file
+export const writeDatabase = (data: any) => {
+  // Prevent client-side usage; this is server-only.
+  if (typeof window !== 'undefined') {
+    console.warn('writeDatabase() is server-only and should not run in the browser.');
+    return false;
+  }
+  try {
+    const path = require('path');
+    const fs = require('fs');
+    const DB_FILE_PATH = path.join(process.cwd(), 'src', 'db', 'database.json');
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf8');
+    return true;
+  } catch (error) {
+    console.error('Error writing to database file:', error);
+    return false;
+  }
+};
 
 export type User = {
   id: string;
@@ -9,30 +51,13 @@ export type User = {
   email: string;
   password: string;
   wallet_balance: number;
-  stock_analysis_access: boolean;
-  analysis_count: number;
-  trial_expiry: boolean;
   role: 'USER' | 'ADMIN';
   email_verified: boolean;
-  analysis_history: AnalysisHistory[];
   created_at: string;
   updated_at: string;
 };
 
-type AnalysisHistory = {
-  id: string;
-  analysis_type: 'Intraday Trading' | 'Positional Trading' | 'Swing Trading';
-  stock_name?: string;
-  analysis_result?: string;
-  image_path?: string;
-  created_at: string;
-};
 
-type AnalysisPricing = {
-  analysis_type: 'Intraday Trading' | 'Positional Trading' | 'Swing Trading';
-  price: number;
-  description: string;
-};
 
 type WalletTransaction = {
   id: string;
@@ -42,8 +67,20 @@ type WalletTransaction = {
   payment_method?: string;
   transaction_id?: string;
   receipt_path?: string;
+  platform?: 'MT4' | 'MT5';
+  mt_account_id?: string;
+  mt_account_password?: string; // Stored as plain text per requirement
+  terms_accepted?: boolean;
+  // New optional fields
+  inr_amount?: number;
+  inr_to_usd_rate?: number;
+  crypto_network?: 'ERC20' | 'TRC20';
+  crypto_wallet_address?: string;
+  wallet_app_deeplink?: string;
   status: 'pending' | 'completed' | 'failed';
+  admin_id?: string;
   created_at: string;
+  updated_at?: string;
 };
 
 export type Strategy = {
@@ -56,305 +93,146 @@ export type Strategy = {
   imageUrl: string;
   details: string;
   parameters: Record<string, string>;
+  contentType?: string;
+  contentUrl?: string;
+  enabled?: boolean;
   created_at: string;
   updated_at: string;
 };
 
-type Database = {
-  users: User[];
-  analysis_pricing: AnalysisPricing[];
-  wallet_transactions: WalletTransaction[];
-  strategies: Strategy[];
+// Initialize database with MySQL connection
+const initializeDatabase = async () => {
+  try {
+    // Create tables if they don't exist
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        wallet_balance DECIMAL(10,2) DEFAULT 0,
+        role ENUM('USER', 'ADMIN') DEFAULT 'USER',
+        email_verified BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS wallet_transactions (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255),
+        amount DECIMAL(10,2) NOT NULL,
+        transaction_type ENUM('deposit', 'charge'),
+        payment_method VARCHAR(100),
+        transaction_id VARCHAR(255),
+        receipt_path VARCHAR(500),
+        platform ENUM('MT4', 'MT5'),
+        mt_account_id VARCHAR(255),
+        mt_account_password VARCHAR(255),
+        terms_accepted BOOLEAN DEFAULT FALSE,
+        status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
+        admin_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS strategies (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        performance INT DEFAULT 0,
+        risk_level ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
+        category ENUM('Growth', 'Income', 'Momentum', 'Value') DEFAULT 'Growth',
+        image_url VARCHAR(500),
+        details TEXT,
+        parameters JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Minimal auto-migrations to align legacy DBs
+    try { await pool.execute("ALTER TABLE users ADD COLUMN role ENUM('USER','ADMIN') DEFAULT 'USER'"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT false"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN platform ENUM('MT4', 'MT5')"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_id VARCHAR(255)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_password VARCHAR(255)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN terms_accepted BOOLEAN DEFAULT FALSE"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN admin_id VARCHAR(255)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch (e) {}
+    // Add INR/USDT columns for new payment flows
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN inr_amount DECIMAL(12,2)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN inr_to_usd_rate DECIMAL(12,6)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_network ENUM('ERC20','TRC20')"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
+
+    console.log('Database tables initialized successfully');
+    
+    // Initialize default data
+    await initializeDefaultData();
+  } catch (error) {
+    console.error('Error initializing database:', error);
+  }
 };
 
-// Initialize database
-const database: Database = {
-  users: [],
-  analysis_pricing: [],
-  wallet_transactions: [],
-  strategies: []
+// Initialize default data
+const initializeDefaultData = async () => {
+  try {
+    // Check if admin user exists
+    const [adminRows] = await pool.execute('SELECT id FROM users WHERE email = ?', ['admin@stockanalysis.com']);
+    
+    if ((adminRows as any[]).length === 0) {
+      const hashedPassword = await hashPassword('admin123');
+      await pool.execute(
+        `INSERT INTO users (id, name, email, password, role, email_verified, wallet_balance) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['admin123', 'Admin User', 'admin@stockanalysis.com', hashedPassword, 'ADMIN', true, 0]
+      );
+    }
+
+    // Check if test user exists
+    const [userRows] = await pool.execute('SELECT id FROM users WHERE email = ?', ['user@example.com']);
+    
+    if ((userRows as any[]).length === 0) {
+      const hashedPassword = await hashPassword('userpass123');
+      await pool.execute(
+        `INSERT INTO users (id, name, email, password, role, email_verified, wallet_balance) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['user123', 'John Doe', 'user@example.com', hashedPassword, 'USER', true, 100]
+      );
+    }
+
+    // Add test user for login
+    const [testUserRows] = await pool.execute('SELECT id FROM users WHERE email = ?', ['test@example.com']);
+    
+    if ((testUserRows as any[]).length === 0) {
+      const hashedPassword = await hashPassword('password123');
+      await pool.execute(
+        `INSERT INTO users (id, name, email, password, role, email_verified, wallet_balance) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['test123', 'Test User', 'test@example.com', hashedPassword, 'USER', true, 50]
+      );
+    }
+    
+    // Analysis pricing removed
+
+    // Initialize default strategies
+    await addDefaultStrategies();
+    
+    console.log('Default data initialized successfully');
+  } catch (error) {
+    console.error('Error initializing default data:', error);
+  }
 };
 
-// Add day trading strategy
-export function addDayTradingStrategy() {
-  const dayTradingStrategy: Strategy = {
-    id: "day-trading-intraday",
-    name: "Intraday Day Trading Strategy",
-    description: "A comprehensive day trading strategy for intraday trades with 2-8 hour hold times.",
-    performance: 78,
-    riskLevel: "Medium",
-    category: "Momentum",
-    imageUrl: "/stock-chart.svg",
-    details: `# Day Trading Strategy (Intraday, 2-8 Hours Hold)
-
-## Framework:
-
-### 1. Higher Timeframe Bias (4H → 1H)
-- Identify main trend: HH/HL = Bullish, LH/LL = Bearish
-- Use 50 EMA & 200 EMA for extra confirmation
-- Trade only in the direction of 1H/4H trend
-
-### 2. Liquidity Zones
-- Mark previous day's High/Low, Asian range, London High/Low
-- Identify buy-side liquidity (above highs) and sell-side liquidity (below lows)
-- Watch for:
-  - Liquidity sweep (stop hunt) → reversal setup
-  - Clean breakout & retest → continuation setup
-
-### 3. Entry Trigger (15m → 5m)
-- Look for:
-  - Break of Structure (BoS) at key zone
-  - Liquidity sweep + rejection candle (engulfing / pin bar)
-  - Retest of 20/50 EMA with trend continuation
-  - Fair Value Gap (FVG) fill entry
-
-### 4. Risk Management
-- Stop Loss (SL): Below sweep wick / recent swing low (for buys) OR above swing high (for sells)
-- Risk: 1–2% per trade
-- Ensure minimum R:R = 1:2
-
-### 5. Trade Management
-- TP1: Nearest liquidity level (session high/low)
-- TP2: Next key structure (previous day high/low)
-- TP3 (optional): Opposite liquidity pool
-- Move SL → breakeven after TP1 hit
-- Max holding time: same trading day (2–8 hrs)`,
-    parameters: {
-      "Timeframe Analysis": "4H, 1H, 15m, 5m",
-      "Risk Per Trade": "1-2%",
-      "Minimum R:R": "1:2",
-      "Max Hold Time": "2-8 hours (same day)",
-      "Key Indicators": "50 EMA, 200 EMA, Price Action, Liquidity Zones"
-    },
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-
-  // Check if strategy already exists
-  const existingIndex = database.strategies.findIndex(s => s.id === dayTradingStrategy.id);
-  if (existingIndex >= 0) {
-    // Update existing strategy
-    database.strategies[existingIndex] = dayTradingStrategy;
-  } else {
-    // Add new strategy
-    database.strategies.push(dayTradingStrategy);
-  }
-
-  return dayTradingStrategy;
-}
-
-// Mock database functions for transactions and token management
-
-// Analytics functions for admin dashboard
-export function getAnalyticsData() {
-  try {
-    // User statistics
-    const totalUsers = database.users.length;
-    const activeUsers = database.users.filter(user => user.stock_analysis_access).length;
-    const inactiveUsers = totalUsers - activeUsers;
-    const adminUsers = database.users.filter(user => user.role === 'ADMIN').length;
-    const regularUsers = database.users.filter(user => user.role === 'USER').length;
-
-    // Payment statistics
-    const allTransactions = database.transactions || [];
-    const pendingPayments = allTransactions.filter(t => t.status === 'pending').length;
-    const approvedPayments = allTransactions.filter(t => t.status === 'completed').length;
-    const rejectedPayments = allTransactions.filter(t => t.status === 'failed').length;
-    const totalPayments = allTransactions.length;
-
-    // Revenue statistics
-    const totalRevenue = allTransactions
-      .filter(t => t.status === 'completed' && t.transaction_type === 'deposit')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    // Strategy statistics
-    const totalStrategies = database.strategies.length;
-
-    return {
-      users: {
-        total: totalUsers,
-        active: activeUsers,
-        inactive: inactiveUsers,
-        admin: adminUsers,
-        regular: regularUsers
-      },
-      payments: {
-        total: totalPayments,
-        pending: pendingPayments,
-        approved: approvedPayments,
-        rejected: rejectedPayments
-      },
-      revenue: {
-        total: totalRevenue
-      },
-      strategies: {
-        total: totalStrategies
-      }
-    };
-  } catch (error) {
-    console.error('Error getting analytics data:', error);
-    return {
-      users: { total: 0, active: 0, inactive: 0, admin: 0, regular: 0 },
-      payments: { total: 0, pending: 0, approved: 0, rejected: 0 },
-      revenue: { total: 0 },
-      strategies: { total: 0 }
-    };
-  }
-}
-
-export async function updateUserTokens(userId: string, tokens: number) {
-  try {
-    const user = database.users.find(u => u.id === userId);
-    
-    if (!user) {
-      return { success: false, error: 'User not found' };
-    }
-    
-    // Add tokens to user's wallet balance
-    user.wallet_balance += tokens;
-    user.updated_at = new Date().toISOString();
-    
-    return { 
-      success: true, 
-      message: `Added ${tokens} tokens to user's account`,
-      user
-    };
-  } catch (error) {
-    console.error('Error updating user tokens:', error);
-    return { success: false, error: 'Failed to update user tokens' };
-  }
-}
-
-export async function registerUser(userData: {
-  name: string;
-  email: string;
-  password: string;
-}) {
-  try {
-    // Check if user with email already exists
-    const existingUser = database.users.find(u => u.email === userData.email);
-    
-    if (existingUser) {
-      return { success: false, error: 'Email already in use' };
-    }
-    
-    // Hash password
-    const hashedPassword = await hashPassword(userData.password);
-    
-    // Create new user
-    const newUser: User = {
-      id: `user${Date.now()}`,
-      name: userData.name,
-      email: userData.email,
-      password: hashedPassword,
-      wallet_balance: 0,
-      stock_analysis_access: false,
-      analysis_count: 0,
-      trial_expiry: false,
-      role: 'USER',
-      email_verified: false,
-      analysis_history: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    
-    // Add user to database
-    database.users.push(newUser);
-    
-    return { 
-      success: true, 
-      message: 'User registered successfully',
-      user: { ...newUser, password: undefined } // Return user without password
-    };
-  } catch (error) {
-    console.error('Error registering user:', error);
-    return { success: false, error: 'Failed to register user' };
-  }
-}
-
-// Initial database with test users and strategies
-const initialDatabase: Database = {
-  users: [
-      {
-        id: "user123",
-        name: "Test User",
-        email: "test@example.com",
-        password: "$2b$12$SMugmWkI12docvSfctmo8.DJdoMWNxzYfUKd0kXd5DfBho1m/vB8u", // Verified hash of 'password123'
-        wallet_balance: 100,
-        stock_analysis_access: true,
-        analysis_count: 0,
-        trial_expiry: false,
-        role: 'USER',
-        email_verified: true,
-        analysis_history: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: "user124",
-        name: "Testing User",
-        email: "testing@example.com",
-        password: "$2b$12$SMugmWkI12docvSfctmo8.DJdoMWNxzYfUKd0kXd5DfBho1m/vB8u", // Verified hash of 'password123'
-        wallet_balance: 100,
-        stock_analysis_access: true,
-        analysis_count: 0,
-        trial_expiry: false,
-        role: 'USER',
-        email_verified: true,
-        analysis_history: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-    {
-        id: "user456",
-        name: "John Doe",
-        email: "john@example.com",
-        password: "$2a$12$T9y8uV7iO6p5a4l3k2j1hG8f7e6d5c4b3a2s1d0f9e8d7c6b", // Hashed 'securepass'
-        wallet_balance: 50,
-        stock_analysis_access: true,
-        analysis_count: 3,
-        trial_expiry: false,
-        role: 'USER',
-        email_verified: true,
-        analysis_history: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: "user789",
-        name: "Jane Smith",
-        email: "jane@example.com",
-        password: "$2a$12$Q7w6e5r4t3y2u1i0o9p8a7s6d5f4g3h2j1k0l9f8e7d6c", // Hashed 'janepass123'
-        wallet_balance: 0,
-        stock_analysis_access: true,
-        analysis_count: 0,
-        trial_expiry: false,
-        role: 'USER',
-        email_verified: true,
-        analysis_history: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-  ],
-  analysis_pricing: [
-    {
-      analysis_type: "Intraday Trading",
-      price: 10,
-      description: "Analysis for day trading strategies"
-    },
-    {
-      analysis_type: "Positional Trading",
-      price: 15,
-      description: "Analysis for multi-day trading positions"
-    },
-    {
-      analysis_type: "Swing Trading",
-      price: 20,
-      description: "Analysis for multi-week trading strategies"
-    }
-  ],
-  wallet_transactions: [],
-  strategies: [
+// Add default strategies
+const addDefaultStrategies = async () => {
+  const defaultStrategies = [
     {
       id: '1',
       name: 'Growth Accelerator',
@@ -363,15 +241,13 @@ const initialDatabase: Database = {
       riskLevel: 'Medium',
       category: 'Growth',
       imageUrl: '/strategy1.svg',
-      details: 'This strategy uses machine learning algorithms to analyze historical data and identify stocks with the highest potential for growth. It focuses on companies with strong earnings growth, innovative products, and expanding market share.',
+      details: 'This strategy uses machine learning algorithms to analyze historical data and identify stocks with the highest potential for growth.',
       parameters: {
         'Time Horizon': 'Long-term',
         'Sector Focus': 'Technology, Healthcare',
         'Rebalancing': 'Quarterly',
         'Position Size': '5-10 stocks'
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      }
     },
     {
       id: '2',
@@ -381,15 +257,13 @@ const initialDatabase: Database = {
       riskLevel: 'Low',
       category: 'Income',
       imageUrl: '/strategy2.svg',
-      details: 'This income-focused strategy invests in companies that have increased their dividends for at least 25 consecutive years. These companies tend to be financially stable with predictable cash flows, making them suitable for risk-averse investors seeking regular income.',
+      details: 'This income-focused strategy invests in companies that have increased their dividends for at least 25 consecutive years.',
       parameters: {
         'Dividend Yield': '2-4%',
         'Payout Ratio': '<60%',
         'Market Cap': 'Large-cap',
         'Sector Focus': 'Consumer Staples, Utilities, Healthcare'
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      }
     },
     {
       id: '3',
@@ -399,15 +273,13 @@ const initialDatabase: Database = {
       riskLevel: 'High',
       category: 'Momentum',
       imageUrl: '/strategy3.svg',
-      details: 'This aggressive strategy identifies stocks with strong recent price performance and high trading volumes. It aims to ride the momentum wave before the trend reverses, making it suitable for active traders comfortable with higher risk and frequent trading.',
+      details: 'This aggressive strategy identifies stocks with strong recent price performance and high trading volumes.',
       parameters: {
         'Time Horizon': 'Short-term',
         'Lookback Period': '3-6 months',
         'Volume Threshold': 'Above average',
         'Rebalancing': 'Weekly'
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      }
     },
     {
       id: '4',
@@ -417,602 +289,581 @@ const initialDatabase: Database = {
       riskLevel: 'Medium',
       category: 'Value',
       imageUrl: '/strategy4.svg',
-      details: 'This strategy follows the principles of value investing, seeking companies trading at a discount to their intrinsic value. It focuses on metrics like price-to-earnings ratio, price-to-book ratio, and dividend yield to identify potential bargains in the market.',
+      details: 'This strategy follows the principles of value investing, seeking companies trading at a discount to their intrinsic value.',
       parameters: {
         'P/E Ratio': '<Industry Average',
         'P/B Ratio': '<1.5',
-        'Debt/Equity': '<1',
-        'Return on Equity': '>10%'
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }
-  ]
-};
-
-// Create a deep copy of the initial database
-let mockDatabase: Database = JSON.parse(JSON.stringify(initialDatabase));
-
-// Add admin user to the mock database
-mockDatabase.users.push({
-  id: "admin123",
-  name: "Admin User",
-  email: "admin@example.com",
-  password: "$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq", // Hashed 'admin123'
-  wallet_balance: 0,
-  stock_analysis_access: true,
-  analysis_count: 0,
-  trial_expiry: false,
-  role: 'ADMIN',
-  email_verified: true,
-  analysis_history: [],
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString()
-});
-
-/**
- * Read the database
- */
-export const readDatabase = (): Database => {
-  return JSON.parse(JSON.stringify(mockDatabase));
-};
-
-/**
- * Write to the database
- */
-export const writeDatabase = (data: Database): void => {
-  mockDatabase = JSON.parse(JSON.stringify(data));
-};
-
-/**
- * Create a new user
- */
-// Strategy management functions
-
-export const getAllStrategies = (): Strategy[] => {
-  const db = readDatabase();
-  return db.strategies;
-};
-
-export const getStrategyById = (id: string): Strategy | undefined => {
-  const db = readDatabase();
-  return db.strategies.find(strategy => strategy.id === id);
-};
-
-export const createStrategy = async (strategyData: Omit<Strategy, 'id' | 'created_at' | 'updated_at'>): Promise<{ success: boolean; strategy?: Strategy; error?: string }> => {
-  const db = readDatabase();
-  
-  // Check if strategy with the same name already exists
-  const existingStrategy = db.strategies.find(strategy => strategy.name.toLowerCase() === strategyData.name.toLowerCase());
-  if (existingStrategy) {
-    return { success: false, error: 'A strategy with this name already exists' };
-  }
-  
-  const newStrategy: Strategy = {
-    ...strategyData,
-    id: `strategy${Date.now()}`,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-  
-  db.strategies.push(newStrategy);
-  writeDatabase(db);
-  
-  return { success: true, strategy: newStrategy };
-};
-
-export const updateStrategy = async (id: string, strategyData: Partial<Omit<Strategy, 'id' | 'created_at'>>): Promise<{ success: boolean; strategy?: Strategy; error?: string }> => {
-  const db = readDatabase();
-  
-  const strategyIndex = db.strategies.findIndex(strategy => strategy.id === id);
-  if (strategyIndex === -1) {
-    return { success: false, error: 'Strategy not found' };
-  }
-  
-  // Update the strategy with new data
-  db.strategies[strategyIndex] = {
-    ...db.strategies[strategyIndex],
-    ...strategyData,
-    updated_at: new Date().toISOString()
-  };
-  
-  writeDatabase(db);
-  
-  return { success: true, strategy: db.strategies[strategyIndex] };
-};
-
-export const deleteStrategy = async (id: string): Promise<{ success: boolean; error?: string }> => {
-  const db = readDatabase();
-  
-  const initialLength = db.strategies.length;
-  db.strategies = db.strategies.filter(strategy => strategy.id !== id);
-  
-  if (db.strategies.length === initialLength) {
-    return { success: false, error: 'Strategy not found' };
-  }
-  
-  writeDatabase(db);
-  
-  return { success: true };
-};
-
-export const createUser = async (name: string, email: string, password: string): Promise<{ success: boolean }> => {
-  const db = readDatabase();
-  
-  // Check if user already exists
-  const existingUser = db.users.find(user => user.email === email);
-  if (existingUser) {
-    return { success: false };
-  }
-  
-  // Hash the password
-  const hashedPassword = await hashPassword(password);
-  
-  // Create new user with wallet and stock analysis features
-  const newUser: User = {
-    id: `user${Date.now()}`,
-    name,
-    email,
-    password: hashedPassword, // Storing hashed password
-    wallet_balance: 0,
-    stock_analysis_access: true,
-    analysis_count: 0,
-    trial_expiry: false,
-    role: 'USER',
-    email_verified: true,
-    analysis_history: [],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-  
-  // Add to database
-  db.users.push(newUser);
-  writeDatabase(db);
-  
-  return { success: true };
-};
-
-
-
-/**
- * Login user
- */
-export const loginUser = async (email: string, password: string): Promise<{ success: boolean; user?: Omit<User, 'password'> }> => {
-  try {
-    console.log('===== loginUser called =====');
-    console.log('Attempting to login with email:', email);
-    
-    const db = readDatabase();
-    
-    // Log database state
-    console.log('Database users count:', db.users.length);
-    console.log('Available users:', db.users.map(u => u.email));
-    
-    // Ensure database is initialized
-    if (db.users.length === 0) {
-      console.error('Database has no users. Initializing with default data.');
-      writeDatabase(initialDatabase);
-      return loginUser(email, password); // Retry with initialized database
-    }
-    
-    // Find user by email - case insensitive comparison
-    const user = db.users.find(user => user.email.toLowerCase() === email.toLowerCase());
-    
-    // Check if user exists
-    if (!user) {
-      console.log('Login failed: User not found with email:', email);
-      return { success: false };
-    }
-    
-    console.log('User found:', user.email);
-    console.log('Stored password hash starts with:', user.password.substring(0, 10), '...');
-    
-    // Compare password with hashed password
-    console.log('Comparing provided password with stored hash...');
-    const passwordMatch = await bcrypt.compare(password, user.password);
-    
-    console.log('Password comparison result:', passwordMatch);
-    
-    if (!passwordMatch) {
-      console.log('Login failed: Password incorrect for user:', email);
-      return { success: false };
-    }
-    
-    // Return user without sensitive information
-    const { password: _, ...safeUser } = user;
-    console.log('Login successful for user:', email);
-    return { success: true, user: safeUser };
-  } catch (error) {
-    console.error('Error during login process:', error);
-    return { success: false };
-  } finally {
-    console.log('===== loginUser completed =====');
-  }
-};
-
-/**
- * Get user by ID
- */
-export const getUserById = async (userId: string): Promise<{ success: boolean; user?: Omit<User, 'password'> }> => {
-  const db = readDatabase();
-  
-  // Find user
-  const user = db.users.find(user => user.id === userId);
-  if (!user) {
-    return { success: false };
-  }
-  
-  // Return user without sensitive information
-  const { password: _, ...safeUser } = user;
-  return { success: true, user: safeUser };
-};
-
-/**
- * Update user wallet balance
- */
-export const updateWalletBalance = async (userId: string, amount: number): Promise<{ success: boolean; newBalance?: number }> => {
-  const db = readDatabase();
-  
-  // Find user
-  const user = db.users.find(user => user.id === userId);
-  if (!user) {
-    return { success: false };
-  }
-  
-  // Update wallet balance
-  user.wallet_balance += amount;
-  user.updated_at = new Date().toISOString();
-  writeDatabase(db);
-  
-  return { success: true, newBalance: user.wallet_balance };
-};
-
-/**
- * Add wallet transaction
- */
-export const addWalletTransaction = async (
-  userId: string,
-  amount: number,
-  transactionType: 'deposit' | 'charge',
-  paymentMethod?: string,
-  transactionId?: string,
-  receiptPath?: string
-): Promise<{ success: boolean; transaction?: WalletTransaction }> => {
-  const db = readDatabase();
-  
-  // Find user
-  const user = db.users.find(user => user.id === userId);
-  if (!user) {
-    return { success: false };
-  }
-  
-  // Create transaction
-  const transaction: WalletTransaction = {
-    id: `trans${Date.now()}`,
-    user_id: userId,
-    amount,
-    transaction_type: transactionType,
-    payment_method: paymentMethod,
-    transaction_id: transactionId,
-    receipt_path: receiptPath,
-    status: 'pending',
-    created_at: new Date().toISOString()
-  };
-  
-  // Add to database
-  db.wallet_transactions.push(transaction);
-  writeDatabase(db);
-  
-  return { success: true, transaction };
-};
-
-/**
- * Add analysis history
- */
-export const addAnalysisHistory = async (
-  userId: string,
-  analysisType: 'Intraday Trading' | 'Positional Trading' | 'Swing Trading',
-  stockName?: string,
-  analysisResult?: string,
-  imagePath?: string
-): Promise<{ success: boolean; history?: AnalysisHistory }> => {
-  const db = readDatabase();
-  
-  // Find user
-  const user = db.users.find(user => user.id === userId);
-  if (!user) {
-    return { success: false };
-  }
-  
-  // Create history entry
-  const history: AnalysisHistory = {
-    id: `analysis${Date.now()}`,
-    analysis_type: analysisType,
-    stock_name: stockName,
-    analysis_result: analysisResult,
-    image_path: imagePath,
-    created_at: new Date().toISOString()
-  };
-  
-  // Add to user's history
-  user.analysis_history.push(history);
-  
-  // Increment analysis count and check trial expiry
-  user.analysis_count += 1;
-  if (user.analysis_count >= 5 && user.wallet_balance <= 0) {
-    user.trial_expiry = true;
-    user.stock_analysis_access = false;
-  }
-  
-  user.updated_at = new Date().toISOString();
-  writeDatabase(db);
-  
-  return { success: true, history };
-};
-
-/**
- * Get analysis pricing
- */
-export const getAnalysisPricing = async (): Promise<AnalysisPricing[]> => {
-  const db = readDatabase();
-  return db.analysis_pricing;
-};
-
-/**
- * Check if user has access to stock analysis
- */
-export const checkAnalysisAccess = async (userId: string): Promise<{ hasAccess: boolean; reason?: string }> => {
-  const db = readDatabase();
-  
-  // Find user
-  const user = db.users.find(user => user.id === userId);
-  if (!user) {
-    return { hasAccess: false, reason: 'User not found' };
-  }
-  
-  // Check access
-  if (user.stock_analysis_access) {
-    return { hasAccess: true };
-  }
-  
-  // Determine reason
-  let reason = 'Access denied';
-  if (user.trial_expiry && user.wallet_balance <= 0) {
-    reason = 'Trial expired and insufficient wallet balance';
-  } else if (user.wallet_balance <= 0) {
-    reason = 'Insufficient wallet balance';
-  }
-  
-  return { hasAccess: false, reason };
-};
-
-/**
- * Get all users (for testing purposes)
- */
-export const getAllUsers = async (): Promise<Omit<User, 'password'>[]> => {
-  const db = readDatabase();
-  // Return users without sensitive information
-  return db.users.map(({ password: _, ...user }) => user);
-};
-
-/**
- * Update user wallet with transaction details
- */
-export const updateUserWallet = async (
-  userId: string,
-  amount: number,
-  transactionId: string,
-  paymentMethod: string
-): Promise<Omit<User, 'password'> | null> => {
-  try {
-    const db = readDatabase();
-    const userIndex = db.users.findIndex(u => u.id === userId);
-    
-    if (userIndex === -1) return null;
-    
-    // Update wallet balance
-    db.users[userIndex].wallet_balance += amount;
-    db.users[userIndex].updated_at = new Date().toISOString();
-    
-    // Create transaction
-    const transaction: WalletTransaction = {
-      id: `trans${Date.now()}`,
-      user_id: userId,
-      amount,
-      transaction_type: 'deposit',
-      payment_method: paymentMethod,
-      transaction_id: transactionId,
-      status: 'pending',
-      created_at: new Date().toISOString()
-    };
-    
-    // Add to database
-    db.wallet_transactions.push(transaction);
-    
-    // If wallet balance is now positive, restore access if it was disabled due to trial expiry
-    if (db.users[userIndex].wallet_balance > 0 && db.users[userIndex].trial_expiry) {
-      db.users[userIndex].stock_analysis_access = true;
-    }
-    
-    // Save to database
-    writeDatabase(db);
-    
-    // Return updated user without sensitive information
-    const { password: _, ...safeUser } = db.users[userIndex];
-    return safeUser;
-  } catch (error) {
-    console.error('Error updating user wallet:', error);
-    return null;
-  }
-};
-
-/**
- * Submit a new analysis and handle wallet charges
- */
-export const submitAnalysis = async (
-  userId: string,
-  analysisType: 'Intraday Trading' | 'Positional Trading' | 'Swing Trading',
-  stockName?: string,
-  imageData?: string
-): Promise<AnalysisHistory | null> => {
-  try {
-    const db = readDatabase();
-    const userIndex = db.users.findIndex(u => u.id === userId);
-    
-    if (userIndex === -1) return null;
-    
-    // Check if user has access
-    const user = db.users[userIndex];
-    const hasTrialAccess = user.analysis_count < 5;
-    const hasWalletBalance = user.wallet_balance > 0;
-    
-    if (!hasTrialAccess && !hasWalletBalance) {
-      return null;
-    }
-    
-    // Create a new analysis entry
-    const newAnalysis: AnalysisHistory = {
-      id: `analysis_${Date.now()}`,
-      analysis_type: analysisType,
-      stock_name: stockName,
-      analysis_result: 'This is a sample analysis result. In a real application, this would be generated by AI based on the uploaded image.',
-      image_path: imageData, // In a real app, this would be a path to the stored image
-      created_at: new Date().toISOString()
-    };
-    
-    // Add to user's analysis history
-    user.analysis_history.unshift(newAnalysis);
-    
-    // Update analysis count
-    user.analysis_count += 1;
-    
-    // If trial is used up, deduct from wallet
-    if (user.analysis_count > 5) {
-      // Get pricing for the analysis type
-      const pricing = db.analysis_pricing.find(p => p.analysis_type === analysisType);
-      const price = pricing ? pricing.price : 10; // Default to 10 if pricing not found
-      
-      // Deduct from wallet
-      user.wallet_balance -= price;
-      
-      // Ensure wallet balance doesn't go below 0
-      if (user.wallet_balance < 0) {
-        user.wallet_balance = 0;
+        'Debt-to-Equity': '<0.5',
+        'ROE': '>15%'
       }
-      
-      // Create transaction for the charge
-      const transaction: WalletTransaction = {
-        id: `trans${Date.now()}`,
-        user_id: userId,
-        amount: price,
-        transaction_type: 'charge',
-        status: 'completed',
-        created_at: new Date().toISOString()
-      };
-      
-      db.wallet_transactions.push(transaction);
     }
+  ];
+
+  for (const strategy of defaultStrategies) {
+    const [existing] = await pool.execute('SELECT id FROM strategies WHERE id = ?', [strategy.id]);
     
-    // Check if trial has expired and wallet is empty
-    if (user.analysis_count >= 5 && user.wallet_balance <= 0) {
-      user.trial_expiry = true;
-      user.stock_analysis_access = false;
+    if ((existing as any[]).length === 0) {
+      await pool.execute(
+        `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, details, parameters) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          strategy.id,
+          strategy.name,
+          strategy.description,
+          strategy.performance,
+          strategy.riskLevel,
+          strategy.category,
+          strategy.imageUrl,
+          strategy.details,
+          JSON.stringify(strategy.parameters)
+        ]
+      );
     }
-    
-    // Update user
-    user.updated_at = new Date().toISOString();
-    
-    // Save to database
-    writeDatabase(db);
-    
-    return newAnalysis;
+  }
+};
+
+// Initialize database on startup
+initializeDatabase();
+
+// Strategy CRUD operations
+export const getAllStrategies = async (): Promise<Strategy[]> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM strategies ORDER BY created_at DESC');
+    return (rows as any[]).map(row => ({
+      ...row,
+      riskLevel: row.risk_level,
+      imageUrl: row.image_url,
+      parameters: JSON.parse(row.parameters || '{}'),
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString()
+    }));
   } catch (error) {
-    console.error('Error submitting analysis:', error);
+    console.error('Error getting strategies:', error);
+    return [];
+  }
+};
+
+export const getStrategyById = async (id: string): Promise<Strategy | null> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM strategies WHERE id = ?', [id]);
+    const strategies = rows as any[];
+    
+    if (strategies.length === 0) return null;
+    
+    const strategy = strategies[0];
+    return {
+      ...strategy,
+      riskLevel: strategy.risk_level,
+      imageUrl: strategy.image_url,
+      parameters: JSON.parse(strategy.parameters || '{}'),
+      created_at: strategy.created_at.toISOString(),
+      updated_at: strategy.updated_at.toISOString()
+    };
+  } catch (error) {
+    console.error('Error getting strategy by ID:', error);
     return null;
   }
 };
 
-/**
- * Get analysis history for a user
- */
-export const getAnalysisHistory = async (userId: string): Promise<AnalysisHistory[] | null> => {
+export const createStrategy = async (strategy: Omit<Strategy, 'id' | 'created_at' | 'updated_at'> & { contentType?: string, contentUrl?: string, enabled?: boolean }): Promise<Strategy | null> => {
+  try {
+    const id = `strategy_${Date.now()}`;
+    
+    await pool.execute(
+      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, details, parameters, content_type, content_url, enabled) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        strategy.name,
+        strategy.description,
+        strategy.performance,
+        strategy.riskLevel,
+        strategy.category,
+        strategy.imageUrl,
+        strategy.details,
+        JSON.stringify(strategy.parameters),
+        strategy.contentType || null,
+        strategy.contentUrl || null,
+        strategy.enabled !== false
+      ]
+    );
+
+    return await getStrategyById(id);
+  } catch (error) {
+    console.error('Error creating strategy:', error);
+    return null;
+  }
+};
+
+export const updateStrategy = async (id: string, updates: Partial<Strategy>): Promise<Strategy | null> => {
+  try {
+    const setClause = [];
+    const values = [];
+
+    if (updates.name) {
+      setClause.push('name = ?');
+      values.push(updates.name);
+    }
+    if (updates.description) {
+      setClause.push('description = ?');
+      values.push(updates.description);
+    }
+    if (updates.performance !== undefined) {
+      setClause.push('performance = ?');
+      values.push(updates.performance);
+    }
+    if (updates.riskLevel) {
+      setClause.push('risk_level = ?');
+      values.push(updates.riskLevel);
+    }
+    if (updates.category) {
+      setClause.push('category = ?');
+      values.push(updates.category);
+    }
+    if (updates.imageUrl) {
+      setClause.push('image_url = ?');
+      values.push(updates.imageUrl);
+    }
+    if (updates.details) {
+      setClause.push('details = ?');
+      values.push(updates.details);
+    }
+    if (updates.parameters) {
+      setClause.push('parameters = ?');
+      values.push(JSON.stringify(updates.parameters));
+    }
+    if (updates.contentType) {
+      setClause.push('content_type = ?');
+      values.push(updates.contentType);
+    }
+    if (updates.contentUrl) {
+      setClause.push('content_url = ?');
+      values.push(updates.contentUrl);
+    }
+    if (updates.enabled !== undefined) {
+      setClause.push('enabled = ?');
+      values.push(updates.enabled);
+    }
+
+    if (setClause.length === 0) return await getStrategyById(id);
+
+    values.push(id);
+    
+    await pool.execute(
+      `UPDATE strategies SET ${setClause.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    return await getStrategyById(id);
+  } catch (error) {
+    console.error('Error updating strategy:', error);
+    return null;
+  }
+};
+
+export const deleteStrategy = async (id: string): Promise<boolean> => {
+  try {
+    await pool.execute('DELETE FROM strategies WHERE id = ?', [id]);
+    return true;
+  } catch (error) {
+    console.error('Error deleting strategy:', error);
+    return false;
+  }
+};
+
+// User management functions
+export const registerUser = async (userData: {
+  name: string;
+  email: string;
+  password: string;
+}): Promise<{ success: boolean; user?: User; error?: string }> => {
+  try {
+    // Check if user already exists
+    const [existingUsers] = await pool.execute('SELECT id FROM users WHERE email = ?', [userData.email]);
+    
+    if ((existingUsers as any[]).length > 0) {
+      return { success: false, error: 'User already exists' };
+    }
+
+    const hashedPassword = await hashPassword(userData.password);
+    const userId = `user_${Date.now()}`;
+
+    await pool.execute(
+      `INSERT INTO users (id, name, email, password, role, email_verified, wallet_balance) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, userData.name, userData.email, hashedPassword, 'USER', false, 0]
+    );
+
+    const user = await getUserById(userId);
+    return { success: true, user: user! };
+  } catch (error) {
+    console.error('Error registering user:', error);
+    return { success: false, error: 'Registration failed' };
+  }
+};
+
+// Helper to ensure user exists in MySQL when coming from JSON fallback
+const ensureUserExistsInMySQL = async (userId: string) => {
+  try {
+    const [rows] = await pool.execute('SELECT id FROM users WHERE id = ?', [userId]);
+    if ((rows as any[]).length > 0) return;
+
+    const db = readDatabase();
+    const jsonUser = db.users?.find((u: any) => u.id === userId);
+    if (!jsonUser) return;
+
+    await pool.execute(
+      `INSERT INTO users (id, name, email, password, wallet_balance, role, email_verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        jsonUser.id,
+        jsonUser.name || 'User',
+        jsonUser.email,
+        jsonUser.password,
+        jsonUser.wallet_balance ?? 0,
+        jsonUser.role ?? 'USER',
+        jsonUser.email_verified ?? false,
+      ]
+    );
+  } catch (error) {
+    console.error('ensureUserExistsInMySQL failed:', error);
+  }
+};
+
+export const loginUser = async (
+  email: string,
+  password: string
+): Promise<{ success: boolean; user?: User; error?: string }> => {
+  // First, attempt MySQL-based login
+  try {
+    const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+    const users = rows as any[];
+
+    if (users.length > 0) {
+      const user = users[0];
+      const isValidPassword = await bcrypt.compare(password, user.password);
+
+      if (!isValidPassword) {
+        return { success: false, error: 'Invalid password' };
+      }
+
+      const userWithHistory = await getUserById(user.id);
+      if (userWithHistory) {
+        return { success: true, user: userWithHistory };
+      }
+    }
+  } catch (error) {
+    console.error('MySQL login failed or unavailable. Falling back to JSON store.', error);
+  }
+
+  // Fallback: use JSON file store to support environments without MySQL
   try {
     const db = readDatabase();
-    const user = db.users.find(u => u.id === userId);
-    
-    if (!user) return null;
-    
-    return user.analysis_history || [];
+    const user = db.users?.find((u: User) => u.email === email);
+
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return { success: false, error: 'Invalid password' };
+    }
+
+    // Sync JSON user to MySQL for downstream FK operations
+    await ensureUserExistsInMySQL(user.id);
+
+    return { success: true, user };
   } catch (error) {
-    console.error('Error getting analysis history:', error);
+    console.error('Fallback JSON login failed:', error);
+    return { success: false, error: 'Login failed' };
+  }
+};
+
+export const getUserById = async (id: string): Promise<User | null> => {
+  try {
+    const [userRows] = await pool.execute('SELECT * FROM users WHERE id = ?', [id]);
+    const users = userRows as any[];
+    
+    if (users.length === 0) return null;
+    
+    const user = users[0];
+    
+    // Get analysis history
+    const [historyRows] = await pool.execute(
+      'SELECT * FROM analysis_history WHERE user_id = ? ORDER BY created_at DESC',
+      [id]
+    );
+    
+    const analysis_history = (historyRows as any[]).map(row => ({
+      ...row,
+      created_at: row.created_at.toISOString()
+    }));
+
+    return {
+      ...user,
+      wallet_balance: parseFloat(user.wallet_balance),
+      analysis_history,
+      created_at: user.created_at.toISOString(),
+      updated_at: user.updated_at.toISOString()
+    };
+  } catch (error) {
+    console.error('Error getting user by ID:', error);
     return null;
   }
 };
 
-/**
- * Get all pending wallet transactions
- */
+export const getAllUsers = async (): Promise<User[]> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM users ORDER BY created_at DESC');
+    const users = [];
+    
+    for (const user of rows as any[]) {
+      const userWithHistory = await getUserById(user.id);
+      if (userWithHistory) {
+        users.push(userWithHistory);
+      }
+    }
+    
+    return users;
+  } catch (error) {
+    console.error('Error getting all users:', error);
+    return [];
+  }
+};
+
+export const updateUserTokens = async (userId: string, tokens: number): Promise<{ success: boolean; user?: User; error?: string }> => {
+  try {
+    await pool.execute(
+      'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
+      [tokens, userId]
+    );
+
+    const user = await getUserById(userId);
+    return { success: true, user: user! };
+  } catch (error) {
+    console.error('Error updating user tokens:', error);
+    return { success: false, error: 'Failed to update tokens' };
+  }
+};
+
+// Wallet transaction functions
+export const createWalletTransaction = async (transactionData: {
+  user_id: string;
+  amount: number;
+  transaction_type: 'deposit' | 'charge';
+  payment_method?: string;
+  transaction_id?: string;
+  receipt_path?: string;
+  platform?: 'MT4' | 'MT5';
+  mt_account_id?: string;
+  mt_account_password?: string; // Stored as plain text per requirement
+  terms_accepted?: boolean;
+  // New optional fields
+  inr_amount?: number;
+  inr_to_usd_rate?: number;
+  crypto_network?: 'ERC20' | 'TRC20';
+  crypto_wallet_address?: string;
+  wallet_app_deeplink?: string;
+}): Promise<WalletTransaction | null> => {
+  try {
+    const id = `trans_${Date.now()}`;
+
+    // Ensure FK won't fail by syncing user if missing
+    await ensureUserExistsInMySQL(transactionData.user_id);
+    
+    await pool.execute(
+      `INSERT INTO wallet_transactions (id, user_id, amount, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, terms_accepted, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        transactionData.user_id,
+        transactionData.amount,
+        transactionData.transaction_type,
+        transactionData.payment_method || null,
+        transactionData.transaction_id || null,
+        transactionData.receipt_path || null,
+        transactionData.platform || null,
+        transactionData.mt_account_id || null,
+        transactionData.mt_account_password || null,
+        transactionData.terms_accepted ?? false,
+        transactionData.inr_amount ?? null,
+        transactionData.inr_to_usd_rate ?? null,
+        transactionData.crypto_network || null,
+        transactionData.crypto_wallet_address || null,
+        transactionData.wallet_app_deeplink || null,
+        'pending'
+      ]
+    );
+
+    return await getTransactionById(id);
+  } catch (error) {
+    console.error('Error creating wallet transaction:', error);
+    return null;
+  }
+};
+
+export const getTransactionById = async (id: string): Promise<WalletTransaction | null> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM wallet_transactions WHERE id = ?', [id]);
+    const transactions = rows as any[];
+    
+    if (transactions.length === 0) return null;
+    
+    const transaction = transactions[0];
+    return {
+      ...transaction,
+      amount: parseFloat(transaction.amount),
+      created_at: transaction.created_at.toISOString(),
+      updated_at: transaction.updated_at ? transaction.updated_at.toISOString() : undefined
+    };
+  } catch (error) {
+    console.error('Error getting transaction by ID:', error);
+    return null;
+  }
+};
+
 export const getPendingTransactions = async (): Promise<WalletTransaction[]> => {
   try {
-    const db = readDatabase();
-    return db.wallet_transactions.filter(txn => txn.status === 'pending');
+    const [rows] = await pool.execute(
+      'SELECT * FROM wallet_transactions WHERE status = ? ORDER BY created_at DESC',
+      ['pending']
+    );
+    
+    return (rows as any[]).map(row => ({
+      ...row,
+      amount: parseFloat(row.amount),
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at ? row.updated_at.toISOString() : undefined
+    }));
   } catch (error) {
     console.error('Error getting pending transactions:', error);
     return [];
   }
 };
 
-/**
- * Update transaction status
- */
+export const getAllTransactions = async (): Promise<WalletTransaction[]> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM wallet_transactions ORDER BY created_at DESC');
+    
+    return (rows as any[]).map(row => ({
+      ...row,
+      amount: parseFloat(row.amount),
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at ? row.updated_at.toISOString() : undefined
+    }));
+  } catch (error) {
+    console.error('Error getting all transactions:', error);
+    return [];
+  }
+};
+
 export const updateTransactionStatus = async (
   transactionId: string,
   status: 'completed' | 'failed',
-  adminId: string
-): Promise<{ success: boolean; transaction?: WalletTransaction }> => {
+  adminId: string,
+  tokensToAdd?: number
+): Promise<{ success: boolean; transaction?: WalletTransaction; user?: Omit<User, 'password'> }> => {
   try {
-    const db = readDatabase();
-    const transactionIndex = db.wallet_transactions.findIndex(txn => txn.id === transactionId);
-    
-    if (transactionIndex === -1) {
+    const transaction = await getTransactionById(transactionId);
+    if (!transaction) {
       return { success: false };
     }
+
+    // Update transaction status
+    await pool.execute(
+      'UPDATE wallet_transactions SET status = ?, admin_id = ? WHERE id = ?',
+      [status, adminId, transactionId]
+    );
+
+    let updatedUser = null;
     
-    const transaction = db.wallet_transactions[transactionIndex];
-    
-    // If completed, credit the user's wallet
-    if (status === 'completed' && transaction.transaction_type === 'deposit') {
-      const user = db.users.find(u => u.id === transaction.user_id);
-      if (user) {
-        user.wallet_balance += transaction.amount;
-        
-        // If wallet balance is now positive, restore access if it was disabled due to trial expiry
-        if (user.wallet_balance > 0 && user.trial_expiry) {
-          user.stock_analysis_access = true;
-        }
-        
-        user.updated_at = new Date().toISOString();
+    // If approved and tokens specified, add tokens to user account
+    if (status === 'completed' && tokensToAdd && tokensToAdd > 0) {
+      const tokenResult = await updateUserTokens(transaction.user_id, tokensToAdd);
+      if (tokenResult.success) {
+        updatedUser = tokenResult.user;
       }
     }
-    
-    // Update transaction
-    transaction.status = status;
-    transaction.updated_at = new Date().toISOString();
-    transaction.admin_id = adminId;
-    
-    db.wallet_transactions[transactionIndex] = transaction;
-    writeDatabase(db);
-    
-    return { success: true, transaction };
+
+    const updatedTransaction = await getTransactionById(transactionId);
+    return { success: true, transaction: updatedTransaction!, user: updatedUser };
   } catch (error) {
     console.error('Error updating transaction status:', error);
     return { success: false };
   }
 };
 
-/**
- * Send email notification (simulated)
- */
+// This function was removed to avoid duplication with the existing sendEmailNotification function
+
+// Analytics data
+export const getAnalyticsData = async () => {
+  try {
+    // Get user count
+    const [userRows] = await pool.execute('SELECT COUNT(*) as count FROM users');
+    const totalUsers = (userRows as any[])[0].count;
+
+    // Get payment count and revenue
+    const [paymentRows] = await pool.execute(
+      'SELECT COUNT(*) as count, SUM(amount) as revenue FROM wallet_transactions WHERE status = "completed"'
+    );
+    const paymentData = (paymentRows as any[])[0];
+    const totalPayments = paymentData.count || 0;
+    const totalRevenue = parseFloat(paymentData.revenue || 0);
+
+    // Get strategy count
+    const [strategyRows] = await pool.execute('SELECT COUNT(*) as count FROM strategies');
+    const totalStrategies = (strategyRows as any[])[0].count;
+
+    // Get user status distribution
+    const [activeUserRows] = await pool.execute(
+      'SELECT COUNT(*) as count FROM users WHERE stock_analysis_access = true'
+    );
+    const activeUsers = (activeUserRows as any[])[0].count;
+    const inactiveUsers = totalUsers - activeUsers;
+
+    // Get payment status distribution
+    const [pendingPaymentRows] = await pool.execute(
+      'SELECT COUNT(*) as count FROM wallet_transactions WHERE status = "pending"'
+    );
+    const pendingPayments = (pendingPaymentRows as any[])[0].count;
+    const completedPayments = totalPayments;
+
+    return {
+      totalUsers,
+      totalPayments,
+      totalRevenue,
+      totalStrategies,
+      userStatusData: [
+        { name: 'Active', value: activeUsers, color: '#10b981' },
+        { name: 'Inactive', value: inactiveUsers, color: '#ef4444' }
+      ],
+      paymentStatusData: [
+        { name: 'Completed', value: completedPayments, color: '#10b981' },
+        { name: 'Pending', value: pendingPayments, color: '#f59e0b' }
+      ],
+      systemOverview: [
+        { name: 'Users', value: totalUsers },
+        { name: 'Payments', value: totalPayments },
+        { name: 'Strategies', value: totalStrategies }
+      ]
+    };
+  } catch (error) {
+    console.error('Error getting analytics data:', error);
+    return {
+      totalUsers: 0,
+      totalPayments: 0,
+      totalRevenue: 0,
+      totalStrategies: 0,
+      userStatusData: [],
+      paymentStatusData: [],
+      systemOverview: []
+    };
+  }
+};
+
+
+// Email notification function (simulated)
 export const sendEmailNotification = async (
   email: string,
   subject: string,
@@ -1027,5 +878,60 @@ export const sendEmailNotification = async (
   } catch (error) {
     console.error('Error sending email notification:', error);
     return { success: false };
+  }
+};
+
+export const syncJsonToMysql = async (): Promise<{ success: boolean; inserted: number; skipped: number; error?: string }> => {
+  try {
+    const db = readDatabase() as any;
+    const users: any[] = Array.isArray(db?.users) ? db.users : [];
+    if (users.length === 0) {
+      return { success: true, inserted: 0, skipped: 0 };
+    }
+  
+    let inserted = 0;
+    let skipped = 0;
+  
+    for (const u of users) {
+      const id = u.id;
+      const email = u.email;
+      if (!id || !email) { skipped++; continue; }
+  
+      // Check existence by id or email
+      const [rows] = await pool.execute('SELECT id FROM users WHERE id = ? OR email = ?', [id, email]);
+      if ((rows as any[]).length > 0) {
+        skipped++;
+        continue;
+      }
+  
+      // Ensure we have a hashed password; if not, create a default one
+      let passwordToUse: string = u.password;
+      if (!passwordToUse || passwordToUse.length < 10) {
+        passwordToUse = await hashPassword('changeme123');
+      }
+  
+      await pool.execute(
+        `INSERT INTO users (id, name, email, password, wallet_balance, stock_analysis_access, analysis_count, trial_expiry, role, email_verified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          u.name || 'User',
+          email,
+          passwordToUse,
+          u.wallet_balance ?? 0,
+          u.stock_analysis_access ?? false,
+          u.analysis_count ?? 0,
+          u.trial_expiry ?? false,
+          u.role ?? 'USER',
+          u.email_verified ?? false,
+        ]
+      );
+      inserted++;
+    }
+  
+    return { success: true, inserted, skipped };
+  } catch (error) {
+    console.error('syncJsonToMysql failed:', error);
+    return { success: false, inserted: 0, skipped: 0, error: 'Sync failed' };
   }
 };

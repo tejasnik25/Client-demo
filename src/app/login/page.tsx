@@ -1,5 +1,8 @@
 'use client';
 
+// This component is a Client Component that handles user authentication
+// It uses next-auth for authentication and manages form state with React hooks
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';

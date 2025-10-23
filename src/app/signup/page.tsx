@@ -62,6 +62,7 @@ export default function SignupPage() {
 
     try {
       setIsLoading(true);
+      setErrors(prev => ({ ...prev, general: '' }));
       
       // Register user using our API
       const response = await fetch('/api/auth/register', {
@@ -79,8 +80,14 @@ export default function SignupPage() {
 
       const data = await response.json();
 
-      if (!data.success) {
-        throw new Error('Failed to register user. Email may already be taken.');
+      if (response.status === 409) {
+        setErrors(prev => ({ ...prev, email: 'Email already exists. Please use a different email.' }));
+        setIsLoading(false);
+        return;
+      }
+
+      if (response.status !== 201) {
+        throw new Error(data.error || 'Failed to register user.');
       }
 
       // Sign in the user after successful registration

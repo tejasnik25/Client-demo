@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
 import Image from 'next/image';
@@ -23,6 +23,7 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
   const router = useRouter();
   const pathname = usePathname();
   const isMobile = useIsMobile();
+  const [walletBalance, setWalletBalance] = useState<number>(0);
 
   // Handle authentication state
   React.useEffect(() => {
@@ -30,6 +31,38 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
       router.push('/login');
     }
   }, [status, router]);
+
+  // Fetch user wallet balance from database
+  useEffect(() => {
+    const fetchWalletBalance = async () => {
+      if (session?.user?.id) {
+        try {
+          const response = await fetch(`/api/users?id=${encodeURIComponent(session.user.id)}`);
+          if (!response.ok) {
+            if (response.status === 404) {
+              setWalletBalance(0);
+              return;
+            }
+            throw new Error(`Failed to fetch user: ${response.status}`);
+          }
+          const data = await response.json();
+          if (data.user && typeof data.user.wallet_balance === 'number') {
+            setWalletBalance(data.user.wallet_balance);
+          } else {
+            setWalletBalance(0);
+          }
+        } catch (error) {
+          console.error('Error fetching wallet balance:', error);
+        }
+      }
+    };
+
+    if (status === 'authenticated' && session?.user?.id) {
+      fetchWalletBalance();
+      const interval = setInterval(fetchWalletBalance, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [session?.user?.id, status]);
 
   // Show loading spinner while checking authentication
   if (status === 'loading' || status === 'unauthenticated') {
@@ -42,19 +75,15 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
 
   const handleLogout = async () => {
     try {
-      // Direct API call to ensure logout
       await fetch('/api/auth/signout', {
         method: 'POST',
         credentials: 'include',
       });
-      // Clear client-side storage
       sessionStorage.clear();
       localStorage.clear();
-      // Redirect to login
       router.push('/login');
     } catch (error) {
       console.error('Error during logout:', error);
-      // Fallback logout method
       router.push('/login');
     }
   };
@@ -62,7 +91,6 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
   // Navigation items configuration
   const navigationItems = [
     { id: 'dashboard', icon: <FiHome className="h-5 w-5" />, label: 'Dashboard', path: '/dashboard' },
-    { id: 'analysis', icon: <FiBarChart2 className="h-5 w-5" />, label: 'Analysis', path: '/analysis' },
     { id: 'strategies', icon: <FiTrendingUp className="h-5 w-5" />, label: 'Strategies', path: '/strategies' },
     { id: 'wallet', icon: <FiDollarSign className="h-5 w-5" />, label: 'Wallet', path: '/wallet' },
     { id: 'profile', icon: <FiUser className="h-5 w-5" />, label: 'Profile', path: '/dashboard?tab=profile' },
@@ -99,9 +127,9 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
           <ThemeColorToggle />
         </div>
         <Button variant="primary" className="w-full transition-all duration-200 hover:shadow-lg active:scale-98" onClick={handleLogout}>
-            <FiLogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
+          <FiLogOut className="mr-2 h-4 w-4" />
+          Logout
+        </Button>
       </div>
     </div>
   );
@@ -137,9 +165,9 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
           <ThemeColorToggle />
         </div>
         <Button variant="primary" className="w-full" onClick={handleLogout}>
-            <FiLogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
+          <FiLogOut className="mr-2 h-4 w-4" />
+          Logout
+        </Button>
       </div>
     </div>
   );
@@ -154,8 +182,8 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="primary" className="p-2" aria-label="Open menu">
-                    <FiMenu className="h-5 w-5" />
-                  </Button>
+                  <FiMenu className="h-5 w-5" />
+                </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-[85vw] max-w-xs p-0">
                 <SheetTitle className="sr-only">Mobile Menu</SheetTitle>
@@ -166,14 +194,14 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
         )}
         
         <div className="flex flex-1">
-          {/* Desktop sidebar - custom implementation */}
+          {/* Desktop sidebar */}
           <DesktopSidebar />
           
-          {/* Main content - full width for laptop screens */}
+          {/* Main content - full width */}
           <main className="flex-1 overflow-auto">
-            <div className="w-full p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6">
+            <div className="w-full max-w-none py-4 md:py-6 space-y-4 md:space-y-6">
               {!isMobile && (
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex justify-between items-center px-4 sm:px-0 mb-6">
                   <h1 className="text-2xl lg:text-3xl font-bold">
                     {pathname ? (pathname.split('/').pop() || 'Dashboard').charAt(0).toUpperCase() + 
                      (pathname.split('/').pop() || 'Dashboard').slice(1) : 'Dashboard'}
@@ -188,14 +216,14 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
                         <path d="M12 22V12" stroke="currentColor" strokeWidth="1.5" />
                         <path d="M20 7L12 12L4 7" stroke="currentColor" strokeWidth="1.5" />
                       </svg>
-                      <span className="text-sm font-medium">{session?.user?.walletBalance || 0} Tokens</span>
+                      <span className="text-sm font-medium">{walletBalance.toFixed(2)} Tokens</span>
                     </div>
                   </div>
                 </div>
               )}
               
               {/* Page content */}
-              <div className="relative z-10">
+              <div className="relative z-10 w-full max-w-none">
                 {children}
               </div>
             </div>

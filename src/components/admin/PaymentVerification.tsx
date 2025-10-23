@@ -8,13 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/Badge';
+import Badge from '@/components/ui/Badge';
 import { Label } from '@/components/ui/label';
 import Input from '@/components/ui/Input';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/use-toast';
-import { Check, X, RefreshCw, Eye, Mail, Loader2 } from 'lucide-react';
+import { Check, X, RefreshCw, Eye, Mail, Loader2, FileText } from 'lucide-react';
 
 interface Transaction {
   id: string;
@@ -24,6 +24,10 @@ interface Transaction {
   payment_method?: string;
   transaction_id?: string;
   receipt_path?: string;
+  platform?: 'MT4' | 'MT5';
+  mt_account_id?: string;
+  mt_account_password?: string;
+  terms_accepted?: boolean;
   status: 'pending' | 'completed' | 'failed';
   created_at: string;
   updated_at?: string;
@@ -47,6 +51,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
   const [error, setError] = useState<string | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [tokenAmount, setTokenAmount] = useState<string>(''); // Keep as string for input
   const [actionType, setActionType] = useState<'approve' | 'reject' | null>(null);
@@ -62,30 +67,30 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
     setError(null);
     
     try {
-      // Load payment requests from localStorage
-      if (typeof window !== 'undefined') {
-        const storedData = localStorage.getItem('stock_analysis_db');
-        if (storedData) {
-          const parsedData = JSON.parse(storedData);
-          
-          // Get payment requests from admin queue
-          const paymentRequests = parsedData.admin_payment_queue || [];
-          
-          // Sort by date (newest first)
-          paymentRequests.sort((a: Transaction, b: Transaction) => {
-            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-          });
-          
-          setTransactions(paymentRequests);
-        } else {
-          setTransactions([]);
-        }
+      // Get all transactions from MySQL database (not just pending)
+      const response = await fetch('/api/admin/payments/pending');
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch transactions');
       }
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch transactions');
+      }
+      
+      // Sort by date (newest first)
+      data.transactions.sort((a: Transaction, b: Transaction) => {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      
+      setTransactions(data.transactions);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred';
       setError(errorMessage);
       toast({ variant: 'destructive', title: 'Error', description: errorMessage });
-      console.error('Error fetching pending transactions:', err);
+      console.error('Error fetching transactions:', err);
     } finally {
       setLoading(false);
     }
@@ -98,57 +103,39 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
     setError(null);
 
     try {
-      // Get token amount to add if approving
       const tokens = actionType === 'approve' ? (parseInt(tokenAmount) || 0) : 0;
       
-      // In a real app, this would be an API call
-      // For now, we'll use localStorage
-      if (typeof window !== 'undefined') {
-        const storedData = localStorage.getItem('stock_analysis_db');
-        if (storedData) {
-          const parsedData = JSON.parse(storedData);
-          
-          // Find user and update their tokens if approving
-          if (actionType === 'approve') {
-            const user = parsedData.users.find((u: any) => u.id === selectedTransaction.user_id);
-            if (user) {
-              // Add tokens to user account
-              user.tokens = (user.tokens || 0) + tokens;
-              
-              // Update transaction status in user's wallet_transactions
-              if (user.wallet_transactions) {
-                const txIndex = user.wallet_transactions.findIndex((tx: any) => tx.id === selectedTransaction.id);
-                if (txIndex !== -1) {
-                  user.wallet_transactions[txIndex].status = 'completed';
-                  user.wallet_transactions[txIndex].admin_verified = true;
-                  user.wallet_transactions[txIndex].tokens_added = tokens;
-                  user.wallet_transactions[txIndex].updated_at = new Date().toISOString();
-                  user.wallet_transactions[txIndex].admin_id = session?.user?.id;
-                }
-              }
-            }
-          }
-          
-          // Remove from admin queue
-          parsedData.admin_payment_queue = parsedData.admin_payment_queue.filter(
-            (t: any) => t.id !== selectedTransaction.id
-          );
-          
-          // Save updated data
-          localStorage.setItem('stock_analysis_db', JSON.stringify(parsedData));
-          
-          // Update local state
-          setTransactions(prev => prev.filter(t => t.id !== selectedTransaction.id));
-        }
+      const response = await fetch('/api/admin/transactions/update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transactionId: selectedTransaction.id,
+          status: actionType === 'approve' ? 'completed' : 'failed',
+          tokensToAdd: tokens,
+          adminId: session?.user?.id
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update transaction');
       }
 
-      // Close dialog and refresh list
+      const result = await response.json();
+      
+      // Refresh the transactions list
+      await fetchPendingTransactions();
+      
+      // Close dialog
       setActionDialogOpen(false);
+      setShowTokenDialog(false);
+      
       toast({ 
         variant: 'default', 
         title: 'Success', 
         description: actionType === 'approve' 
-          ? `Transaction approved and ${tokens} tokens added to user account` 
+          ? `Transaction approved${tokens > 0 ? ` and ${tokens} tokens added to user account` : ''}` 
           : 'Transaction rejected successfully'
       });
     } catch (err) {
@@ -190,6 +177,11 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
   const handleViewReceipt = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
     setReceiptDialogOpen(true);
+  };
+
+  const handleViewDetails = (transaction: Transaction) => {
+    setSelectedTransaction(transaction);
+    setDetailsDialogOpen(true);
   };
 
   const handleActionDialogOpen = (transaction: Transaction, action: 'approve' | 'reject') => {
@@ -276,6 +268,8 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                     <TableHead>Email</TableHead>
                     <TableHead className="text-right">Amount ($)</TableHead>
                     <TableHead>Payment Method</TableHead>
+                    <TableHead>Platform</TableHead>
+                    <TableHead>Terms</TableHead>
                     <TableHead>Submitted At</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -290,6 +284,14 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                       <TableCell>{transaction.user?.email || 'Unknown'}</TableCell>
                       <TableCell className="text-right">${transaction.amount.toFixed(2)}</TableCell>
                       <TableCell>{transaction.payment_method}</TableCell>
+                      <TableCell>{transaction.platform || '-'}</TableCell>
+                      <TableCell>
+                        {transaction.terms_accepted ? (
+                          <Badge>Accepted</Badge>
+                        ) : (
+                          <Badge variant="secondary">No</Badge>
+                        )}
+                      </TableCell>
                       <TableCell>{formatDate(transaction.created_at)}</TableCell>
                       <TableCell className="text-right">
                         <div className="inline-flex space-x-2">
@@ -308,6 +310,24 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                               </TooltipTrigger>
                               <TooltipContent>
                                 <p>View Receipt</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleViewDetails(transaction)}
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>View Details</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -495,6 +515,53 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                 actionType === 'approve' ? 'Approve' : 'Reject'
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Details Dialog */}
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Transaction Details</DialogTitle>
+            <DialogDescription>
+              MT4/MT5 account information and terms acceptance.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTransaction && (
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">Platform</Label>
+                <div className="col-span-3">
+                  <span className="font-medium">{selectedTransaction.platform || '-'}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">MT Account ID</Label>
+                <div className="col-span-3">
+                  <span className="font-mono text-sm">{selectedTransaction.mt_account_id || '-'}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">MT Account Password</Label>
+                <div className="col-span-3">
+                  <span className="font-mono text-sm">{selectedTransaction.mt_account_password || '-'}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">Terms Accepted</Label>
+                <div className="col-span-3">
+                  {selectedTransaction.terms_accepted ? (
+                    <Badge>Accepted</Badge>
+                  ) : (
+                    <Badge variant="secondary">No</Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setDetailsDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

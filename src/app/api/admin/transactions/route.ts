@@ -24,15 +24,15 @@ export async function GET() {
     // For each transaction, get user details
     const transactionsWithUserDetails = await Promise.all(
       pendingTransactions.map(async (transaction) => {
-        const userResult = await getUserById(transaction.user_id);
+        const user = await getUserById(transaction.user_id);
         return {
           ...transaction,
-          user: userResult.success && userResult.user ? { name: userResult.user.name, email: userResult.user.email } : null
+          user: user ? { name: user.name, email: user.email } : null
         };
       })
     );
 
-    return NextResponse.json({ transactions: transactionsWithUserDetails });
+    return NextResponse.json({ success: true, transactions: transactionsWithUserDetails });
   } catch (error) {
     console.error('Error fetching pending transactions:', error);
     return NextResponse.json(

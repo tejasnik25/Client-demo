@@ -23,6 +23,28 @@
       "password": "janepass123",
       "otp": "987654",
       "otpExpiry": "2023-12-31T23:59:59Z"
+    },
+    {
+      "id": "1ec1dc75-1950-4d51-bb0e-5eeef9f974e7",
+      "name": "abc",
+      "email": "abc@gmail.com",
+      "email_verified": false,
+      "password": "$2b$10$RwSgWv3CqlcncoPdIu9NYuzJWinF.casnjy8PU1OeSFFTx3gJNtpq",
+      "role": "USER",
+      "wallet_balance": 0,
+      "created_at": "2025-10-16T06:04:24.017Z",
+      "updated_at": "2025-10-16T06:04:24.017Z"
+    },
+    {
+      "id": "1c3789d0-683f-4264-9cfc-aec3b68a8928",
+      "name": "Tejas",
+      "email": "tejas@gmail.com",
+      "email_verified": false,
+      "password": "$2b$10$Y0PAuARG21NxO2/FGo5EauLf1FQrFtJIHqcou2onFAr.qIBQpwBXm",
+      "role": "USER",
+      "wallet_balance": 0,
+      "created_at": "2025-10-20T05:46:26.606Z",
+      "updated_at": "2025-10-20T05:46:26.606Z"
     }
   ]
 }

@@ -1,16 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import Image from 'next/image';
 import UserLayout from '@/components/UserLayout';
+import Card, { CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 
 const WalletPageContent: React.FC = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const [paymentMethod, setPaymentMethod] = useState<'neft' | 'qr' | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'QR' | 'USDT_ERC20' | 'USDT_TRC20' | null>(null);
   const [transactionId, setTransactionId] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
@@ -18,30 +20,88 @@ const WalletPageContent: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<boolean>(false);
-  
+  const [showQRCode, setShowQRCode] = useState<boolean>(false);
+  const [platform, setPlatform] = useState<'MT4' | 'MT5' | null>(null);
+  const [mtAccountId, setMtAccountId] = useState<string>('');
+  const [mtAccountPassword, setMtAccountPassword] = useState<string>('');
+  const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
+  const [step, setStep] = useState<'select-payment' | 'payment-details'>(
+    'select-payment'
+  );
+  // INR/USD conversion state and env-configured USDT details
+  const [inrAmount, setInrAmount] = useState<string>('');
+  const [usdAmount, setUsdAmount] = useState<string>('');
+  const [inrToUsdRate, setInrToUsdRate] = useState<number | null>(null);
+  const [rateError, setRateError] = useState<string>('');
+  const [isLoadingRate, setIsLoadingRate] = useState<boolean>(false);
+  const USDT_ERC20_ADDRESS = process.env.NEXT_PUBLIC_USDT_ERC20_ADDRESS || '';
+  const USDT_TRC20_ADDRESS = process.env.NEXT_PUBLIC_USDT_TRC20_ADDRESS || '';
+  const WALLET_APP_DEEPLINK = process.env.NEXT_PUBLIC_USDT_WALLET_APP_LINK || '';
+
+  useEffect(() => {
+    if (paymentMethod !== 'QR') return;
+    
+    const fetchRate = async () => {
+      try {
+        setRateError('');
+        setIsLoadingRate(true);
+        // Using a more reliable API for real-time exchange rates
+        const res = await fetch('https://api.exchangerate-api.com/v4/latest/INR');
+        const data = await res.json();
+        const rate = data?.rates?.USD;
+        if (typeof rate === 'number') {
+          setInrToUsdRate(rate);
+        } else {
+          throw new Error('Rate not available');
+        }
+      } catch (err) {
+        console.error('Failed to fetch INR→USD rate', err);
+        setRateError('Unable to fetch conversion rate. Please try again.');
+        setInrToUsdRate(null);
+      } finally {
+        setIsLoadingRate(false);
+      }
+    };
+    
+    fetchRate();
+    
+    // Set up interval for real-time updates (every 60 seconds)
+    const intervalId = setInterval(fetchRate, 60000);
+    
+    return () => clearInterval(intervalId);
+  }, [paymentMethod]);
+
+  useEffect(() => {
+    if (paymentMethod === 'QR' && inrToUsdRate && inrAmount) {
+      const inr = parseFloat(inrAmount);
+      if (!isNaN(inr) && inr > 0) {
+        setUsdAmount((inr * inrToUsdRate).toFixed(2));
+      } else {
+        setUsdAmount('');
+      }
+    } else if (paymentMethod === 'QR') {
+      setUsdAmount('');
+    }
+  }, [inrAmount, inrToUsdRate, paymentMethod]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      // Check if file is an image
-      if (!selectedFile.type.startsWith('image/')) {
-        setError('Please upload an image file');
-        setFile(null);
-        setPreview('');
-        return;
-      }
-      
       setFile(selectedFile);
-      setError('');
       
-      // Create preview
+      // Create a preview URL
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setPreview(e.target?.result as string);
+      reader.onloadend = () => {
+        setPreview(reader.result as string);
       };
       reader.readAsDataURL(selectedFile);
     }
   };
-  
+
+  const handlePaymentMethodSelect = (method: 'QR' | 'USDT_ERC20' | 'USDT_TRC20') => {
+    router.push(`/wallet/topup?method=${method}`);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -55,8 +115,13 @@ const WalletPageContent: React.FC = () => {
       return;
     }
     
-    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-      setError('Please enter a valid amount');
+    if (!inrAmount || isNaN(parseFloat(inrAmount)) || parseFloat(inrAmount) <= 0) {
+      setError('Please enter a valid INR amount');
+      return;
+    }
+
+    if (!usdAmount || isNaN(parseFloat(usdAmount)) || parseFloat(usdAmount) <= 0) {
+      setError('Conversion rate unavailable. Please try again later.');
       return;
     }
     
@@ -64,83 +129,74 @@ const WalletPageContent: React.FC = () => {
       setError('Please upload a payment receipt');
       return;
     }
+
+    if (!platform) {
+      setError('Please select a platform (MT4 or MT5)');
+      return;
+    }
+
+    if (!mtAccountId) {
+      setError('Please enter your MT account ID');
+      return;
+    }
+
+    if (!mtAccountPassword) {
+      setError('Please enter your MT account password');
+      return;
+    }
+
+    if (!termsAccepted) {
+      setError('You must accept the Terms and Conditions to proceed');
+      return;
+    }
     
     setLoading(true);
     setError('');
     
     try {
-      // In a real implementation, this would upload the file to a server
-      // and process the payment verification
-      
-      // For now, we'll simulate the process with localStorage
-      if (typeof window !== 'undefined' && user) {
-        const storedData = localStorage.getItem('stock_analysis_db');
-        if (storedData) {
-          const parsedData = JSON.parse(storedData);
-          const currentUser = parsedData.users.find((u: { id: string }) => u.id === user.id);
+      if (user) {
+        const amountValue = parseFloat(usdAmount);
+        
+        // Create transaction via API
+        const response = await fetch('/api/wallet/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            amount: amountValue,
+            transaction_type: 'deposit',
+            payment_method: paymentMethod,
+            transaction_id: transactionId,
+            receipt_path: file ? file.name : null, // Use filename as placeholder; avoid large base64 strings
+            platform: platform,
+            mt_account_id: mtAccountId,
+            mt_account_password: mtAccountPassword,
+            terms_accepted: termsAccepted,
+            status: 'pending',
+            inr_amount: inrAmount ? parseFloat(inrAmount) : null,
+            inr_to_usd_rate: inrToUsdRate,
+            crypto_network: paymentMethod === 'USDT_ERC20' ? 'ERC20' : paymentMethod === 'USDT_TRC20' ? 'TRC20' : null,
+            crypto_wallet_address: paymentMethod === 'USDT_ERC20' ? USDT_ERC20_ADDRESS : paymentMethod === 'USDT_TRC20' ? USDT_TRC20_ADDRESS : null,
+            wallet_app_deeplink: paymentMethod?.startsWith('USDT') ? WALLET_APP_DEEPLINK : null,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to create transaction');
+        }
+
+        const transactionResult = await response.json();
+        
+        if (transactionResult.success) {
+          // Show success message
+          setSuccess(true);
           
-          if (currentUser) {
-            // Update wallet balance
-            const amountValue = parseFloat(amount);
-            currentUser.wallet_balance += amountValue;
-            
-            // Add transaction to history (if it exists)
-            if (!currentUser.wallet_transactions) {
-              currentUser.wallet_transactions = [];
-            }
-            
-            // Create a new transaction with admin verification fields
-            currentUser.wallet_transactions.unshift({
-              id: `txn_${Date.now()}`,
-              user_id: user.id,
-              amount: amountValue,
-              transaction_type: 'deposit',
-              payment_method: paymentMethod,
-              transaction_id: transactionId,
-              receipt_path: preview, // In a real app, this would be a path to the stored image
-              status: 'pending', // Will be verified by admin
-              created_at: new Date().toISOString(),
-              admin_verified: false,
-              admin_notes: '',
-              user: {
-                name: user.name,
-                email: user.email
-              }
-            });
-            
-            // Add to admin payment verification queue
-            if (!parsedData.admin_payment_queue) {
-              parsedData.admin_payment_queue = [];
-            }
-            
-            // Add to admin queue for verification
-            parsedData.admin_payment_queue.push({
-              id: `txn_${Date.now()}`,
-              user_id: user.id,
-              amount: amountValue,
-              transaction_type: 'deposit',
-              payment_method: paymentMethod,
-              transaction_id: transactionId,
-              receipt_path: preview,
-              status: 'pending',
-              created_at: new Date().toISOString(),
-              user: {
-                name: user.name,
-                email: user.email
-              }
-            });
-            
-            // Save updated data
-            localStorage.setItem('stock_analysis_db', JSON.stringify(parsedData));
-            
-            // Show success message
-            setSuccess(true);
-            
-            // Redirect to dashboard after a delay
-            setTimeout(() => {
-              router.push('/dashboard');
-            }, 2000);
-          }
+          // Redirect to dashboard after a delay
+          setTimeout(() => {
+            router.push('/dashboard');
+          }, 2000);
+        } else {
+          setError('Failed to create transaction. Please try again.');
         }
       }
     } catch (error) {
@@ -152,7 +208,7 @@ const WalletPageContent: React.FC = () => {
   };
   
   return (
-    <div className="container mx-auto py-6 sm:px-6 lg:px-8">
+    <div className="container mx-auto py-6 space-y-6">
         <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
           <div className="px-4 py-5 sm:px-6">
             <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
@@ -162,245 +218,50 @@ const WalletPageContent: React.FC = () => {
               Add funds to your wallet to continue using stock analysis features.
             </p>
           </div>
-          
+
           <div className="border-t border-gray-200 dark:border-gray-700">
-            {success ? (
-              <div className="px-4 py-5 sm:p-6 text-center">
-                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900">
-                  <svg className="h-6 w-6 text-green-600 dark:text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <h3 className="mt-3 text-lg font-medium text-gray-900 dark:text-white">Payment Successful!</h3>
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  Your payment is being processed. Your wallet will be updated once the payment is verified.
-                </p>
-                <div className="mt-4">
-                  <Link
-                    href="/dashboard"
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
-                  >
-                    Return to Dashboard
-                  </Link>
-                </div>
+            <div className="px-4 py-5 sm:p-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Select a Payment Method</label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                <Card className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <CardTitle>USDT (ERC 20)</CardTitle>
+                    <CardDescription>Pay with USDT on Ethereum network</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-center justify-center">
+                    <img src="/usdt_erc20-qr.svg" alt="USDT ERC20 QR" className="mt-3 w-32 h-32 object-contain opacity-60" />
+                  </CardContent>
+                  <CardFooter>
+                    <Button className="w-full" onClick={() => router.push('/wallet/topup?method=USDT_ERC20')}>Proceed</Button>
+                  </CardFooter>
+                </Card>
+                <Card className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <CardTitle>USDT (TRC 20)</CardTitle>
+                    <CardDescription>Pay with USDT on TRON network</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-center justify-center">
+                    <img src="/usdt_trc20-qr.svg" alt="USDT TRC20 QR" className="mt-3 w-32 h-32 object-contain opacity-60" />
+                  </CardContent>
+                  <CardFooter>
+                    <Button className="w-full" onClick={() => router.push('/wallet/topup?method=USDT_TRC20')}>Proceed</Button>
+                  </CardFooter>
+                </Card>
+                <Card className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <CardTitle>QR Code Payment</CardTitle>
+                    <CardDescription>Scan and pay via QR</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-center justify-center">
+                    <img src="/upi-qr.svg" alt="QR Payment" className="mt-3 w-32 h-32 object-contain opacity-60" />
+                  </CardContent>
+                  <CardFooter>
+                    <Button className="w-full" onClick={() => router.push('/wallet/topup?method=QR')}>Proceed</Button>
+                  </CardFooter>
+                </Card>
               </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="px-4 py-5 sm:p-6">
-                {/* User ID */}
-                <div className="mb-6">
-                  <label htmlFor="user-id" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    User ID
-                  </label>
-                  <div className="mt-1">
-                    <input
-                      type="text"
-                      id="user-id"
-                      className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md"
-                      value={user?.id || ''}
-                      disabled
-                    />
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    This is your unique user identifier. You&#39;ll need to include this in your payment reference.
-                  </p>
-                </div>
-                
-                {/* Payment Method */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Payment Method
-                  </label>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div 
-                      className={`border rounded-lg p-4 cursor-pointer transition-all ${paymentMethod === 'neft' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'hover:border-gray-300 dark:hover:border-gray-600'}`}
-                      onClick={() => setPaymentMethod('neft')}
-                    >
-                      <h5 className="font-medium text-gray-900 dark:text-white">NEFT Transfer</h5>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Transfer funds via NEFT to our account.
-                      </p>
-                      {paymentMethod === 'neft' && (
-                        <div className="mt-3 p-3 bg-gray-100 dark:bg-gray-700 rounded text-sm">
-                          <p className="font-medium">Bank Details:</p>
-                          <p>Account Name: StockAnalyzer Ltd</p>
-                          <p>Account Number: 1234567890</p>
-                          <p>IFSC Code: ABCD0001234</p>
-                          <p>Bank: Example Bank</p>
-                        </div>
-                      )}
-                    </div>
-                    <div 
-                      className={`border rounded-lg p-4 cursor-pointer transition-all ${paymentMethod === 'qr' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'hover:border-gray-300 dark:hover:border-gray-600'}`}
-                      onClick={() => setPaymentMethod('qr')}
-                    >
-                      <h5 className="font-medium text-gray-900 dark:text-white">QR Code Payment</h5>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Scan our QR code to make an instant payment.
-                      </p>
-                      {paymentMethod === 'qr' && (
-                        <div className="mt-3 flex justify-center">
-                          {/* This would be a real QR code in a production app */}
-                          <div className="w-32 h-32 bg-white p-2 rounded">
-                            <svg viewBox="0 0 100 100" className="w-full h-full">
-                              <path d="M30,30 L30,50 L50,50 L50,30 Z" fill="black" />
-                              <path d="M60,30 L60,50 L80,50 L80,30 Z" fill="black" />
-                              <path d="M30,60 L30,80 L50,80 L50,60 Z" fill="black" />
-                              <path d="M20,20 L20,90 L90,90 L90,20 Z" fill="none" stroke="black" strokeWidth="5" />
-                              <path d="M60,60 L70,60 L70,70 L60,70 Z" fill="black" />
-                              <path d="M80,60 L80,70 L70,80 L80,80 Z" fill="black" />
-                              <path d="M60,80 L60,90" stroke="black" strokeWidth="5" />
-                              <path d="M80,80 L90,70" stroke="black" strokeWidth="5" />
-                            </svg>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Amount */}
-                <div className="mb-6">
-                  <label htmlFor="amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Amount ($)
-                  </label>
-                  <div className="mt-1 relative rounded-md shadow-sm">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <span className="text-gray-500 dark:text-gray-400 sm:text-sm">$</span>
-                    </div>
-                    <input
-                      type="number"
-                      name="amount"
-                      id="amount"
-                      className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-7 pr-12 sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md"
-                      placeholder="0.00"
-                      aria-describedby="price-currency"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      min="1"
-                      step="0.01"
-                    />
-                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                      <span className="text-gray-500 dark:text-gray-400 sm:text-sm" id="price-currency">USD</span>
-                    </div>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Minimum amount: $1.00
-                  </p>
-                </div>
-                
-                {/* Transaction ID */}
-                <div className="mb-6">
-                  <label htmlFor="transaction-id" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Transaction ID
-                  </label>
-                  <div className="mt-1">
-                    <input
-                      type="text"
-                      name="transaction-id"
-                      id="transaction-id"
-                      className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md"
-                      placeholder="Enter the transaction ID from your payment"
-                      value={transactionId}
-                      onChange={(e) => setTransactionId(e.target.value)}
-                    />
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Enter the transaction ID or reference number from your payment.
-                  </p>
-                </div>
-                
-                {/* Upload Receipt */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Upload Payment Receipt
-                  </label>
-                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-700 border-dashed rounded-md">
-                    <div className="space-y-1 text-center">
-                      {preview ? (
-                        <div className="flex flex-col items-center">
-                          <Image src={preview} alt="Preview" className="max-h-64 mb-4" width={400} height={300} />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFile(null);
-                              setPreview('');
-                            }}
-                            className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                          >
-                            Remove image
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <svg
-                            className="mx-auto h-12 w-12 text-gray-400"
-                            stroke="currentColor"
-                            fill="none"
-                            viewBox="0 0 48 48"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                              strokeWidth={2}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                          <div className="flex text-sm text-gray-600 dark:text-gray-400">
-                            <label
-                              htmlFor="file-upload"
-                              className="relative cursor-pointer bg-white dark:bg-gray-800 rounded-md font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none"
-                            >
-                              <span>Upload a file</span>
-                              <input
-                                id="file-upload"
-                                name="file-upload"
-                                type="file"
-                                className="sr-only"
-                                accept="image/*"
-                                onChange={handleFileChange}
-                              />
-                            </label>
-                            <p className="pl-1">or drag and drop</p>
-                          </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            PNG, JPG, GIF up to 10MB
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Error Message */}
-                {error && (
-                  <div className="mb-4 text-sm text-red-600 dark:text-red-400">
-                    {error}
-                  </div>
-                )}
-                
-                {/* Submit Button */}
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={loading || !paymentMethod || !transactionId || !amount || !file}
-                    className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white ${loading || !paymentMethod || !transactionId || !amount || !file ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-                  >
-                    {loading ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Processing...
-                      </>
-                    ) : (
-                      'Submit Payment'
-                    )}
-                  </button>
-                </div>
-              </form>
-            )}
+              <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Choose a method to proceed.</p>
+            </div>
           </div>
         </div>
     </div>

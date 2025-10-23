@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
     // Check if user already exists
     const db = readDatabase();
-    const existingUser = db.users.find(user => user.email === email);
+    const existingUser = db.users.find((user: User) => user.email === email);
 
     if (existingUser) {
       return NextResponse.json({ error: 'User with this email already exists' }, { status: 409 });
@@ -31,10 +31,6 @@ export async function POST(request: Request) {
       password: hashedPassword,
       role: 'USER',
       wallet_balance: 0,
-      stock_analysis_access: false,
-      analysis_count: 0,
-      trial_expiry: false,
-      analysis_history: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -43,7 +39,7 @@ export async function POST(request: Request) {
     db.users.push(newUser);
     writeDatabase(db);
 
-    return NextResponse.json({ message: 'User registered successfully', userId: newUser.id }, { status: 201 });
+    return NextResponse.json({ success: true, message: 'User registered successfully', userId: newUser.id }, { status: 201 });
   } catch (error) {
     console.error('Registration error:', error);
     return NextResponse.json({ error: 'An internal server error occurred' }, { status: 500 });

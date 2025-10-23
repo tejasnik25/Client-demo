@@ -30,16 +30,13 @@ export async function GET(_req: NextRequest) {
     const db = readDatabase();
     
     // Format users according to expected structure
-    const users = db.users.map(user => ({
+    const users = db.users.map((user: any) => ({
       id: user.id,
       name: user.name,
       email: user.email,
       role: 'USER', // Default role for mock data
       emailVerified: user.email_verified,
       walletBalance: user.wallet_balance,
-      stockAnalysisAccess: user.stock_analysis_access,
-      analysisCount: user.analysis_count,
-      trialExpiry: user.trial_expiry,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
     }));
@@ -87,7 +84,7 @@ export async function DELETE(req: NextRequest) {
 
     // Delete the user from our mock database
     const db = readDatabase();
-    const userIndex = db.users.findIndex(user => user.id === userId);
+    const userIndex = db.users.findIndex((user: { id: string }) => user.id === userId);
     
     if (userIndex === -1) {
       return NextResponse.json(
@@ -143,7 +140,7 @@ export async function PATCH(req: NextRequest) {
 
     // Update the user in our mock database
     const db = readDatabase();
-    const userIndex = db.users.findIndex(user => user.id === id);
+    const userIndex = db.users.findIndex((user: { id: string }) => user.id === id);
     
     if (userIndex === -1) {
       return NextResponse.json(
@@ -158,7 +155,6 @@ export async function PATCH(req: NextRequest) {
     if (updateData.name) user.name = updateData.name;
     if (updateData.email) user.email = updateData.email;
     if (updateData.walletBalance) user.wallet_balance = updateData.walletBalance;
-    if (updateData.stockAnalysisAccess !== undefined) user.stock_analysis_access = updateData.stockAnalysisAccess;
     user.updated_at = new Date().toISOString();
     
     writeDatabase(db);
@@ -171,9 +167,6 @@ export async function PATCH(req: NextRequest) {
       role: 'USER', // Default role for mock data
       emailVerified: user.email_verified,
       walletBalance: user.wallet_balance,
-      stockAnalysisAccess: user.stock_analysis_access,
-      analysisCount: user.analysis_count,
-      trialExpiry: user.trial_expiry,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
     };
