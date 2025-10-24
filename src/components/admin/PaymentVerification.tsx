@@ -299,8 +299,8 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
-                                  variant="ghost"
-                                  size="icon"
+                                  variant="outline"
+                                  size="sm"
                                   className="h-8 w-8"
                                   onClick={() => handleViewReceipt(transaction)}
                                   disabled={!transaction.receipt_path}
@@ -318,8 +318,8 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
-                                  variant="ghost"
-                                  size="icon"
+                                  variant="outline"
+                                  size="sm"
                                   className="h-8 w-8"
                                   onClick={() => handleViewDetails(transaction)}
                                 >
@@ -336,8 +336,8 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
-                                  variant="ghost"
-                                  size="icon"
+                                  variant="outline"
+                                  size="sm"
                                   className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                                   onClick={() => handleActionDialogOpen(transaction, 'approve')}
                                 >
@@ -354,8 +354,8 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
-                                  variant="ghost"
-                                  size="icon"
+                                  variant="outline"
+                                  size="sm"
                                   className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
                                   onClick={() => handleActionDialogOpen(transaction, 'reject')}
                                 >
@@ -503,7 +503,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
             </Button>
             <Button 
               onClick={handleTransactionAction} 
-              variant={actionType === 'approve' ? 'default' : 'destructive'}
+              variant={actionType === 'approve' ? 'default' : 'primary'}
               disabled={processingAction}
             >
               {processingAction ? (

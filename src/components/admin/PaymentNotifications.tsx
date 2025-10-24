@@ -148,7 +148,7 @@ const PaymentNotifications: React.FC<PaymentNotificationsProps> = ({ className }
     <div className={`relative ${className}`}>
       {/* Notification Bell */}
       <Button
-        variant="ghost"
+        variant="outline"
         size="sm"
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2"
@@ -174,7 +174,7 @@ const PaymentNotifications: React.FC<PaymentNotificationsProps> = ({ className }
                 <div className="flex items-center space-x-2">
                   {unreadCount > 0 && (
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       onClick={markAllAsRead}
                       className="text-xs"
@@ -183,7 +183,7 @@ const PaymentNotifications: React.FC<PaymentNotificationsProps> = ({ className }
                     </Button>
                   )}
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     onClick={() => setIsOpen(false)}
                   >

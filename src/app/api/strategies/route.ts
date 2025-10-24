@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllStrategies, createStrategy, updateStrategy, deleteStrategy } from '../../../db/dbService';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../auth/[...nextauth]/route';
+import { authOptions } from '@/lib/auth-options';
 
 /**
  * GET /api/strategies
