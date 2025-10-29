@@ -1,0 +1,107 @@
+/* Stock market animations and effects */
+@keyframes stockUp {
+  0% { transform: translateY(0); opacity: 0.7; }
+  50% { transform: translateY(-15px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0.7; }
+}
+
+@keyframes stockDown {
+  0% { transform: translateY(0); opacity: 0.7; }
+  50% { transform: translateY(15px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0.7; }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.stock-chart-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stock-icon {
+  position: absolute;
+  opacity: 0.7;
+  transition: all 0.3s ease;
+}
+
+.stock-icon-1 {
+  animation: stockUp 8s infinite ease-in-out;
+  animation-delay: 0s;
+}
+
+.stock-icon-2 {
+  animation: stockDown 7s infinite ease-in-out;
+  animation-delay: 1s;
+}
+
+.stock-icon-3 {
+  animation: stockUp 9s infinite ease-in-out;
+  animation-delay: 2s;
+}
+
+.stock-icon-4 {
+  animation: stockDown 6s infinite ease-in-out;
+  animation-delay: 3s;
+}
+
+.form-appear {
+  animation: fadeIn 0.6s ease-out forwards;
+}
+
+.form-appear-delay-1 {
+  animation: fadeIn 0.6s ease-out forwards;
+  animation-delay: 0.1s;
+}
+
+.form-appear-delay-2 {
+  animation: fadeIn 0.6s ease-out forwards;
+  animation-delay: 0.2s;
+}
+
+.form-appear-delay-3 {
+  animation: fadeIn 0.6s ease-out forwards;
+  animation-delay: 0.3s;
+}
+
+.floating-element {
+  animation: float 6s ease-in-out infinite;
+}
+
+.pulse-on-hover:hover {
+  animation: pulse 1s infinite;
+}
+
+/* Loading animation for form submission */
+.loading-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

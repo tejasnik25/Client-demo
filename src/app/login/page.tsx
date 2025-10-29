@@ -4,17 +4,19 @@
 // It uses next-auth for authentication and manages form state with React hooks
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { validateEmail } from '@/utils/auth';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import Card from '@/components/ui/Card';
-import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
+import '@/styles/vuexy-theme.css';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectPath = searchParams?.get('redirect') || '/strategies';
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -75,8 +77,8 @@ export default function LoginPage() {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('adminSessionActive');
         }
-        // Redirect to strategies page after successful login
-        router.push('/strategies');
+        // Redirect to intended page after successful login
+        router.push(redirectPath);
       }
     } catch (error) {
       console.error('Error logging in:', error);
@@ -87,26 +89,37 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4 auth-gradient-bg">
-      <div className="w-full max-w-md">
-        <div className="flex justify-between items-center mb-8 px-2">
-          <div className="text-center flex-1">
-            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
-              Stock Analysis
-            </h1>
-            <p className="mt-2 text-gray-200">
-              Log in to your account
-            </p>
-          </div>
-          <div className="ml-4">
-            <ThemeColorToggle />
-          </div>
+    <div className="vuexy-auth-wrapper">
+      <div className="vuexy-auth-card">
+        {/* Left: Illustration */}
+        <div className="vuexy-auth-illustration">
+          <h2 className="text-2xl font-semibold text-center mb-2 text-[#7367f0]">
+            Welcome to Copy Trading
+          </h2>
+          <p className="text-center text-gray-600 max-w-md">
+            Trade smarter with breakout strategies. Log in to track your positions and maximize gains.
+          </p>
         </div>
-
-        <Card className="w-full auth-card bg-white/10 dark:bg-gray-900/30 backdrop-blur-md">
-          <form onSubmit={handleLogin} className="space-y-4 p-4">
+        
+        {/* Right: Login form */}
+        <div className="vuexy-auth-inner">
+          <div className="vuexy-auth-brand">
+            <Image 
+              src="/logo.svg" 
+              alt="FusionX Logo" 
+              width={36} 
+              height={36} 
+            />
+          </div>
+          
+          <h2 className="vuexy-auth-title text-center">Welcome to Copy Trading! 👋</h2>
+          <p className="vuexy-auth-subtitle text-center">
+            Please sign-in to your account and start the adventure
+          </p>
+          
+          <form onSubmit={handleLogin}>
             {errors.general && (
-              <div className="p-3 mb-4 text-sm text-pink-300 bg-pink-900/20 rounded-lg border border-pink-800 flex items-center">
+              <div className="p-3 mb-4 text-sm text-red-500 bg-red-50 rounded-lg border border-red-200 flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
@@ -114,89 +127,78 @@ export default function LoginPage() {
               </div>
             )}
             
-            <Input
-              label="Email Address"
-              type="email"
-              name="email"
-              placeholder="john@example.com"
-              value={formData.email}
-              onChange={handleChange}
-              error={errors.email}
-              required
-              className="auth-input text-white focus:ring-2 focus:ring-blue-500 w-full py-6 text-lg"
-            />
-            <Input
-              label="Password"
-              type="password"
-              name="password"
-              placeholder="••••••••"
-              value={formData.password}
-              onChange={handleChange}
-              error={errors.password}
-              required
-              className="auth-input text-white focus:ring-2 focus:ring-blue-500 w-full py-6 text-lg"
-            />
+            <div className="vuexy-form-group">
+              <label className="vuexy-form-label" htmlFor="email">Email</label>
+              <Input
+                id="email"
+                type="email"
+                name="email"
+                placeholder="john@example.com"
+                value={formData.email}
+                onChange={handleChange}
+                error={errors.email}
+                required
+                className="vuexy-form-control"
+              />
+              {errors.email && <div className="vuexy-error-msg">{errors.email}</div>}
+            </div>
             
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-200">
-                  Remember me
-                </label>
+            <div className="vuexy-form-group">
+              <div className="flex justify-between">
+                <label className="vuexy-form-label" htmlFor="password">Password</label>
+                <Link href="/forgot-password" className="vuexy-link text-sm">
+                  Forgot Password?
+                </Link>
               </div>
-              <div className="text-sm">
-                <a href="#" className="text-blue-400 hover:text-blue-300 transition-colors">
-                  Forgot password?
-                </a>
-              </div>
+              <Input
+                id="password"
+                type="password"
+                name="password"
+                placeholder="············"
+                value={formData.password}
+                onChange={handleChange}
+                error={errors.password}
+                required
+                className="vuexy-form-control"
+              />
+              {errors.password && <div className="vuexy-error-msg">{errors.password}</div>}
+            </div>
+            
+            <div className="flex items-center mb-4">
+              <input
+                id="remember-me"
+                name="remember-me"
+                type="checkbox"
+                className="vuexy-checkbox"
+              />
+              <label htmlFor="remember-me" className="ml-2 text-sm text-gray-600">
+                Remember me
+              </label>
             </div>
             
             <Button
-                type="submit"
-                className="w-full py-6 text-lg auth-button transition-all duration-300 mt-6"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Signing in...
-                  </>
-                ) : 'Sign In'}
-              </Button>
+              type="submit"
+              className="vuexy-btn vuexy-btn-primary vuexy-btn-block"
+              disabled={isLoading}
+            >
+              {isLoading ? 'Signing in...' : 'Sign in'}
+            </Button>
           </form>
-
-          <div className="mt-6 text-center text-sm">
-            <p className="text-gray-200">
-              Don&#39;t have an account?{' '}
-              <Link href="/signup" className="text-blue-400 hover:text-blue-300 transition-colors">
-                Sign up
+          
+          <div className="vuexy-auth-footer-text">
+            <p>
+              New on our platform? 
+              <Link href="/signup" className="vuexy-link ml-1">
+                Create an account
               </Link>
             </p>
-            <p className="text-gray-300 mt-2">
-              Are you an administrator?{' '}
-              <Link href="/admin-login" className="text-purple-400 hover:text-purple-300 transition-colors font-medium">
+            <p className="mt-2">
+              <Link href="/admin-login" className="vuexy-link">
                 Admin Login
               </Link>
             </p>
-            <div className="mt-4 p-4 rounded-lg bg-white/5 border border-white/10">
-              <p className="text-white font-medium">Testing Information</p>
-              <p className="text-xs text-gray-300 mt-1">
-                Use email: <span className="font-mono bg-white/10 px-2 py-1 rounded">test@example.com</span><br/>
-                Password: <span className="font-mono bg-white/10 px-2 py-1 rounded">password123</span><br/>
-                Admin email: <span className="font-mono bg-white/10 px-2 py-1 rounded">admin@example.com</span><br/>
-                Admin password: <span className="font-mono bg-white/10 px-2 py-1 rounded">admin123</span>
-              </p>
-            </div>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );

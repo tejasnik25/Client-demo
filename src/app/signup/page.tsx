@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { validateEmail, validatePassword } from '@/utils/auth';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import Card from '@/components/ui/Card';
+import '@/styles/vuexy-theme.css';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -111,82 +112,120 @@ export default function SignupPage() {
     }
   };
 
-
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 auth-gradient-bg">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
-            Stock Analysis
-          </h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-300">
-            Create your account
+    <div className="vuexy-auth-wrapper">
+      <div className="vuexy-auth-card">
+        {/* Left: Illustration */}
+        <div className="vuexy-auth-illustration">
+          <h2 className="text-2xl font-semibold text-center mb-2 text-[#7367f0]">
+            Join Copy Trading
+          </h2>
+          <p className="text-center text-gray-600 max-w-md">
+            Start tracking your positions with smart insights and maximize your trading potential.
           </p>
         </div>
-
-        <Card className="w-full auth-card">
-          <form onSubmit={handleSignUp} className="space-y-4">
+        
+        {/* Right: Signup form */}
+        <div className="vuexy-auth-inner">
+          <div className="vuexy-auth-brand">
+            <Image 
+              src="/logo.svg" 
+              alt="FusionX Logo" 
+              width={36} 
+              height={36} 
+            />
+          </div>
+          
+          <h2 className="vuexy-auth-title text-center">Adventure starts here 🚀</h2>
+          <p className="vuexy-auth-subtitle text-center">
+            Make your trading management easy and fun!
+          </p>
+          
+          <form onSubmit={handleSignUp}>
             {errors.general && (
-              <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg dark:bg-red-900/30 dark:text-red-300">
+              <div className="p-3 mb-4 text-sm text-red-500 bg-red-50 rounded-lg border border-red-200 flex items-center">
                 {errors.general}
               </div>
             )}
-            <Input
-              label="Full Name"
-              type="text"
-              name="name"
-              placeholder="John Doe"
-              value={formData.name}
-              onChange={handleChange}
-              error={errors.name}
-              required
-            />
-            <Input
-              label="Email Address"
-              type="email"
-              name="email"
-              placeholder="john@example.com"
-              value={formData.email}
-              onChange={handleChange}
-              error={errors.email}
-              required
-            />
-            <Input
-              label="Password"
-              type="password"
-              name="password"
-              placeholder="••••••••"
-              value={formData.password}
-              onChange={handleChange}
-              error={errors.password}
-              required
-            />
+            
+            <div className="vuexy-form-group">
+              <label className="vuexy-form-label" htmlFor="name">Full Name</label>
+              <Input
+                id="name"
+                type="text"
+                name="name"
+                placeholder="John Doe"
+                value={formData.name}
+                onChange={handleChange}
+                error={errors.name}
+                required
+                className="vuexy-form-control"
+              />
+              {errors.name && <div className="vuexy-error-msg">{errors.name}</div>}
+            </div>
+            
+            <div className="vuexy-form-group">
+              <label className="vuexy-form-label" htmlFor="email">Email</label>
+              <Input
+                id="email"
+                type="email"
+                name="email"
+                placeholder="john@example.com"
+                value={formData.email}
+                onChange={handleChange}
+                error={errors.email}
+                required
+                className="vuexy-form-control"
+              />
+              {errors.email && <div className="vuexy-error-msg">{errors.email}</div>}
+            </div>
+            
+            <div className="vuexy-form-group">
+              <label className="vuexy-form-label" htmlFor="password">Password</label>
+              <Input
+                id="password"
+                type="password"
+                name="password"
+                placeholder="············"
+                value={formData.password}
+                onChange={handleChange}
+                error={errors.password}
+                required
+                className="vuexy-form-control"
+              />
+              {errors.password && <div className="vuexy-error-msg">{errors.password}</div>}
+            </div>
+            
+            <div className="flex items-center mb-4">
+              <input
+                id="terms"
+                name="terms"
+                type="checkbox"
+                className="vuexy-checkbox"
+              />
+              <label htmlFor="terms" className="ml-2 text-sm text-gray-600">
+                I agree to <Link href="#" className="vuexy-link">privacy policy & terms</Link>
+              </label>
+            </div>
+            
             <Button
               type="submit"
-              className="w-full mt-6 auth-button"
-              isLoading={isLoading}
+              className="vuexy-btn vuexy-btn-primary vuexy-btn-block"
+              disabled={isLoading}
             >
-              Sign Up
+              {isLoading ? 'Creating account...' : 'Sign up'}
             </Button>
           </form>
-
-          <div className="mt-6 text-center text-sm">
-            <p className="text-gray-600 dark:text-gray-300">
-              Already have an account?{' '}
-              <Link href="/login" className="text-blue-600 dark:text-blue-400 hover:underline">
-                Log in
+          
+          <div className="vuexy-auth-footer-text">
+            <p>
+              Already have an account? 
+              <Link href="/login" className="vuexy-link ml-1">
+                Sign in instead
               </Link>
             </p>
-            <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
-              <p className="text-yellow-800 dark:text-yellow-300 font-medium">Testing Information</p>
-              <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">
-                After signup, you&#39;ll be redirected to the login page.<br/>
-                Check the <Link href="/admin" className="text-blue-600 dark:text-blue-400 underline">admin page</Link> to see all test accounts.
-              </p>
-            </div>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );

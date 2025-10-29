@@ -1,29 +1,15 @@
+// app/strategies/page.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import Card, {
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter
-} from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import Tabs, { TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import Tabs, { TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import UserLayout from '@/components/UserLayout';
 import { FiInfo, FiPlay } from 'react-icons/fi';
 
-// Local Strategy type to avoid importing server modules in client
 interface Strategy {
   id: string;
   name: string;
@@ -37,240 +23,254 @@ interface Strategy {
   contentType?: 'html' | 'pdf';
   contentUrl?: string;
   enabled?: boolean;
-  created_at: string;
-  updated_at: string;
 }
 
-const StrategiesPageContent: React.FC = () => {
+const StrategiesPage: React.FC = () => {
   const { data: session } = useSession();
   const router = useRouter();
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [activeTab, setActiveTab] = useState('all');
+  const [topTab, setTopTab] = useState<'explore' | 'deployed'>('explore');
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch strategies from the API
   useEffect(() => {
     const fetchStrategies = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/strategies');
-        if (!response.ok) {
-          console.error('Failed to fetch strategies:', response.status);
-          setStrategies([]);
-          return;
-        }
-        const data = await response.json();
-        // Only show enabled strategies to users
-        const enabledStrategies = data.strategies?.filter((s: Strategy) => s.enabled !== false) || [];
-        setStrategies(enabledStrategies);
-      } catch (error) {
-        console.error('Error fetching strategies:', error);
+        const res = await fetch('/api/strategies');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const enabled = (data.strategies || []).filter((s: Strategy) => s.enabled !== false);
+        setStrategies(enabled);
+      } catch {
+        setStrategies([]);
       } finally {
         setLoading(false);
       }
     };
-    
     fetchStrategies();
-    const refreshInterval = setInterval(fetchStrategies, 5000);
-    return () => clearInterval(refreshInterval);
   }, []);
 
-  const handleViewInfo = (strategy: Strategy) => {
-    setSelectedStrategy(strategy);
-  };
-  
-  const closeStrategyInfo = () => {
-    setSelectedStrategy(null);
+  const handleViewInfo = (s: Strategy) => {
+    if (!session) return router.push('/login?redirect=/strategies');
+    setSelectedStrategy(s);
   };
 
-  const handleDeploy = (strategy: Strategy) => {
-    router.push(`/dashboard?tab=chat&strategy=${strategy.id}`);
+  const handleDeploy = (s: Strategy) => {
+    router.push(`/dashboard?tab=chat&strategy=${s.id}`);
   };
 
-  const filteredStrategies = activeTab === 'all' 
-    ? strategies 
-    : strategies.filter(strategy => strategy.category.toLowerCase() === activeTab);
+  const filtered = activeTab === 'all'
+    ? strategies
+    : strategies.filter(s => s.category.toLowerCase() === activeTab);
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
-        <div className="px-4 py-5 sm:px-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
-            Trading Strategies
-          </h3>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-            Explore and deploy trading strategies to optimize your investments.
-          </p>
-        </div>
-
-        <div className="border-t border-gray-200 dark:border-gray-700">
-          <div className="px-4 py-5 sm:p-6">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Strategy Categories
-            </label>
-            <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="mt-2">
-              <TabsList className="grid w-full md:w-auto grid-cols-4">
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="growth">Growth</TabsTrigger>
-                <TabsTrigger value="value">Value</TabsTrigger>
-                <TabsTrigger value="income">Income</TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-              {loading ? (
-                Array(3).fill(0).map((_, index) => (
-                  <Card key={`loading-${index}`} className="hover:shadow-lg transition-shadow">
-                    <div className="h-48 bg-muted animate-pulse"></div>
-                    <CardHeader>
-                      <CardTitle className="h-6 bg-muted animate-pulse rounded w-3/4"></CardTitle>
-                      <CardDescription className="h-4 bg-muted animate-pulse rounded mt-2"></CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="w-full h-4 bg-muted animate-pulse rounded"></div>
-                      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-muted animate-pulse rounded-full w-1/2"></div>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex space-x-2">
-                      <div className="flex-1 h-9 bg-muted animate-pulse rounded"></div>
-                      <div className="flex-1 h-9 bg-muted animate-pulse rounded"></div>
-                    </CardFooter>
-                  </Card>
-                ))
-              ) : strategies.length === 0 ? (
-                <Card className="col-span-full p-8 text-center">
-                  <p className="text-gray-500 dark:text-gray-400">No strategies available at this time.</p>
-                </Card>
-              ) : filteredStrategies.map((strategy) => (
-                <Card key={strategy.id} className="hover:shadow-lg transition-shadow">
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle>{strategy.name}</CardTitle>
-                      <span className={`text-sm font-semibold px-2 py-1 rounded ${strategy.performance >= 0 ? 'text-green-600 bg-green-100 dark:bg-green-900/30' : 'text-red-600 bg-red-100 dark:bg-red-900/30'}`}>
-                        {strategy.performance >= 0 ? '+' : ''}{strategy.performance}%
-                      </span>
-                    </div>
-                    <CardDescription>{strategy.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-center">
-                    <Image
-                      src={strategy.imageUrl}
-                      alt={strategy.name}
-                      width={150}
-                      height={150}
-                      className="w-32 h-32 object-contain opacity-60"
-                    />
-                  </CardContent>
-                  <CardFooter className="flex space-x-2">
-                    <Button 
-                      variant="outline" 
-                      className="w-full flex items-center justify-center"
-                      onClick={() => handleViewInfo(strategy)}
-                    >
-                      <FiInfo className="mr-2" />
-                      Info
-                    </Button>
-                    <Button 
-                      className="w-full flex items-center justify-center"
-                      onClick={() => handleDeploy(strategy)}
-                    >
-                      <FiPlay className="mr-2" />
-                      Deploy
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
+    <UserLayout>
+    <div className="min-h-screen bg-[#0f1527] text-white">
+      {/* Header */}
+      <div className="border-b border-[#1f243a] px-6 py-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-2xl font-bold">Explore Strategies</h3>
+            <p className="text-sm text-gray-400 mt-1">Browse and deploy FusionX-style trading strategies.</p>
           </div>
+          <Button className="bg-[#00cfe8] text-black hover:bg-[#00bcd4]">Complete Now</Button>
+        </div>
+        {/* Progress Steps */}
+        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
+          {[
+            { label: 'Sign up', done: true },
+            { label: 'Complete KYC', done: false },
+            { label: 'Connect a broker', done: false },
+            { label: 'Deploy a strategy', done: false },
+          ].map((step, idx) => (
+            <div key={step.label} className="flex items-center gap-2">
+              <span className={`flex h-7 w-7 items-center justify-center rounded-full border ${step.done ? 'bg-[#28c76f] border-[#28c76f] text-black' : 'bg-[#1a1f2e] border-[#283046] text-gray-300'}`}>{idx + 1}</span>
+              <span className={`font-medium ${step.done ? 'text-white' : 'text-gray-300'}`}>{step.label}</span>
+              {idx < 3 && <span className="mx-1 text-[#283046]">—</span>}
+            </div>
+          ))}
         </div>
       </div>
 
-      <Dialog open={!!selectedStrategy} onOpenChange={(open) => !open && setSelectedStrategy(null)}>
-        <DialogContent className="max-w-3xl">
+      {/* Tabs + Filters */}
+      <div className="px-6 py-5 space-y-5">
+        {/* Top Tabs */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => setTopTab('explore')}
+            className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              topTab === 'explore'
+                ? 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7] text-white shadow-lg'
+                : 'bg-[#1a1f2e] text-gray-400 hover:bg-[#1f243a]'
+            }`}
+          >
+            Explore Strategies
+          </button>
+          <button
+            onClick={() => setTopTab('deployed')}
+            className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              topTab === 'deployed'
+                ? 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7] text-white shadow-lg'
+                : 'bg-[#1a1f2e] text-gray-400 hover:bg-[#1f243a]'
+            }`}
+          >
+            Deployed Strategies
+          </button>
+        </div>
+
+        {/* Category Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid grid-cols-4 w-full bg-[#1a1f2e] p-1 rounded-xl h-11">
+            {['all', 'growth', 'value', 'income'].map(cat => (
+              <TabsTrigger
+                key={cat}
+                value={cat}
+                className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#7c3aed] data-[state=active]:to-[#a855f7] data-[state=active]:text-white rounded-lg text-sm font-medium capitalize"
+              >
+                {cat}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {/* Filter chips */}
+        <div className="flex gap-2">
+          {['Premium', 'Expert', 'Pro'].map((chip) => (
+            <button key={chip} className="px-3 py-1.5 rounded-full text-xs bg-[#1a1f2e] border border-[#283046] text-gray-300 hover:border-[#7367f0] hover:text-white">
+              {chip}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Strategy Cards - Full Width */}
+      <div className="px-6 pb-10 space-y-4">
+        {topTab === 'deployed' ? (
+          <div className="text-center py-16 text-gray-400 bg-[#1a1f2e] rounded-2xl border border-[#283046]">
+            <div className="flex items-center justify-center mb-4">
+              <Image src="/file.svg" alt="No Data" width={64} height={64} />
+            </div>
+            <div className="text-sm">No Data Found</div>
+          </div>
+        ) : loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="animate-pulse bg-[#1a1f2e] rounded-2xl p-6 space-y-3">
+              <div className="h-6 bg-[#283046] rounded w-1/3" />
+              <div className="h-4 bg-[#283046] rounded w-1/2" />
+            </div>
+          ))
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-500 bg-[#1a1f2e] rounded-2xl">
+            No strategies found.
+          </div>
+        ) : (
+          filtered.map(strategy => (
+            <div
+              key={strategy.id}
+              className="group bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046] hover:border-[#a855f7]/50 transition-all"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                {/* Left */}
+                <div className="flex items-start gap-4 flex-1">
+                  <div className="w-14 h-14 bg-gradient-to-br from-[#7c3aed] to-[#a855f7] rounded-xl flex items-center justify-center p-2">
+                    <div className="w-8 h-8 bg-white/20 rounded" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-lg font-semibold">{strategy.name}</h4>
+                      <span className="text-xs text-gray-500">by Fusion</span>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <span className="text-xs px-2 py-1 bg-[#283046] rounded-full uppercase">{strategy.category}</span>
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        strategy.riskLevel === 'High' ? 'bg-red-900/30 text-red-300' :
+                        strategy.riskLevel === 'Medium' ? 'bg-yellow-900/30 text-yellow-300' :
+                        'bg-green-900/30 text-green-300'
+                      }`}>
+                        {strategy.riskLevel}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-gray-400">{strategy.description}</p>
+                  </div>
+                </div>
+
+                {/* Center */}
+                <div className="flex gap-8 text-sm">
+                  <div>
+                    <div className="text-gray-500">Performance</div>
+                    <div className="font-bold text-white">{strategy.performance}%</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-500">Risk Level</div>
+                    <div className="font-bold text-white">{strategy.riskLevel}</div>
+                  </div>
+                </div>
+
+                {/* Right */}
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-[#a855f7] text-[#a855f7] hover:bg-[#a855f7] hover:text-white"
+                    onClick={() => handleViewInfo(strategy)}
+                  >
+                    <FiInfo className="mr-2 h-4 w-4" />
+                    Info
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]"
+                    onClick={() => handleDeploy(strategy)}
+                  >
+                    <FiPlay className="mr-2 h-4 w-4" />
+                    Deploy
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Dialog */}
+      <Dialog open={!!selectedStrategy} onOpenChange={o => !o && setSelectedStrategy(null)}>
+        <DialogContent className="max-w-4xl bg-[#161d31] text-white border-[#283046]">
           {selectedStrategy && (
             <>
               <DialogHeader>
                 <DialogTitle className="text-2xl">{selectedStrategy.name}</DialogTitle>
-                <DialogDescription className="text-base">{selectedStrategy.description}</DialogDescription>
+                <DialogDescription className="text-gray-400">{selectedStrategy.description}</DialogDescription>
               </DialogHeader>
-              <div className="grid gap-6 py-4">
-                <div className="relative h-48 bg-gradient-to-br from-primary/20 to-primary/5">
-                  <Image
-                    src={selectedStrategy.imageUrl}
-                    alt={selectedStrategy.name}
-                    width={200}
-                    height={200}
-                    className="absolute inset-0 w-full h-full object-contain p-6"
-                  />
+              <div className="py-4 space-y-6">
+                <div className="h-48 bg-gradient-to-br from-[#7c3aed]/20 to-transparent rounded-xl flex items-center justify-center">
+                  <div className="text-6xl font-bold text-[#a855f7]/50">FX</div>
                 </div>
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Strategy Details</h3>
-                  <p>{selectedStrategy.details}</p>
-                  
-                  {selectedStrategy.contentUrl && selectedStrategy.contentType && (
-                    <div className="mt-6">
-                      <h3 className="text-lg font-semibold mb-2">Strategy Content</h3>
-                      {selectedStrategy.contentType === 'html' ? (
-                        <div className="border rounded-md p-4 bg-white">
-                          <iframe 
-                            src={selectedStrategy.contentUrl} 
-                            className="w-full h-96 border-0" 
-                            title={`${selectedStrategy.name} Content`}
-                          />
-                        </div>
-                      ) : selectedStrategy.contentType === 'pdf' ? (
-                        <div className="border rounded-md p-4 bg-white">
-                          <iframe 
-                            src={selectedStrategy.contentUrl} 
-                            className="w-full h-96 border-0" 
-                            title={`${selectedStrategy.name} PDF`}
-                          />
-                        </div>
-                      ) : (
-                        <p>No content available</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+                <p>{selectedStrategy.details}</p>
+                <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <h3 className="text-lg font-semibold mb-2">Parameters</h3>
-                    <ul className="space-y-2">
-                      {Object.entries(selectedStrategy.parameters).map(([key, value]) => (
-                        <li key={key} className="flex justify-between">
-                          <span className="text-gray-500 dark:text-gray-400">{key}:</span>
-                          <span className="font-medium">{value}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <h4 className="font-semibold mb-3">Parameters</h4>
+                    {Object.entries(selectedStrategy.parameters).map(([k, v]) => (
+                      <div key={k} className="flex justify-between py-1 text-sm">
+                        <span className="text-gray-400">{k}:</span>
+                        <span>{v}</span>
+                      </div>
+                    ))}
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold mb-2">Performance</h3>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 dark:text-gray-400">Performance:</span>
-                        <span className={`font-medium ${selectedStrategy.performance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {selectedStrategy.performance >= 0 ? '+' : ''}{selectedStrategy.performance}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 dark:text-gray-400">Risk Level:</span>
-                        <span className="font-medium">{selectedStrategy.riskLevel}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500 dark:text-gray-400">Category:</span>
-                        <span className="font-medium">{selectedStrategy.category}</span>
-                      </div>
+                    <h4 className="font-semibold mb-3">Stats</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-gray-400">Performance:</span> <span>{selectedStrategy.performance}%</span></div>
+                      <div className="flex justify-between"><span className="text-gray-400">Risk:</span> <span>{selectedStrategy.riskLevel}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-400">Category:</span> <span>{selectedStrategy.category}</span></div>
                     </div>
                   </div>
                 </div>
               </div>
               <DialogFooter>
-                <Button onClick={() => handleDeploy(selectedStrategy)}>
-                  <FiPlay className="mr-2" />
-                  Deploy Strategy
+                <Button className="bg-gradient-to-r from-[#7c3aed] to-[#a855f7]" onClick={() => handleDeploy(selectedStrategy)}>
+                  <FiPlay className="mr-2" /> Deploy Strategy
                 </Button>
               </DialogFooter>
             </>
@@ -278,16 +278,9 @@ const StrategiesPageContent: React.FC = () => {
         </DialogContent>
       </Dialog>
     </div>
-  );
-};
-
-// Main page with UserLayout wrapper
-const StrategiesPage: React.FC = () => {
-  return (
-    <UserLayout>
-      <StrategiesPageContent />
     </UserLayout>
   );
 };
 
 export default StrategiesPage;
+

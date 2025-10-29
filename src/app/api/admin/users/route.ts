@@ -34,11 +34,15 @@ export async function GET(_req: NextRequest) {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: 'USER', // Default role for mock data
-      emailVerified: user.email_verified,
-      walletBalance: user.wallet_balance,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at,
+      role: user.role ?? 'USER',
+      email_verified: user.email_verified ?? false,
+      wallet_balance: typeof user.wallet_balance === 'number' ? user.wallet_balance : parseFloat(user.wallet_balance || '0'),
+      stock_analysis_access: user.stock_analysis_access ?? false,
+      analysis_count: user.analysis_count ?? 0,
+      trial_expiry: user.trial_expiry ?? null,
+      enabled: user.enabled ?? true,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
     }));
 
     return NextResponse.json({ users });
@@ -48,6 +52,68 @@ export async function GET(_req: NextRequest) {
       { error: 'Failed to fetch users' },
       { status: 500 }
     );
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await checkAdminAuth();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const data = await req.json();
+    const { name, email, password, role = 'USER', walletBalance = 0, enabled = true } = data || {};
+
+    if (!name || !email || !password) {
+      return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 });
+    }
+
+    const db = readDatabase();
+    const existing = db.users.find((u: any) => u.email === email);
+    if (existing) {
+      return NextResponse.json({ error: 'A user with this email already exists' }, { status: 400 });
+    }
+
+    const now = new Date().toISOString();
+    const newUser = {
+      id: `user_${Date.now()}`,
+      name,
+      email,
+      password,
+      role,
+      email_verified: null,
+      wallet_balance: typeof walletBalance === 'number' ? walletBalance : parseFloat(walletBalance || '0'),
+      stock_analysis_access: false,
+      analysis_count: 0,
+      trial_expiry: null,
+      enabled,
+      created_at: now,
+      updated_at: now,
+    };
+
+    db.users.push(newUser);
+    writeDatabase(db);
+
+    const formatted = {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role ?? 'USER',
+      email_verified: newUser.email_verified ?? null,
+      wallet_balance: newUser.wallet_balance,
+      stock_analysis_access: newUser.stock_analysis_access,
+      analysis_count: newUser.analysis_count,
+      trial_expiry: newUser.trial_expiry,
+      enabled: newUser.enabled ?? true,
+      created_at: newUser.created_at,
+      updated_at: newUser.updated_at,
+    };
+
+    return NextResponse.json({ user: formatted }, { status: 201 });
+  } catch (error) {
+    console.error('Error adding user:', error);
+    return NextResponse.json({ error: 'Failed to add user' }, { status: 500 });
   }
 }
 
@@ -154,24 +220,30 @@ export async function PATCH(req: NextRequest) {
     
     if (updateData.name) user.name = updateData.name;
     if (updateData.email) user.email = updateData.email;
-    if (updateData.walletBalance) user.wallet_balance = updateData.walletBalance;
+    if (updateData.role) user.role = updateData.role;
+    if (typeof updateData.enabled !== 'undefined') user.enabled = !!updateData.enabled;
+    // Wallet balance field removed
     user.updated_at = new Date().toISOString();
     
     writeDatabase(db);
     
-    // Format the response to match expected structure
-    const updatedUser = {
+    // Format the response to match expected structure (same as GET)
+    const formatted = {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: 'USER', // Default role for mock data
-      emailVerified: user.email_verified,
-      walletBalance: user.wallet_balance,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at,
+      role: user.role ?? 'USER',
+      email_verified: user.email_verified ?? null,
+      wallet_balance: null, // Wallet functionality removed
+      stock_analysis_access: user.stock_analysis_access ?? false,
+      analysis_count: user.analysis_count ?? 0,
+      trial_expiry: user.trial_expiry ?? null,
+      enabled: user.enabled ?? true,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
     };
 
-    return NextResponse.json({ user: updatedUser });
+    return NextResponse.json({ user: formatted });
   } catch (error) {
     console.error('Error updating user:', error);
     return NextResponse.json(

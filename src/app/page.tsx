@@ -2,24 +2,60 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import { useSession } from 'next-auth/react'
+
+interface StrategyCard {
+  id: string;
+  name: string;
+  description: string;
+  performance: number;
+  riskLevel: 'Low' | 'Medium' | 'High';
+  imageUrl: string;
+  parameters?: Record<string, string>;
+}
 
 export default function Home() {
+  const { data: session } = useSession();
+  const [strategies, setStrategies] = useState<StrategyCard[]>([]);
+  const [loadingStrategies, setLoadingStrategies] = useState(false);
+
+  useEffect(() => {
+    const fetchStrategies = async () => {
+      try {
+        setLoadingStrategies(true);
+        const res = await fetch('/api/strategies', { credentials: 'include' });
+        const data = await res.json();
+        const list: StrategyCard[] = (data.strategies || []).slice(0, 4);
+        setStrategies(list);
+      } catch (e) {
+        // silently ignore for landing page
+      } finally {
+        setLoadingStrategies(false);
+      }
+    };
+    fetchStrategies();
+  }, []);
   return (
     <main className="min-h-screen">
       {/* Navigation Bar */}
-      <nav className="bg-white dark:bg-gray-900 shadow-md">
+      <nav className="sticky top-0 z-50 bg-white/70 dark:bg-gray-900/60 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          <div className="flex items-center justify-between h-16">
+            {/* Brand */}
+            <div className="flex items-center gap-3">
+              <span className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 StockAnalyzer
               </span>
             </div>
-            <div className="flex items-center space-x-4">
-              <Link href="/login" className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 px-3 py-2 rounded-md text-sm font-medium">
+            {/* Primary Nav (removed for old design) */}
+            <div className="hidden md:flex items-center gap-6"></div>
+            {/* Actions */}
+            <div className="flex items-center gap-3">
+              <Link href="/login" className="text-white bg-blue-600 px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors">
                 Login
               </Link>
-              <Link href="/signup" className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:from-blue-700 hover:to-purple-700 transition duration-300 ease-in-out">
+              <Link href="/signup" className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:from-blue-700 hover:to-purple-700 transition-colors">
                 Sign Up
               </Link>
               <Link href="/admin-login" className="text-white bg-red-600 px-3 py-2 rounded-md text-sm font-medium hover:bg-red-700 transition-colors">
@@ -43,7 +79,7 @@ export default function Home() {
                 Make informed investment decisions with our advanced stock analysis platform. Get real-time insights, predictive analytics, and personalized recommendations.
               </p>
               <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
-                <Link href="/signup" className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition duration-300 ease-in-out transform hover:-translate-y-1">
+                <Link href={session ? '/dashboard' : '/signup'} className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition duration-300 ease-in-out transform hover:-translate-y-1">
                   Get Started Free
                   <svg xmlns="http://www.w3.org/2000/svg" className="ml-2 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H5a1 1 0 110-2h7.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -73,6 +109,51 @@ export default function Home() {
           <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
           <div className="absolute top-96 -left-20 w-72 h-72 bg-purple-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
           <div className="absolute -bottom-24 right-1/2 w-72 h-72 bg-pink-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-4000"></div>
+        </div>
+      </section>
+
+      {/* Strategies Preview Section */}
+      <section className="py-20 bg-gray-50 dark:bg-gray-900">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">Strategies</h2>
+            <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
+              Explore pre-built, backtested strategies. Log in to view full details.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            {loadingStrategies ? (
+              Array(4).fill(0).map((_, i) => (
+                <div key={`skeleton-${i}`} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow">
+                  <div className="h-24 bg-gray-100 dark:bg-gray-700 animate-pulse rounded mb-4" />
+                  <div className="h-5 bg-gray-100 dark:bg-gray-700 animate-pulse rounded mb-2 w-3/4" />
+                  <div className="h-4 bg-gray-100 dark:bg-gray-700 animate-pulse rounded w-1/2" />
+                </div>
+              ))
+            ) : strategies.length === 0 ? (
+              <div className="col-span-full text-center text-gray-600 dark:text-gray-300">No strategies yet</div>
+            ) : (
+              strategies.map((s) => (
+                <div key={s.id} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow hover:shadow-lg transition">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{s.name}</h3>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded ${s.riskLevel === 'High' ? 'text-red-600 bg-red-100 dark:bg-red-900/30' : s.riskLevel === 'Medium' ? 'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/30' : 'text-green-700 bg-green-100 dark:bg-green-900/30'}`}>{s.riskLevel} Risk</span>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-4 line-clamp-2">{s.description}</p>
+                  <div className="flex items-center gap-3 text-xs mb-4 flex-wrap">
+                    {s.parameters && Object.entries(s.parameters).slice(0,3).map(([k,v]) => (
+                      <span key={k} className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{k}: {v}</span>
+                    ))}
+                    <span className={`px-2 py-1 rounded ${s.performance >= 0 ? 'text-green-700 bg-green-100 dark:bg-green-900/30' : 'text-red-700 bg-red-100 dark:bg-red-900/30'}`}>Perf: {s.performance >= 0 ? '+' : ''}{s.performance}%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <Link href={session ? '/strategies' : '/login?redirect=/strategies'} className="text-blue-600 dark:text-blue-400 hover:underline">View All</Link>
+                    <Link href={session ? '/strategies' : '/login?redirect=/strategies'} className="text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">{session ? 'More info' : 'Login to view info'}</Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </section>
 
@@ -142,7 +223,7 @@ export default function Home() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+      <section id="cta" className="py-20 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-6">Ready to Transform Your Investment Strategy?</h2>
           <p className="text-xl mb-8 max-w-3xl mx-auto">Join thousands of investors who are already using our platform to make smarter investment decisions.</p>

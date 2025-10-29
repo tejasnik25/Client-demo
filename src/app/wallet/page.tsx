@@ -163,6 +163,8 @@ const WalletPageContent: React.FC = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: user.id,
+            user_name: user.name,
+            user_email: user.email,
             amount: amountValue,
             transaction_type: 'deposit',
             payment_method: paymentMethod,
@@ -208,7 +210,7 @@ const WalletPageContent: React.FC = () => {
   };
   
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="w-full py-6 space-y-6">
         <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
           <div className="px-4 py-5 sm:px-6">
             <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">

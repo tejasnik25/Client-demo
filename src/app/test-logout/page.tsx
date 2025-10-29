@@ -21,12 +21,12 @@ const TestLogoutPageContent: React.FC = () => {
       // Clear client-side storage
       sessionStorage.clear();
       localStorage.clear();
-      // Redirect to login
-      router.push('/login');
+      // Redirect to landing page
+      router.push('/');
     } catch (error) {
       console.error('Error during logout:', error);
       // Fallback logout method
-      router.push('/login');
+      router.push('/');
     }
   };
 

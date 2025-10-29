@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
 import { FiEdit, FiTrash2, FiUserPlus } from 'react-icons/fi';
+import Switch from '@/components/ui/switch';
 
 // Custom User type that matches our mock data structure
 export type User = {
@@ -27,6 +28,7 @@ export type User = {
   trial_expiry: string | null;
   created_at: string;
   updated_at: string;
+  enabled?: boolean; // Account status: enabled/disabled
 };
 
 type UserWithoutPassword = Omit<User, 'password'>;
@@ -42,8 +44,8 @@ export default function UserManagement() {
     name: '',
     email: '',
     password: '',
-    role: 'user',
-    walletBalance: 0,
+    role: 'USER',
+    enabled: true,
   });
 
   // Fetch users
@@ -112,7 +114,7 @@ export default function UserManagement() {
         email: user.email || '',
         role: user.role || 'USER',
         password: '', // Provide empty password to satisfy formData type
-        walletBalance: user.wallet_balance || 0,
+        enabled: user.enabled !== false,
       });
     setIsEditDialogOpen(true);
   };
@@ -204,8 +206,9 @@ export default function UserManagement() {
       name: '',
       email: '',
       password: '',
-      role: 'user',
-      walletBalance: 0,
+      role: 'USER',
+      // walletBalance: null, // Wallet functionality removed
+      enabled: true,
     });
     setIsAddDialogOpen(true);
   };
@@ -223,7 +226,8 @@ export default function UserManagement() {
           email: formData.email,
           password: formData.password,
           role: formData.role,
-          walletBalance: formData.walletBalance,
+          // walletBalance: null, // Wallet functionality removed
+          enabled: formData.enabled,
         }),
       });
       
@@ -265,6 +269,7 @@ export default function UserManagement() {
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Wallet Balance</TableHead>
+                <TableHead>Account Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -285,7 +290,12 @@ export default function UserManagement() {
                         {user.role}
                       </span>
                     </TableCell>
-                    <TableCell>${user.wallet_balance?.toFixed(2)}</TableCell>
+                    <TableCell>${(user.wallet_balance ?? 0).toFixed(2)}</TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-xs ${user.enabled === false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                        {user.enabled === false ? 'Disabled' : 'Enabled'}
+                      </span>
+                    </TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
                         <Button
@@ -356,17 +366,19 @@ export default function UserManagement() {
                 </SelectContent>
               </Select>
             </div>
+            {/* Wallet balance field removed */}
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="walletBalance" className="text-right">
-                Wallet Balance
+              <Label htmlFor="enabled" className="text-right">
+                Account Status
               </Label>
-              <Input
-                id="walletBalance"
-                type="number"
-                value={formData.walletBalance.toString()}
-                onChange={(e) => setFormData({ ...formData, walletBalance: parseFloat(e.target.value) || 0 })}
-                className="col-span-3"
-              />
+              <div className="col-span-3 flex items-center gap-3">
+                <Switch
+                  id="enabled"
+                  checked={!!formData.enabled}
+                  onCheckedChange={(checked) => handleSwitchChange('enabled', checked)}
+                />
+                <span className="text-sm">{formData.enabled ? 'Enabled' : 'Disabled'}</span>
+              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2">
@@ -436,17 +448,19 @@ export default function UserManagement() {
                 </SelectContent>
               </Select>
             </div>
+            {/* Wallet balance field removed */}
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="new-walletBalance" className="text-right">
-                Wallet Balance
+              <Label htmlFor="new-enabled" className="text-right">
+                Account Status
               </Label>
-              <Input
-                id="new-walletBalance"
-                type="number"
-                value={formData.walletBalance.toString()}
-                onChange={(e) => setFormData({ ...formData, walletBalance: parseFloat(e.target.value) || 0 })}
-                className="col-span-3"
-              />
+              <div className="col-span-3 flex items-center gap-3">
+                <Switch
+                  id="new-enabled"
+                  checked={!!formData.enabled}
+                  onCheckedChange={(checked) => handleSwitchChange('enabled', checked)}
+                />
+                <span className="text-sm">{formData.enabled ? 'Enabled' : 'Disabled'}</span>
+              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2">

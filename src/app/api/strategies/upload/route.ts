@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createStrategy, updateStrategy } from '../../../../db/dbService';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { writeFile } from 'fs/promises';
+import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -50,7 +50,9 @@ export async function POST(req: NextRequest) {
     // Create unique filename
     const fileExt = contentType === 'html' ? '.html' : '.pdf';
     const fileName = `strategy-${uuidv4()}${fileExt}`;
-    const filePath = path.join(process.cwd(), 'public', 'uploads', fileName);
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+    await mkdir(uploadDir, { recursive: true });
+    const filePath = path.join(uploadDir, fileName);
     
     // Save file
     await writeFile(filePath, buffer);
@@ -153,7 +155,9 @@ export async function PUT(req: NextRequest) {
       // Create unique filename
       const fileExt = contentType === 'html' ? '.html' : '.pdf';
       const fileName = `strategy-${uuidv4()}${fileExt}`;
-      const filePath = path.join(process.cwd(), 'public', 'uploads', fileName);
+      const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+      await mkdir(uploadDir, { recursive: true });
+      const filePath = path.join(uploadDir, fileName);
       
       // Save file
       await writeFile(filePath, buffer);

@@ -140,6 +140,8 @@ const TopupDetailsContent: React.FC = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: user.id,
+            user_name: user.name,
+            user_email: user.email,
             amount: amountValue,
             transaction_type: 'deposit',
             payment_method: paymentMethod,
@@ -205,22 +207,21 @@ const TopupDetailsContent: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
-        <div className="px-4 py-5 sm:px-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">Top-up Details</h3>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-            Complete your payment and submit the request.
-          </p>
-        </div>
-        <div className="border-t border-gray-200 dark:border-gray-700">
-          <form onSubmit={handleSubmit} className="px-4 py-5 sm:p-6">
+    <div className="w-full px-6 py-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Payment Details */}
+        <div className="lg:col-span-2 bg-[#1a1f2e] border border-[#283046] text-white rounded-2xl shadow">
+          <div className="px-6 py-5 border-b border-[#283046]">
+            <h3 className="text-xl font-semibold">Top-up Details</h3>
+            <p className="mt-1 text-sm text-gray-300">Complete your payment and submit the request.</p>
+          </div>
+          <form onSubmit={handleSubmit} className="px-6 py-6">
             {/* QR Display */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment QR</label>
+              <label className="block text-sm font-medium text-gray-300">Payment QR</label>
               <div className="mt-2">{renderQR()}</div>
               {WALLET_APP_DEEPLINK && paymentMethod && paymentMethod.startsWith('USDT') && (
-                <a href={WALLET_APP_DEEPLINK} target="_blank" rel="noreferrer" className="mt-2 inline-block text-blue-600 dark:text-blue-400 text-sm">
+                <a href={WALLET_APP_DEEPLINK} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#7c3aed] hover:text-[#a855f7] text-sm">
                   Open wallet app
                 </a>
               )}
@@ -228,11 +229,11 @@ const TopupDetailsContent: React.FC = () => {
 
             {/* User ID */}
             <div className="mb-6">
-              <label htmlFor="user-id" className="block text-sm font-medium text-gray-700 dark:text-gray-300">User ID</label>
+              <label htmlFor="user-id" className="block text-sm font-medium text-gray-300">User ID</label>
               <input
                 type="text"
                 id="user-id"
-                className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md"
+                className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
                 value={user?.id || ''}
                 disabled
               />
@@ -240,10 +241,10 @@ const TopupDetailsContent: React.FC = () => {
 
             {/* Amount INR and USD */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount (₹ INR)</label>
+              <label className="block text-sm font-medium text-gray-300">Amount (₹ INR)</label>
               <input
                 type="number"
-                className="focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md"
+                className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
                 placeholder="0.00"
                 value={inrAmount}
                 onChange={(e) => setInrAmount(e.target.value)}
@@ -252,16 +253,16 @@ const TopupDetailsContent: React.FC = () => {
               />
               {paymentMethod === 'QR' && (
                 <>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">USD is calculated automatically in real-time.</p>
-                  {isLoadingRate && <p className="mt-1 text-sm text-blue-600 dark:text-blue-400">Fetching latest exchange rate...</p>}
-                  {rateError && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{rateError}</p>}
+                  <p className="mt-1 text-sm text-gray-400">USD is calculated automatically in real-time.</p>
+                  {isLoadingRate && <p className="mt-1 text-sm text-[#7c3aed]">Fetching latest exchange rate...</p>}
+                  {rateError && <p className="mt-1 text-sm text-red-400">{rateError}</p>}
                   <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label className="block text-sm font-medium text-gray-300">
                       Equivalent Amount ($ USD) {inrToUsdRate && <span className="text-xs text-gray-500">@ {inrToUsdRate.toFixed(6)} USD/INR</span>}
                     </label>
                     <input
                       type="number"
-                      className="focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md"
+                      className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
                       value={usdAmount}
                       readOnly
                     />
@@ -272,11 +273,11 @@ const TopupDetailsContent: React.FC = () => {
 
             {/* Transaction ID */}
             <div className="mb-6">
-              <label htmlFor="transaction-id" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Transaction ID</label>
+              <label htmlFor="transaction-id" className="block text-sm font-medium text-gray-300">Transaction ID</label>
               <input
                 type="text"
                 id="transaction-id"
-                className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md"
+                className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
                 placeholder="Enter the transaction ID from your payment"
                 value={transactionId}
                 onChange={(e) => setTransactionId(e.target.value)}
@@ -285,27 +286,27 @@ const TopupDetailsContent: React.FC = () => {
 
             {/* Upload Receipt */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Upload Payment Receipt</label>
-              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-700 border-dashed rounded-md">
+              <label className="block text-sm font-medium text-gray-300">Upload Payment Receipt</label>
+              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-[#283046] border-dashed rounded-lg bg-[#0f1527] cursor-pointer">
                 <div className="space-y-1 text-center">
                   {preview ? (
                     <div className="flex flex-col items-center">
                       <Image src={preview} alt="Preview" className="max-h-64 mb-4" width={400} height={300} />
-                      <button type="button" onClick={() => { setFile(null); setPreview(''); }} className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">Remove image</button>
+                      <button type="button" onClick={() => { setFile(null); setPreview(''); }} className="text-sm text-red-400 hover:text-red-300">Remove image</button>
                     </div>
                   ) : (
                     <>
-                      <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                      <svg className="mx-auto h-12 w-12 text-gray-500" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
                         <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      <div className="flex text-sm text-gray-600 dark:text-gray-400">
-                        <label htmlFor="file-upload" className="relative cursor-pointer bg-white dark:bg-gray-800 rounded-md font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none">
+                      <div className="flex text-sm text-gray-400">
+                        <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-medium text-[#7c3aed] hover:text-[#a855f7] focus-within:outline-none">
                           <span>Upload a file</span>
                           <input id="file-upload" name="file-upload" type="file" className="sr-only" accept="image/*" onChange={handleFileChange} />
                         </label>
                         <p className="pl-1">or drag and drop</p>
                       </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">PNG, JPG, GIF up to 10MB</p>
+                      <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
                     </>
                   )}
                 </div>
@@ -314,42 +315,42 @@ const TopupDetailsContent: React.FC = () => {
 
             {/* Platform selection */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Trading Platform</label>
+              <label className="block text-sm font-medium text-gray-300">Trading Platform</label>
               <div className="mt-2 flex items-center space-x-6">
                 <label className="inline-flex items-center">
-                  <input type="radio" name="platform" value="MT4" checked={platform === 'MT4'} onChange={() => setPlatform('MT4')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300" />
-                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">MT4</span>
+                  <input type="radio" name="platform" value="MT4" checked={platform === 'MT4'} onChange={() => setPlatform('MT4')} className="h-4 w-4 text-[#7c3aed] focus:ring-0 border-[#283046] bg-[#0f1527] cursor-pointer" />
+                  <span className="ml-2 text-sm text-gray-300">MT4</span>
                 </label>
                 <label className="inline-flex items-center">
-                  <input type="radio" name="platform" value="MT5" checked={platform === 'MT5'} onChange={() => setPlatform('MT5')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300" />
-                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">MT5</span>
+                  <input type="radio" name="platform" value="MT5" checked={platform === 'MT5'} onChange={() => setPlatform('MT5')} className="h-4 w-4 text-[#7c3aed] focus:ring-0 border-[#283046] bg-[#0f1527] cursor-pointer" />
+                  <span className="ml-2 text-sm text-gray-300">MT5</span>
                 </label>
               </div>
             </div>
 
             {/* MT account details */}
             <div className="mb-6">
-              <label htmlFor="mt-account-id" className="block text-sm font-medium text-gray-700 dark:text-gray-300">MT4/MT5 Account ID</label>
-              <input type="text" id="mt-account-id" className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md" placeholder="Enter your MT account ID" value={mtAccountId} onChange={(e) => setMtAccountId(e.target.value)} />
+              <label htmlFor="mt-account-id" className="block text-sm font-medium text-gray-300">MT4/MT5 Account ID</label>
+              <input type="text" id="mt-account-id" className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3" placeholder="Enter your MT account ID" value={mtAccountId} onChange={(e) => setMtAccountId(e.target.value)} />
             </div>
             <div className="mb-6">
-              <label htmlFor="mt-account-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">MT4/MT5 Account Password</label>
-              <input type="password" id="mt-account-password" className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-md" placeholder="Enter your MT account password" value={mtAccountPassword} onChange={(e) => setMtAccountPassword(e.target.value)} />
+              <label htmlFor="mt-account-password" className="block text-sm font-medium text-gray-300">MT4/MT5 Account Password</label>
+              <input type="password" id="mt-account-password" className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3" placeholder="Enter your MT account password" value={mtAccountPassword} onChange={(e) => setMtAccountPassword(e.target.value)} />
             </div>
 
             {/* Terms */}
             <div className="mb-6">
               <label className="inline-flex items-center">
-                <input type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">I accept the Terms and Conditions</span>
+                <input type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} className="h-4 w-4 text-[#7c3aed] border-[#283046] bg-[#0f1527] rounded" />
+                <span className="ml-2 text-sm text-gray-300">I accept the Terms and Conditions</span>
               </label>
             </div>
 
             {/* Error */}
-            {error && <div className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</div>}
+            {error && <div className="mb-4 text-sm text-red-400">{error}</div>}
 
             <div className="flex justify-end">
-              <button type="submit" disabled={loading || !paymentMethod || !transactionId || !inrAmount || (paymentMethod === 'QR' && !usdAmount) || !file || !platform || !mtAccountId || !mtAccountPassword || !termsAccepted} className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white ${loading || !paymentMethod || !transactionId || !inrAmount || (paymentMethod === 'QR' && !usdAmount) || !file || !platform || !mtAccountId || !mtAccountPassword || !termsAccepted ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              <button type="submit" disabled={loading || !paymentMethod || !transactionId || !inrAmount || (paymentMethod === 'QR' && !usdAmount) || !file || !platform || !mtAccountId || !mtAccountPassword || !termsAccepted} className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg shadow-sm text-white ${loading || !paymentMethod || !transactionId || !inrAmount || (paymentMethod === 'QR' && !usdAmount) || !file || !platform || !mtAccountId || !mtAccountPassword || !termsAccepted ? 'bg-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]'}`}>
                 {loading ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -364,6 +365,21 @@ const TopupDetailsContent: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+
+        {/* Right: Order Summary */}
+        <div className="bg-[#161d31] border border-[#283046] text-white rounded-2xl shadow p-6">
+          <h4 className="text-lg font-semibold mb-4">Order Summary</h4>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between"><span className="text-gray-400">Method</span><span>{paymentMethod || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-400">Amount (₹)</span><span>{inrAmount || '0.00'}</span></div>
+            {paymentMethod === 'QR' && (
+              <div className="flex justify-between"><span className="text-gray-400">Amount ($)</span><span>{usdAmount || '0.00'}</span></div>
+            )}
+            <div className="flex justify-between"><span className="text-gray-400">Fee</span><span>0.00</span></div>
+            <div className="flex justify-between font-semibold"><span>Total</span><span>{paymentMethod === 'QR' ? (usdAmount || '0.00') : (inrAmount || '0.00')}</span></div>
+          </div>
+          <p className="mt-4 text-xs text-gray-400">By continuing, you accept our Terms of Service and Privacy Policy.</p>
         </div>
       </div>
     </div>

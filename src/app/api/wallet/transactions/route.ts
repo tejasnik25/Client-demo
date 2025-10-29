@@ -5,6 +5,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       user_id,
+      user_name,
+      user_email,
       amount,
       transaction_type,
       payment_method,
@@ -29,6 +31,8 @@ export async function POST(request: NextRequest) {
     // Debug payload for diagnosis
     console.log('Create wallet transaction payload', {
       user_id,
+      user_name,
+      user_email,
       amount,
       transaction_type,
       payment_method,
@@ -48,6 +52,8 @@ export async function POST(request: NextRequest) {
 
     const transaction = await createWalletTransaction({
       user_id,
+      user_name,
+      user_email,
       amount,
       transaction_type,
       payment_method,

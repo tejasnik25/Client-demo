@@ -270,6 +270,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                     <TableHead>Payment Method</TableHead>
                     <TableHead>Platform</TableHead>
                     <TableHead>Terms</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Submitted At</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -290,6 +291,15 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                           <Badge>Accepted</Badge>
                         ) : (
                           <Badge variant="secondary">No</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {transaction.status === 'pending' ? (
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">Pending</Badge>
+                        ) : transaction.status === 'completed' ? (
+                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Completed</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">Failed</Badge>
                         )}
                       </TableCell>
                       <TableCell>{formatDate(transaction.created_at)}</TableCell>

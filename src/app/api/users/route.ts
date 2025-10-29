@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const userId = url.searchParams.get('id');
     
     // Use dynamic import to avoid client-side import issues
-    const { getAllUsers, getUserById } = await import('../../../db/dbService');
+    const { getAllUsers, getUserById, readDatabase } = await import('../../../db/dbService');
     
     if (userId) {
       // Get a specific user
@@ -16,12 +16,38 @@ export async function GET(request: NextRequest) {
       if (!user) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
+      // Merge enabled from JSON DB if present
+      try {
+        const db = readDatabase();
+        const jsonUser = db.users.find((u: any) => u.id === userId);
+        if (jsonUser && typeof jsonUser.enabled !== 'undefined') {
+          (user as any).enabled = !!jsonUser.enabled;
+        } else {
+          (user as any).enabled = (user as any).enabled ?? true;
+        }
+      } catch (_) {
+        (user as any).enabled = (user as any).enabled ?? true;
+      }
       return NextResponse.json({ user });
     }
     
     // Get all users
     const users = await getAllUsers();
-    return NextResponse.json({ users });
+    // Add enabled flag for each user from JSON DB if present
+    try {
+      const db = readDatabase();
+      const enabledMap = new Map<string, boolean>();
+      for (const u of db.users) {
+        enabledMap.set(u.id, typeof u.enabled !== 'undefined' ? !!u.enabled : true);
+      }
+      const merged = users.map((u: any) => ({
+        ...u,
+        enabled: typeof u.enabled !== 'undefined' ? !!u.enabled : (enabledMap.get(u.id) ?? true),
+      }));
+      return NextResponse.json({ users: merged });
+    } catch (_) {
+      return NextResponse.json({ users });
+    }
   } catch (error) {
     console.error('Error fetching users:', error);
     return NextResponse.json(
@@ -31,28 +57,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/users - Update user wallet
+// POST /api/users - Reserved for future user updates
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { userId, amount, transactionId, paymentMethod } = body;
-    
-    if (!userId || !amount || !transactionId || !paymentMethod) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
-    
-    // Use dynamic import to avoid client-side import issues
-    const { updateUserWallet } = await import('../../../db/dbService');
-    
-    // Update user wallet
-    const updatedUser = await updateUserWallet(userId, parseFloat(amount), transactionId, paymentMethod);
-    if (!updatedUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-    
-    return NextResponse.json({ user: updatedUser });
-  } catch (error) {
-    console.error('Error updating user wallet:', error);
-    return NextResponse.json({ error: 'Failed to update user wallet' }, { status: 500 });
-  }
+  return NextResponse.json({ error: 'Method not implemented' }, { status: 501 });
 }

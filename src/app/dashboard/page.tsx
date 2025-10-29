@@ -18,73 +18,71 @@ function DashboardPageContent() {
   // Removed analysis history logic
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="w-full py-6 space-y-6">
       {/* Navigation Boxes */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
         <button 
           onClick={() => router.push('/strategies')}
-          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-card shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
+          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-[#161d31] border border-[#283046] text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent group-hover:from-primary/10 transition-colors duration-300"></div>
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors duration-300">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#7367f0]/10 to-transparent group-hover:from-[#7367f0]/20 transition-colors duration-300"></div>
+          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-[#7367f0]/15 text-[#7367f0] group-hover:bg-[#7367f0]/25 transition-colors duration-300">
             <FiTrendingUp className="h-8 w-8" />
           </div>
-          <h3 className="text-base font-medium text-center">Strategies</h3>
-          <p className="text-xs text-muted-foreground text-center mt-1">Explore trading strategies</p>
+          <h3 className="text-base font-medium text-center text-white">Strategies</h3>
+          <p className="text-xs text-gray-300 text-center mt-1">Explore trading strategies</p>
           <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-primary/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
         </button>
         
 
         <button 
           onClick={() => router.push('/wallet')}
-          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-card shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
+          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-[#161d31] border border-[#283046] text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 to-transparent group-hover:from-green-500/10 transition-colors duration-300"></div>
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-green-500/10 text-green-600 group-hover:bg-green-500/20 transition-colors duration-300">
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent group-hover:from-emerald-500/20 transition-colors duration-300"></div>
+          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400 group-hover:bg-emerald-500/25 transition-colors duration-300">
             <FiDollarSign className="h-8 w-8" />
           </div>
-          <h3 className="text-base font-medium text-center">Wallet</h3>
-          <p className="text-xs text-muted-foreground text-center mt-1">Manage your tokens</p>
+          <h3 className="text-base font-medium text-center text-white">Wallet</h3>
+          <p className="text-xs text-gray-300 text-center mt-1">Manage your tokens</p>
           <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-green-500/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
         </button>
         
         <button 
           onClick={() => router.push('/dashboard?tab=profile')}
-          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-card shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
+          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-[#161d31] border border-[#283046] text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent group-hover:from-purple-500/10 transition-colors duration-300"></div>
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-purple-500/10 text-purple-600 group-hover:bg-purple-500/20 transition-colors duration-300">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#7367f0]/10 to-transparent group-hover:from-[#7367f0]/20 transition-colors duration-300"></div>
+          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-[#7367f0]/15 text-[#7367f0] group-hover:bg-[#7367f0]/25 transition-colors duration-300">
             <FiUser className="h-8 w-8" />
           </div>
-          <h3 className="text-base font-medium text-center">Profile</h3>
-          <p className="text-xs text-muted-foreground text-center mt-1">Account settings</p>
+          <h3 className="text-base font-medium text-center text-white">Profile</h3>
+          <p className="text-xs text-gray-300 text-center mt-1">Account settings</p>
           <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-purple-500/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
         </button>
       </div>
       
       <Tabs defaultValue="overview" className="mt-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-4 bg-[#283046] text-gray-200">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="tokens">Buy Tokens</TabsTrigger>
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-6 space-y-4">
-          <Card>
+          <Card className="bg-[#161d31] border border-[#283046] text-white">
             <CardHeader>
-              <CardTitle>Overview</CardTitle>
-              <CardDescription>
-                Quick access to key features
-              </CardDescription>
+              <CardTitle className="text-white">Overview</CardTitle>
+              <CardDescription className="text-gray-300">Quick access to key features</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button onClick={() => router.push('/strategies')} className="w-full">Explore Strategies</Button>
-                <Button onClick={() => router.push('/wallet')} className="w-full">Manage Wallet</Button>
+                <Button onClick={() => router.push('/strategies')} className="w-full bg-[#7367f0] hover:bg-[#6a5ce6] text-white">Explore Strategies</Button>
+                <Button onClick={() => router.push('/wallet')} className="w-full bg-[#283046] text-gray-200 hover:bg-[#2e3650]">Manage Wallet</Button>
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={() => router.push('/strategies')} className="w-full">Get Started</Button>
+              <Button onClick={() => router.push('/strategies')} className="w-full bg-[#7367f0] hover:bg-[#6a5ce6] text-white">Get Started</Button>
             </CardFooter>
           </Card>
         </TabsContent>

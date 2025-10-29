@@ -365,7 +365,12 @@ const StrategyManagement: React.FC = () => {
             <Card key={strategy.id} className="overflow-hidden transition-all duration-300 hover:shadow-md">
               <CardHeader className="pb-2">
                 <div className="flex justify-between items-start">
-                  <CardTitle className="text-xl font-bold">{strategy.name}</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-xl font-bold">{strategy.name}</CardTitle>
+                    <Badge variant="outline" className={strategy.enabled !== false ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-700 border-gray-200'}>
+                      {strategy.enabled !== false ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  </div>
                   <div className="flex space-x-1">
                     <TooltipProvider>
                       <Tooltip>

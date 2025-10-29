@@ -42,9 +42,63 @@
       "email_verified": false,
       "password": "$2b$10$Y0PAuARG21NxO2/FGo5EauLf1FQrFtJIHqcou2onFAr.qIBQpwBXm",
       "role": "USER",
-      "wallet_balance": 0,
+      "wallet_balance": 120,
       "created_at": "2025-10-20T05:46:26.606Z",
-      "updated_at": "2025-10-20T05:46:26.606Z"
+      "updated_at": "2025-10-27T10:26:18.116Z",
+      "enabled": true
+    },
+    {
+      "id": "e37558a2-065f-4bd1-bc62-878dc89ab4e3",
+      "name": "Testing",
+      "email": "testing@gmail.com",
+      "email_verified": false,
+      "password": "$2b$10$YasYKTScg9roSPNwg/RMEuzrIQdL3yCZ7UdfV3/nDXIN3.KQjoNIS",
+      "role": "USER",
+      "wallet_balance": 0,
+      "created_at": "2025-10-24T13:38:22.424Z",
+      "updated_at": "2025-10-24T13:38:22.424Z"
+    }
+  ],
+  "wallet_transactions": [
+    {
+      "id": "trans_1761323979538",
+      "user_id": "1c3789d0-683f-4264-9cfc-aec3b68a8928",
+      "amount": 1.37,
+      "transaction_type": "deposit",
+      "payment_method": "QR",
+      "transaction_id": "af1132ssg",
+      "receipt_path": "Kami_Logo.png",
+      "platform": "MT5",
+      "mt_account_id": "4365498",
+      "mt_account_password": "hghj14",
+      "terms_accepted": true,
+      "inr_amount": 120,
+      "inr_to_usd_rate": 0.0114,
+      "crypto_network": null,
+      "crypto_wallet_address": null,
+      "wallet_app_deeplink": null,
+      "status": "completed",
+      "created_at": "2025-10-24T16:39:39.538Z",
+      "admin_id": "admin123",
+      "updated_at": "2025-10-24T17:37:37.795Z"
+    }
+  ],
+  "strategies": [
+    {
+      "id": "strategy_1761333014393",
+      "name": "Swing Trading",
+      "description": "Focuses on high-growth stocks with strong earnings potential.",
+      "performance": 0,
+      "riskLevel": "Medium",
+      "category": "Value",
+      "imageUrl": "/strategy1.svg",
+      "details": "Buying and selling stocks over days to weeks for profit.",
+      "parameters": {},
+      "contentType": "html",
+      "contentUrl": "/uploads/strategy-320f2df6-85e1-4c72-b3ed-6f639d44ec20.html",
+      "enabled": true,
+      "created_at": "2025-10-24T19:10:14.393Z",
+      "updated_at": "2025-10-24T19:10:14.393Z"
     }
   ]
 }

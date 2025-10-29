@@ -54,6 +54,19 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
+        // Block disabled users based on JSON DB 'enabled' flag
+        try {
+          const { readDatabase } = await import('@/db/dbService');
+          const db = readDatabase();
+          const jsonUser = db.users.find((u: any) => u.id === result.user!.id || u.email === result.user!.email);
+          if (jsonUser && jsonUser.enabled === false) {
+            console.log('Login blocked: user is disabled');
+            return null;
+          }
+        } catch (e) {
+          console.warn('Could not verify enabled status, proceeding by default');
+        }
+
         console.log('Login successful for user:', result.user.email);
         return {
           id: result.user.id,
@@ -92,6 +105,57 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
     updateAge: 24 * 60 * 60,
   },
+  // Configure cookies for session management
+  cookies: (() => {
+    const isSecure = process.env.NODE_ENV === 'production';
+    const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
+    const host = process.env.NEXTAUTH_URL ? new URL(process.env.NEXTAUTH_URL).hostname : undefined;
+    const domain = cookieDomain || host;
+
+    return {
+      sessionToken: {
+        name: isSecure ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+        options: {
+          httpOnly: true,
+          sameSite: 'lax',
+          path: '/',
+          secure: isSecure,
+          domain,
+        },
+      },
+      csrfToken: {
+        // CSRF token must be readable by the client
+        name: isSecure ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token',
+        options: {
+          httpOnly: false,
+          sameSite: 'lax',
+          path: '/',
+          secure: isSecure,
+          domain,
+        },
+      },
+      callbackUrl: {
+        name: isSecure ? '__Secure-next-auth.callback-url' : 'next-auth.callback-url',
+        options: {
+          httpOnly: false,
+          sameSite: 'lax',
+          path: '/',
+          secure: isSecure,
+          domain,
+        },
+      },
+      state: {
+        name: isSecure ? '__Secure-next-auth.state' : 'next-auth.state',
+        options: {
+          httpOnly: false,
+          sameSite: 'lax',
+          path: '/',
+          secure: isSecure,
+          domain,
+        },
+      },
+    };
+  })(),
   secret: process.env.NEXTAUTH_SECRET || 'your-secret-key',
-  trustHost: true,
+  // trustHost: true, // removed – not a valid NextAuth option
 };
