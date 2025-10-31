@@ -18,8 +18,8 @@ export const readDatabase = () => {
     const fs = require('fs');
     const DB_FILE_PATH = path.join(process.cwd(), 'src', 'db', 'database.json');
     
-    // Check if running on Vercel
-    if (process.env.VERCEL === '1') {
+    // Check if running on Vercel (handles both '1' and true values)
+    if (process.env.VERCEL) {
       console.log('Running on Vercel, using in-memory database');
       return { 
         users: [
@@ -102,8 +102,8 @@ export const writeDatabase = (data: any) => {
   }
   
   // Check if we're in Vercel production environment
-  // VERCEL=1 is set in Vercel environment
-  const isVercelProduction = process.env.VERCEL === '1';
+  // VERCEL is set in Vercel environment (could be '1' or true)
+  const isVercelProduction = !!process.env.VERCEL;
   
   // In Vercel production, don't attempt to write to filesystem
   if (isVercelProduction) {

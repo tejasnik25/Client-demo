@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS strategies (
 
 -- Seed Admin User (password: admin123)
 INSERT INTO users (id, name, email, password, role, email_verified, wallet_balance) 
-VALUES ('admin123', 'Admin User', 'admin@example.com', '$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq', 'ADMIN', TRUE, 0.00)
+VALUES ('admin123', 'Admin User', 'admin@stockanalysis.com', '$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq', 'ADMIN', TRUE, 0.00)
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 -- Seed Test User (password: userpass123 - hash this in production!)
