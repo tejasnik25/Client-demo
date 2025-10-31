@@ -11,18 +11,61 @@ export const readDatabase = () => {
   // Prevent client-side usage; this is server-only.
   if (typeof window !== 'undefined') {
     console.warn('readDatabase() is server-only and should not run in the browser.');
-    return { users: [] };
+    return { users: [], wallet_transactions: [], strategies: [] };
   }
   try {
     const path = require('path');
     const fs = require('fs');
     const DB_FILE_PATH = path.join(process.cwd(), 'src', 'db', 'database.json');
+    
+    // Check if file exists first (important for Vercel production)
+    if (!fs.existsSync(DB_FILE_PATH)) {
+      console.warn('Database file not found, using default empty database');
+      return { 
+        users: [
+          // Include admin user in default database to ensure admin access works
+          {
+            id: 'admin123',
+            name: 'Admin User',
+            email: 'admin@stockanalysis.com',
+            password: '$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq', // 'admin123'
+            role: 'ADMIN',
+            wallet_balance: 0,
+            email_verified: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            enabled: true
+          }
+        ], 
+        wallet_transactions: [], 
+        strategies: [] 
+      };
+    }
+    
     const data = fs.readFileSync(DB_FILE_PATH, 'utf8');
     return JSON.parse(data);
   } catch (error) {
     console.error('Error reading database file:', error);
     // Return default structure if file doesn't exist or is invalid
-    return { users: [] };
+    return { 
+      users: [
+        // Include admin user in fallback database
+        {
+          id: 'admin123',
+          name: 'Admin User',
+          email: 'admin@stockanalysis.com',
+          password: '$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq', // 'admin123'
+          role: 'ADMIN',
+          wallet_balance: 0,
+          email_verified: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          enabled: true
+        }
+      ], 
+      wallet_transactions: [], 
+      strategies: [] 
+    };
   }
 };
 
@@ -335,12 +378,13 @@ const addDefaultStrategies = async () => {
   }
 };
 
-// Initialize database on startup (dev-only)
-// Avoid running migrations during Vercel production builds to prevent build-time DB connections.
-const shouldAutoInit = (process.env.NODE_ENV !== 'production') && !process.env.VERCEL;
-if (shouldAutoInit) {
-  // Best-effort init for local dev environments
-  initializeDatabase();
+// Initialize database on startup
+// We need to initialize the database in both development and production
+// But avoid running during build time on Vercel
+const isBuildTime = process.env.VERCEL_ENV === 'production' && process.env.VERCEL_REGION === undefined;
+if (!isBuildTime) {
+  // Initialize database for both development and production runtime
+  initializeDatabase().catch(err => console.error('Database initialization failed:', err));
 }
 
 // Strategy CRUD operations
