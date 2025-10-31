@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import UserLayout from "@/components/UserLayout";
 
-const PaymentStatusPage: React.FC = () => {
+const PaymentStatusInner: React.FC = () => {
   const params = useSearchParams();
   const tx = params.get("tx");
 
@@ -33,4 +34,10 @@ const PaymentStatusPage: React.FC = () => {
   );
 };
 
-export default PaymentStatusPage;
+export default function PaymentStatusPage() {
+  return (
+    <Suspense>
+      <PaymentStatusInner />
+    </Suspense>
+  );
+}

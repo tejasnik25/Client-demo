@@ -1,11 +1,12 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import  Button  from '@/components/ui/Button';
 import UserLayout from '@/components/UserLayout';
 import { useEffect } from 'react';
 
-const PaymentMethodPage = () => {
+const PaymentMethodInner = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const strategyId = searchParams.get('strategyId');
@@ -99,4 +100,11 @@ const PaymentMethodPage = () => {
   );
 };
 
-export default PaymentMethodPage;
+export default function PaymentMethodPage() {
+  // Wrap useSearchParams usage in Suspense per Next.js guidance
+  return (
+    <Suspense>
+      <PaymentMethodInner />
+    </Suspense>
+  );
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -401,7 +401,9 @@ const TopupDetailsContent: React.FC = () => {
 const TopupPage: React.FC = () => {
   return (
     <UserLayout>
-      <TopupDetailsContent />
+      <Suspense>
+        <TopupDetailsContent />
+      </Suspense>
     </UserLayout>
   );
 };
