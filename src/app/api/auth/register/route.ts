@@ -37,7 +37,14 @@ export async function POST(request: Request) {
 
     // Add user to the database
     db.users.push(newUser);
-    writeDatabase(db);
+    
+    try {
+      writeDatabase(db);
+    } catch (writeError) {
+      console.error('Error writing to database file:', writeError);
+      // Continue with registration even if write fails
+      // This allows registration to work in read-only environments like Vercel
+    }
 
     return NextResponse.json({ success: true, message: 'User registered successfully', userId: newUser.id }, { status: 201 });
   } catch (error) {

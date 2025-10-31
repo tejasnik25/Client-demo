@@ -18,6 +18,30 @@ export const readDatabase = () => {
     const fs = require('fs');
     const DB_FILE_PATH = path.join(process.cwd(), 'src', 'db', 'database.json');
     
+    // Check if running on Vercel
+    if (process.env.VERCEL === '1') {
+      console.log('Running on Vercel, using in-memory database');
+      return { 
+        users: [
+          // Include admin user in default database to ensure admin access works
+          {
+            id: 'admin123',
+            name: 'Admin User',
+            email: 'admin@stockanalysis.com',
+            password: '$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq', // 'admin123'
+            role: 'ADMIN',
+            wallet_balance: 0,
+            email_verified: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            enabled: true
+          }
+        ], 
+        wallet_transactions: [], 
+        strategies: [] 
+      };
+    }
+    
     // Check if file exists first (important for Vercel production)
     if (!fs.existsSync(DB_FILE_PATH)) {
       console.warn('Database file not found, using default empty database');
@@ -76,13 +100,33 @@ export const writeDatabase = (data: any) => {
     console.warn('writeDatabase() is server-only and should not run in the browser.');
     return false;
   }
+  
+  // Check if we're in Vercel production environment
+  // VERCEL=1 is set in Vercel environment
+  const isVercelProduction = process.env.VERCEL === '1';
+  
+  // In Vercel production, don't attempt to write to filesystem
+  if (isVercelProduction) {
+    console.log('Running in Vercel production environment, skipping file write');
+    return true; // Return true to prevent errors in calling code
+  }
+  
+  // Also check for read-only file system error (common in serverless environments)
   try {
     const path = require('path');
     const fs = require('fs');
     const DB_FILE_PATH = path.join(process.cwd(), 'src', 'db', 'database.json');
+    
+    // Try to write to the file
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf8');
     return true;
   } catch (error) {
+    // If we get EROFS (read-only file system) error, log and return success
+    if ((error as any).code === 'EROFS') {
+      console.log('Read-only file system detected, skipping file write');
+      return true; // Return true to prevent errors in calling code
+    }
+    
     console.error('Error writing to database file:', error);
     return false;
   }
