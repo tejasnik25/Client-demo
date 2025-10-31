@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs';
 const adminUser = {
   id: 'admin123',
   name: 'Admin User',
-  email: 'admin@example.com',
+  email: 'admin@stockanalysis.com',
   password: '$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq', // 'admin123'
   role: 'ADMIN',
 };

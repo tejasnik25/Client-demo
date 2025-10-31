@@ -231,7 +231,7 @@ export default function AdminLoginPage() {
             <div className="mt-4 p-3 rounded-lg bg-slate-700/50 border border-slate-600 mx-4">
               <p className="text-slate-300 font-medium text-xs uppercase tracking-wider mb-2">Admin Test Credentials</p>
               <p className="text-xs text-slate-400">
-                Email: <span className="font-mono bg-slate-600/50 px-2 py-1 rounded text-blue-300">admin@example.com</span><br/>
+                Email: <span className="font-mono bg-slate-600/50 px-2 py-1 rounded text-blue-300">admin@stockanalysis.com</span><br/>
                 Password: <span className="font-mono bg-slate-600/50 px-2 py-1 rounded text-blue-300">admin123</span>
               </p>
             </div>
