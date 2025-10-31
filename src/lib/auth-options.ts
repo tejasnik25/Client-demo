@@ -124,57 +124,8 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
     updateAge: 24 * 60 * 60,
   },
-  // Configure cookies for session management
-  cookies: (() => {
-    const isSecure = process.env.NODE_ENV === 'production';
-    const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
-    const host = process.env.NEXTAUTH_URL ? new URL(process.env.NEXTAUTH_URL).hostname : undefined;
-    const domain = cookieDomain || host;
-
-    return {
-      sessionToken: {
-        name: isSecure ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
-        options: {
-          httpOnly: true,
-          sameSite: 'lax',
-          path: '/',
-          secure: isSecure,
-          domain,
-        },
-      },
-      csrfToken: {
-        // CSRF token must be readable by the client
-        name: isSecure ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token',
-        options: {
-          httpOnly: false,
-          sameSite: 'lax',
-          path: '/',
-          secure: isSecure,
-          domain,
-        },
-      },
-      callbackUrl: {
-        name: isSecure ? '__Secure-next-auth.callback-url' : 'next-auth.callback-url',
-        options: {
-          httpOnly: false,
-          sameSite: 'lax',
-          path: '/',
-          secure: isSecure,
-          domain,
-        },
-      },
-      state: {
-        name: isSecure ? '__Secure-next-auth.state' : 'next-auth.state',
-        options: {
-          httpOnly: false,
-          sameSite: 'lax',
-          path: '/',
-          secure: isSecure,
-          domain,
-        },
-      },
-    };
-  })(),
+  // Use NextAuth default cookies to avoid domain mismatch issues in serverless
   secret: process.env.NEXTAUTH_SECRET || 'your-secret-key',
-  // trustHost: true, // removed – not a valid NextAuth option
+  // Allow dynamic hosts in serverless environments like Vercel
+  trustHost: true,
 };
