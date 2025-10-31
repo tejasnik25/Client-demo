@@ -102,11 +102,17 @@ const PaymentNotifications: React.FC<PaymentNotificationsProps> = ({ className }
   const handleRejectPayment = async (notificationId: string) => {
     try {
       setLoading(true);
+      const reason = typeof window !== 'undefined' ? window.prompt('Enter rejection reason:') : '';
+      if (reason === null || !reason || reason.trim().length === 0) {
+        setLoading(false);
+        return;
+      }
       const response = await fetch(`/api/admin/payments/${notificationId}/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ rejectionReason: reason })
       });
 
       if (response.ok) {

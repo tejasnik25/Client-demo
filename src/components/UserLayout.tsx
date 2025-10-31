@@ -4,13 +4,15 @@
 import React, { useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
-import { SidebarProvider } from '@/components/ui/Sidebar';
+import { UserSidebar } from '@/components/ui/UserSidebar';
+import { UserHeader } from '@/components/ui/UserHeader';
 import Button from '@/components/ui/Button';
 import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { FiHome, FiTrendingUp, FiDollarSign, FiUser, FiLogOut, FiMenu } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiDollarSign, FiUser, FiLogOut, FiMenu, FiCreditCard, FiActivity } from 'react-icons/fi';
 
 interface UserLayoutProps {
   children: React.ReactNode;
@@ -79,145 +81,94 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
   const navigationItems = [
     { id: 'dashboard', icon: <FiHome className="h-5 w-5" />, label: 'Dashboard', path: '/dashboard' },
     { id: 'strategies', icon: <FiTrendingUp className="h-5 w-5" />, label: 'Strategies', path: '/strategies' },
-    { id: 'payments', icon: <FiDollarSign className="h-5 w-5" />, label: 'Payments', path: '/wallet/topup' },
+    { id: 'running', icon: <FiActivity className="h-5 w-5" />, label: 'Running Strategies', path: '/strategies/running' },
+    { id: 'billing', icon: <FiCreditCard className="h-5 w-5" />, label: 'Billing', path: '/profile/billing' },
     { id: 'profile', icon: <FiUser className="h-5 w-5" />, label: 'Profile', path: '/dashboard?tab=profile' },
   ];
 
-  // ── Desktop Sidebar ─────────────────────────────────────
+  // ── Desktop Sidebar (Admin Style) ─────────────────────────────────────
   const DesktopSidebar = () => (
-    <aside className="flex w-20 flex-col h-screen bg-[#161d31] border-r border-[#3b4253] text-gray-200">
-      {/* Logo */}
-      <div className="flex items-center justify-center px-3 py-5">
-        <Image src="/stock-chart.svg" alt="Logo" width={36} height={36} />
-      </div>
-
-      {/* Nav (icon-only) */}
-      <nav className="flex-1 overflow-y-auto px-2">
-        <div className="space-y-2">
-          {navigationItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => router.push(item.path)}
-              className={`group flex w-full items-center justify-center rounded-xl p-3 transition-all ${
-                pathname === item.path.split('?')[0]
-                  ? 'bg-[#7367f0] text-white shadow-md'
-                  : 'text-gray-300 hover:bg-[#1f243a] hover:text-white'
-              }`}
-              aria-label={item.label}
-            >
-              <span className="transition-transform group-hover:scale-110">{item.icon}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      {/* Footer (empty) */}
-      <div className="border-t border-[#3b4253] p-3">
-        {/* Logout button removed and moved to header */}
-      </div>
-    </aside>
+    <UserSidebar onLogout={handleLogout} />
   );
 
-  // ── Mobile Sidebar ──────────────────────────────────────
+  // ── Mobile Sidebar (Admin Style) ─────────────────────────────────────────────
   const MobileSidebar = () => (
-    <div className="flex h-full flex-col bg-[#161d31] text-white">
-      <div className="flex items-center gap-2 border-b border-[#3b4253] p-4">
-        <Image src="/stock-chart.svg" alt="Logo" width={40} height={40} />
-        <h1 className="text-xl font-bold">FusionX</h1>
+    <div className="flex h-full flex-col bg-white dark:bg-gray-800">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex h-8 w-8 items-center justify-center rounded bg-gradient-to-r from-blue-600 to-purple-600">
+          <FiTrendingUp className="h-4 w-4 text-white" />
+        </div>
+        <span className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">FusionX</span>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-2">
-        <div className="space-y-1">
-          {navigationItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => router.push(item.path)}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all ${
-                pathname === item.path.split('?')[0]
-                  ? 'bg-gradient-to-r from-[#6b59f7] to-[#7a6df4] text-white'
-                  : 'text-gray-300 hover:bg-[#1f243a] hover:text-white'
-              }`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
+      {/* Navigation */}
+       <nav className="flex-1 space-y-1 p-4">
+         {navigationItems.map((item) => (
+           <Link
+             key={item.path}
+             href={item.path}
+             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+               pathname === item.path.split('?')[0] || (item.path.includes('strategies') && pathname.startsWith('/strategies'))
+                 ? 'bg-blue-600 text-white'
+                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+             }`}
+           >
+             {item.icon}
+             {item.label}
+           </Link>
+         ))}
+       </nav>
 
-      <div className="border-t border-[#3b4253] p-4">
-        <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm text-gray-300">Theme</span>
-          <ThemeColorToggle />
-        </div>
+      {/* Logout */}
+      <div className="border-t border-gray-200 dark:border-gray-700 p-4">
         <Button
+          variant="outline"
+          className="w-full justify-start gap-3 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
           onClick={handleLogout}
-          className="w-full bg-[#7367f0] text-white hover:bg-[#5e50ee]"
         >
-          <FiLogOut className="mr-2 h-4 w-4" />
+          <FiLogOut className="h-4 w-4" />
           Logout
         </Button>
       </div>
     </div>
   );
 
-  // ── Render ─────────────────────────────────────────────
+  // ── Render (Admin Style Layout) ─────────────────────────────────────────────
   return (
-    <SidebarProvider defaultOpen={false}>
-      <div className="flex min-h-screen bg-[#0f1527]">
-        {/* Mobile Header */}
-        {isMobile && (
-          <header className="sticky top-0 z-50 flex w-full items-center justify-between bg-[#283046] p-4 text-white">
-            <h1 className="text-xl font-bold">FusionX</h1>
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button className="p-2 bg-[#7367f0] text-white hover:bg-[#5e50ee]">
-                  <FiMenu className="h-5 w-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-[85vw] max-w-xs p-0">
-                <SheetTitle className="sr-only">Menu</SheetTitle>
-                <MobileSidebar />
-              </SheetContent>
-            </Sheet>
-          </header>
-        )}
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+      {/* Mobile Header */}
+      {isMobile && (
+        <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
+          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">FusionX</h1>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button className="p-2 bg-blue-600 text-white hover:bg-blue-700">
+                <FiMenu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-[85vw] max-w-xs p-0">
+              <SheetTitle className="sr-only">Menu</SheetTitle>
+              <MobileSidebar />
+            </SheetContent>
+          </Sheet>
+        </header>
+      )}
 
-        {/* Desktop Sidebar */}
-        <DesktopSidebar />
+      {/* Desktop Sidebar */}
+      {!isMobile && <DesktopSidebar />}
 
-        {/* Main Content – FULL WIDTH */}
-        <main className="flex-1">
-          {/* Desktop page header (title + welcome) */}
-          {!isMobile && (
-            <div className="flex items-center justify-between border-b border-[#283046] px-6 py-4">
-              <h1 className="text-2xl font-bold text-white">
-                {pathname
-                  ? (pathname.split('/').pop() || 'Dashboard').charAt(0).toUpperCase() +
-                    (pathname.split('/').pop() || 'Dashboard').slice(1)
-                  : 'Dashboard'}
-              </h1>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-300">
-                  Welcome, {session?.user?.name || 'User'}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-white"
-                  onClick={handleLogout}
-                >
-                  <FiLogOut className="h-5 w-5" />
-                </Button>
-              </div>
-            </div>
-          )}
+      {/* Main Content Area */}
+      <div className={`flex flex-col flex-1 overflow-hidden ${isMobile ? 'pt-16' : ''}`}>
+        {/* Desktop Header */}
+        {!isMobile && <UserHeader />}
 
-          {/* Children – no padding, full width */}
-          <div className="h-full w-full">{children}</div>
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto p-4 bg-gray-100 dark:bg-gray-900">
+          {children}
         </main>
       </div>
-    </SidebarProvider>
+    </div>
   );
 };
 

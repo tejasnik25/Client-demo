@@ -1,0 +1,96 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { 
+  FiHome, 
+  FiTrendingUp, 
+  FiDollarSign, 
+  FiUser, 
+  FiLogOut,
+  FiCreditCard,
+  FiActivity
+} from 'react-icons/fi';
+
+type NavItemProps = {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+};
+
+const NavItem = ({ href, icon, label, active }: NavItemProps) => {
+  return (
+    <Link 
+      href={href}
+      className={`flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${active 
+        ? 'bg-blue-600 text-white' 
+        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800'}`}
+    >
+      <span className="mr-3">{icon}</span>
+      <span>{label}</span>
+    </Link>
+  );
+};
+
+interface UserSidebarProps {
+  onLogout: () => void;
+}
+
+export function UserSidebar({ onLogout }: UserSidebarProps) {
+  const pathname = usePathname();
+
+  return (
+    <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+          FusionX
+        </h1>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Trading Platform</p>
+      </div>
+      
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        <NavItem 
+          href="/dashboard" 
+          icon={<FiHome size={18} />} 
+          label="Dashboard" 
+          active={pathname === '/dashboard'} 
+        />
+        <NavItem 
+          href="/strategies" 
+          icon={<FiTrendingUp size={18} />} 
+          label="Strategies" 
+          active={pathname.startsWith('/strategies')} 
+        />
+        <NavItem 
+          href="/strategies/running" 
+          icon={<FiActivity size={18} />} 
+          label="Running Strategies" 
+          active={pathname === '/strategies/running'} 
+        />
+        <NavItem 
+          href="/profile/billing" 
+          icon={<FiCreditCard size={18} />} 
+          label="Billing" 
+          active={pathname === '/profile/billing'} 
+        />
+        <NavItem 
+          href="/dashboard?tab=profile" 
+          icon={<FiUser size={18} />} 
+          label="Profile" 
+          active={pathname === '/dashboard' && typeof window !== 'undefined' && window.location.search.includes('tab=profile')} 
+        />
+      </nav>
+      
+      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+        <button
+          onClick={onLogout}
+          className="flex items-center w-full px-4 py-2 text-sm text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+        >
+          <FiLogOut size={18} className="mr-3" />
+          <span>Logout</span>
+        </button>
+      </div>
+    </div>
+  );
+}

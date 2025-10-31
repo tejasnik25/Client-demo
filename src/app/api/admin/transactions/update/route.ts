@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     // Get request body
     const body = await req.json();
-    const { transactionId, status, tokensToAdd = 0, adminId } = body;
+    const { transactionId, status, tokensToAdd = 0, adminId, rejectionReason } = body;
 
     // Validate required fields
     if (!transactionId || !status) {
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Update transaction status
-    const result = await updateTransactionStatus(transactionId, status, adminId || session.user.id);
+    const result = await updateTransactionStatus(transactionId, status, adminId || session.user.id, tokensToAdd, rejectionReason);
     
     if (!result.success || !result.transaction) {
       return NextResponse.json(
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
         await sendEmailNotification(
           user.email,
           'Payment Verification Failed',
-          `We regret to inform you that your payment of $${result.transaction.amount} could not be verified.\nPlease check the transaction details and try again.\n\nIf you believe this is an error, please contact our support team.`
+          `We regret to inform you that your payment of $${result.transaction.amount} could not be verified.${rejectionReason ? `\nReason: ${rejectionReason}` : ''}\n\nPlease check the transaction details and try again.\n\nIf you believe this is an error, please contact our support team.`
         );
       }
     } catch (emailError) {

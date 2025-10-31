@@ -11,6 +11,9 @@ const TopupDetailsContent: React.FC = () => {
   const router = useRouter();
   const params = useSearchParams();
   const methodParam = params.get('method') as 'QR' | 'USDT_ERC20' | 'USDT_TRC20' | null;
+  const strategyIdParam = params.get('strategyId');
+  const planParam = params.get('plan'); // 'premium' | 'expert' | 'pro'
+  const amountParam = params.get('amount');
   const { user } = useAuth();
 
   const [transactionId, setTransactionId] = useState('');
@@ -34,6 +37,13 @@ const TopupDetailsContent: React.FC = () => {
   const WALLET_APP_DEEPLINK = process.env.NEXT_PUBLIC_USDT_WALLET_APP_LINK || '';
 
   const paymentMethod = useMemo(() => methodParam, [methodParam]);
+
+  // Prefill amount and lock editing if provided via query
+  useEffect(() => {
+    if (amountParam) {
+      setInrAmount(amountParam);
+    }
+  }, [amountParam]);
 
   useEffect(() => {
     if (paymentMethod !== 'QR') return;
@@ -135,36 +145,40 @@ const TopupDetailsContent: React.FC = () => {
     try {
       if (user) {
         const amountValue = paymentMethod === 'QR' ? parseFloat(usdAmount) : parseFloat(inrAmount);
-        const response = await fetch('/api/wallet/transactions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: user.id,
-            user_name: user.name,
-            user_email: user.email,
-            amount: amountValue,
-            transaction_type: 'deposit',
-            payment_method: paymentMethod,
-            transaction_id: transactionId,
-            receipt_path: file ? file.name : null,
-            platform,
-            mt_account_id: mtAccountId,
-            mt_account_password: mtAccountPassword,
-            terms_accepted: termsAccepted,
-            status: 'pending',
-            inr_amount: parseFloat(inrAmount),
-            inr_to_usd_rate: inrToUsdRate,
-            crypto_network: paymentMethod === 'USDT_ERC20' ? 'ERC20' : paymentMethod === 'USDT_TRC20' ? 'TRC20' : null,
-            crypto_wallet_address: paymentMethod === 'USDT_ERC20' ? USDT_ERC20_ADDRESS : paymentMethod === 'USDT_TRC20' ? USDT_TRC20_ADDRESS : null,
-            wallet_app_deeplink: paymentMethod?.startsWith('USDT') ? WALLET_APP_DEEPLINK : null,
-          }),
-        });
+      const response = await fetch('/api/wallet/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          user_name: user.name,
+          user_email: user.email,
+          amount: amountValue,
+          transaction_type: 'deposit',
+          payment_method: paymentMethod,
+          transaction_id: transactionId,
+          receipt_path: file ? file.name : null,
+          platform,
+          mt_account_id: mtAccountId,
+          mt_account_password: mtAccountPassword,
+          terms_accepted: termsAccepted,
+          status: 'pending',
+          strategy_id: strategyIdParam || undefined,
+          plan_level: planParam ? planParam.toUpperCase() : undefined,
+          inr_amount: parseFloat(inrAmount),
+          inr_to_usd_rate: inrToUsdRate,
+          crypto_network: paymentMethod === 'USDT_ERC20' ? 'ERC20' : paymentMethod === 'USDT_TRC20' ? 'TRC20' : null,
+          crypto_wallet_address: paymentMethod === 'USDT_ERC20' ? USDT_ERC20_ADDRESS : paymentMethod === 'USDT_TRC20' ? USDT_TRC20_ADDRESS : null,
+          wallet_app_deeplink: paymentMethod?.startsWith('USDT') ? WALLET_APP_DEEPLINK : null,
+        }),
+      });
 
         if (!response.ok) throw new Error('Failed to create transaction');
         const transactionResult = await response.json();
         if (transactionResult.success) {
           setSuccess(true);
-          setTimeout(() => router.push('/dashboard'), 2000);
+          const txId = transactionResult.transaction?.id;
+          const url = txId ? `/wallet/payment-status?tx=${encodeURIComponent(txId)}` : '/wallet/payment-status';
+          setTimeout(() => router.push(url), 1200);
         } else {
           setError('Failed to create transaction. Please try again.');
         }
@@ -250,6 +264,7 @@ const TopupDetailsContent: React.FC = () => {
                 onChange={(e) => setInrAmount(e.target.value)}
                 min="1"
                 step="0.01"
+                disabled={!!amountParam}
               />
               {paymentMethod === 'QR' && (
                 <>
@@ -373,11 +388,8 @@ const TopupDetailsContent: React.FC = () => {
           <div className="space-y-3 text-sm">
             <div className="flex justify-between"><span className="text-gray-400">Method</span><span>{paymentMethod || '—'}</span></div>
             <div className="flex justify-between"><span className="text-gray-400">Amount (₹)</span><span>{inrAmount || '0.00'}</span></div>
-            {paymentMethod === 'QR' && (
-              <div className="flex justify-between"><span className="text-gray-400">Amount ($)</span><span>{usdAmount || '0.00'}</span></div>
-            )}
             <div className="flex justify-between"><span className="text-gray-400">Fee</span><span>0.00</span></div>
-            <div className="flex justify-between font-semibold"><span>Total</span><span>{paymentMethod === 'QR' ? (usdAmount || '0.00') : (inrAmount || '0.00')}</span></div>
+            <div className="flex justify-between font-semibold"><span>Total</span><span>{inrAmount || '0.00'}</span></div>
           </div>
           <p className="mt-4 text-xs text-gray-400">By continuing, you accept our Terms of Service and Privacy Policy.</p>
         </div>

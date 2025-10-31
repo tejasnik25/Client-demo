@@ -32,6 +32,7 @@ interface Transaction {
   created_at: string;
   updated_at?: string;
   admin_id?: string;
+  rejection_reason?: string;
   user?: {
     name: string;
     email: string;
@@ -53,10 +54,9 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
-  const [tokenAmount, setTokenAmount] = useState<string>(''); // Keep as string for input
   const [actionType, setActionType] = useState<'approve' | 'reject' | null>(null);
   const [processingAction, setProcessingAction] = useState(false);
-  const [showTokenDialog, setShowTokenDialog] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState<string>('');
 
   useEffect(() => {
     fetchPendingTransactions();
@@ -103,20 +103,24 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
     setError(null);
 
     try {
-      const tokens = actionType === 'approve' ? (parseInt(tokenAmount) || 0) : 0;
-      
-      const response = await fetch('/api/admin/transactions/update', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          transactionId: selectedTransaction.id,
-          status: actionType === 'approve' ? 'completed' : 'failed',
-          tokensToAdd: tokens,
-          adminId: session?.user?.id
-        }),
-      });
+      let response: Response;
+      if (actionType === 'approve') {
+        // Use dedicated approve endpoint which credits tokens equal to amount
+        response = await fetch(`/api/admin/payments/${selectedTransaction.id}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } else {
+        // Reject with a required reason
+        if (!rejectionReason || rejectionReason.trim().length === 0) {
+          throw new Error('Please provide a rejection reason');
+        }
+        response = await fetch(`/api/admin/payments/${selectedTransaction.id}/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rejectionReason }),
+        });
+      }
 
       if (!response.ok) {
         throw new Error('Failed to update transaction');
@@ -129,13 +133,13 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
       
       // Close dialog
       setActionDialogOpen(false);
-      setShowTokenDialog(false);
+      setRejectionReason('');
       
       toast({ 
         variant: 'default', 
         title: 'Success', 
         description: actionType === 'approve' 
-          ? `Transaction approved${tokens > 0 ? ` and ${tokens} tokens added to user account` : ''}` 
+          ? `Transaction approved and tokens credited to user account` 
           : 'Transaction rejected successfully'
       });
     } catch (err) {
@@ -187,16 +191,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
   const handleActionDialogOpen = (transaction: Transaction, action: 'approve' | 'reject') => {
     setSelectedTransaction(transaction);
     setActionType(action);
-    if (action === 'approve') {
-      setTokenAmount(''); // Reset token amount
-      setShowTokenDialog(true); // Show token dialog first
-    } else {
-      setActionDialogOpen(true);
-    }
-  };
-  
-  const handleTokenConfirm = () => {
-    setShowTokenDialog(false);
+    setRejectionReason('');
     setActionDialogOpen(true);
   };
 
@@ -350,6 +345,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                                   size="sm"
                                   className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                                   onClick={() => handleActionDialogOpen(transaction, 'approve')}
+                                  disabled={transaction.status !== 'pending'}
                                 >
                                   <Check className="h-4 w-4" />
                                 </Button>
@@ -368,6 +364,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                                   size="sm"
                                   className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
                                   onClick={() => handleActionDialogOpen(transaction, 'reject')}
+                                  disabled={transaction.status !== 'pending'}
                                 >
                                   <X className="h-4 w-4" />
                                 </Button>
@@ -433,39 +430,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
         </DialogFooter>
       </Dialog>
 
-      {/* Token Allocation Dialog */}
-      <Dialog open={showTokenDialog} onOpenChange={setShowTokenDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Allocate Tokens</DialogTitle>
-            <DialogDescription>
-              Specify the number of tokens to add to the user's account
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="tokenAmount" className="text-right">
-                Tokens
-              </Label>
-              <Input
-                id="tokenAmount"
-                type="number"
-                value={tokenAmount}
-                onChange={(e) => setTokenAmount(e.target.value)}
-                className="col-span-3"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowTokenDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleTokenConfirm}>
-              Continue
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Removed Token Allocation Dialog: tokens are auto-credited on approval */}
 
       {/* Action Dialog */}
       <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
@@ -476,8 +441,8 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
             </DialogTitle>
             <DialogDescription>
               {actionType === 'approve'
-                ? `Approve this payment and add ${tokenAmount} tokens to the user's account`
-                : 'Are you sure you want to reject this payment?'}
+                ? `Approve this payment and credit tokens equal to the payment amount`
+                : 'Provide a reason and confirm rejection of this payment.'}
             </DialogDescription>
           </DialogHeader>
           
@@ -504,6 +469,18 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                   </span>
                 </div>
               </div>
+              {actionType === 'reject' && (
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="rejectionReason" className="text-right">Reason</Label>
+                  <Input
+                    id="rejectionReason"
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="Enter rejection reason"
+                    className="col-span-3"
+                  />
+                </div>
+              )}
             </div>
           )}
           
@@ -514,7 +491,7 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
             <Button 
               onClick={handleTransactionAction} 
               variant={actionType === 'approve' ? 'default' : 'primary'}
-              disabled={processingAction}
+              disabled={processingAction || (actionType === 'reject' && (!rejectionReason || rejectionReason.trim().length === 0))}
             >
               {processingAction ? (
                 <>

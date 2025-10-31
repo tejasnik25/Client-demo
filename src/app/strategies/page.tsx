@@ -1,6 +1,6 @@
 // app/strategies/page.tsx
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -9,6 +9,7 @@ import Tabs, { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import UserLayout from '@/components/UserLayout';
 import { FiInfo, FiPlay } from 'react-icons/fi';
+import { useAuth } from '@/hooks/use-auth';
 
 interface Strategy {
   id: string;
@@ -27,12 +28,17 @@ interface Strategy {
 
 const StrategiesPage: React.FC = () => {
   const { data: session } = useSession();
+  const { user } = useAuth();
   const router = useRouter();
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
+  const [planDialogOpen, setPlanDialogOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<'Premium' | 'Expert' | 'Pro' | null>(null);
   const [activeTab, setActiveTab] = useState('all');
   const [topTab, setTopTab] = useState<'explore' | 'deployed'>('explore');
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [txs, setTxs] = useState<any[]>([]);
+  const [loadingTxs, setLoadingTxs] = useState(true);
 
   useEffect(() => {
     const fetchStrategies = async () => {
@@ -52,13 +58,68 @@ const StrategiesPage: React.FC = () => {
     fetchStrategies();
   }, []);
 
+  // Fetch user transactions for deployed strategies view
+  useEffect(() => {
+    const fetchTxs = async () => {
+      try {
+        setLoadingTxs(true);
+        const res = await fetch('/api/wallet/transactions');
+        const data = await res.json();
+        setTxs(data?.transactions || []);
+      } catch {
+        setTxs([]);
+      } finally {
+        setLoadingTxs(false);
+      }
+    };
+    fetchTxs();
+  }, []);
+
+  const stratById = useMemo(() => {
+    const map = new Map<string, Strategy>();
+    strategies.forEach(s => map.set(s.id, s as any));
+    return map;
+  }, [strategies]);
+
+  const approvedMine = useMemo(() => {
+    if (!user) return [] as any[];
+    return txs.filter((t: any) => t.user_id === user.id && t.status === 'completed' && t.strategy_id);
+  }, [txs, user]);
+
   const handleViewInfo = (s: Strategy) => {
     if (!session) return router.push('/login?redirect=/strategies');
     setSelectedStrategy(s);
   };
 
   const handleDeploy = (s: Strategy) => {
-    router.push(`/dashboard?tab=chat&strategy=${s.id}`);
+    if (!session) return router.push('/login?redirect=/strategies');
+    setSelectedStrategy(s);
+    setPlanDialogOpen(true);
+  };
+
+  const getPlanPrices = (s: Strategy | null) => {
+    if (!s) return { Premium: 5000, Expert: 10000, Pro: 20000 };
+    const params = s.parameters || {} as Record<string, string>;
+    const parseNum = (v?: string) => {
+      const n = v ? parseFloat(v) : NaN;
+      return isNaN(n) ? undefined : n;
+    };
+    const premium = parseNum(params['premium_price']);
+    const expert = parseNum(params['expert_price']);
+    const pro = parseNum(params['pro_price']);
+    return {
+      Premium: premium ?? 5000,
+      Expert: expert ?? 10000,
+      Pro: pro ?? 20000,
+    };
+  };
+
+  const confirmPlanAndRedirect = () => {
+    if (!selectedStrategy || !selectedPlan) return;
+    const prices = getPlanPrices(selectedStrategy);
+    const amount = prices[selectedPlan];
+    const planParam = selectedPlan.toLowerCase();
+    router.push(`/payment/method?strategyId=${encodeURIComponent(selectedStrategy.id)}&plan=${encodeURIComponent(planParam)}&amount=${encodeURIComponent(amount)}`);
   };
 
   const filtered = activeTab === 'all'
@@ -148,12 +209,61 @@ const StrategiesPage: React.FC = () => {
       {/* Strategy Cards - Full Width */}
       <div className="px-6 pb-10 space-y-4">
         {topTab === 'deployed' ? (
-          <div className="text-center py-16 text-gray-400 bg-[#1a1f2e] rounded-2xl border border-[#283046]">
-            <div className="flex items-center justify-center mb-4">
-              <Image src="/file.svg" alt="No Data" width={64} height={64} />
+          loadingTxs ? (
+            <div className="text-gray-400">Loading...</div>
+          ) : approvedMine.length === 0 ? (
+            <div className="text-center py-16 text-gray-400 bg-[#1a1f2e] rounded-2xl border border-[#283046]">
+              <div className="flex items-center justify-center mb-4">
+                <Image src="/file.svg" alt="No Data" width={64} height={64} />
+              </div>
+              <div className="text-sm">No deployed strategies yet.</div>
             </div>
-            <div className="text-sm">No Data Found</div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              {approvedMine.map((tx: any) => {
+                const s = tx.strategy_id ? stratById.get(tx.strategy_id) : undefined;
+                if (!s) return null;
+                return (
+                  <div key={tx.id} className="group bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046]">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                      <div className="flex items-start gap-4 flex-1">
+                        <div className="w-14 h-14 bg-gradient-to-br from-[#7c3aed] to-[#a855f7] rounded-xl flex items-center justify-center p-2">
+                          <div className="w-8 h-8 bg-white/20 rounded" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-lg font-semibold">{s.name}</h4>
+                            <span className="text-xs text-gray-500">Plan: {tx.plan_level ?? '—'}</span>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <span className="text-xs px-2 py-1 bg-[#283046] rounded-full uppercase">{s.category}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              s.riskLevel === 'High' ? 'bg-red-900/30 text-red-300' :
+                              s.riskLevel === 'Medium' ? 'bg-yellow-900/30 text-yellow-300' :
+                              'bg-green-900/30 text-green-300'
+                            }`}>
+                              {s.riskLevel}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-gray-400">{s.description}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-8 text-sm">
+                        <div>
+                          <div className="text-gray-500">Performance</div>
+                          <div className="font-bold text-white">{s.performance}%</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">Risk Level</div>
+                          <div className="font-bold text-white">{s.riskLevel}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
         ) : loading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="animate-pulse bg-[#1a1f2e] rounded-2xl p-6 space-y-3">
@@ -275,6 +385,42 @@ const StrategiesPage: React.FC = () => {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Plan Selection Dialog */}
+      <Dialog open={planDialogOpen} onOpenChange={(o) => setPlanDialogOpen(o)}>
+        <DialogContent className="max-w-lg bg-[#161d31] text-white border-[#283046]">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Select a Plan</DialogTitle>
+            <DialogDescription className="text-gray-400">Choose Premium, Expert, or Pro to continue.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {(['Premium','Expert','Pro'] as const).map((plan) => {
+              const prices = getPlanPrices(selectedStrategy);
+              const amt = prices[plan];
+              const active = selectedPlan === plan;
+              return (
+                <button
+                  key={plan}
+                  onClick={() => setSelectedPlan(plan)}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition ${active ? 'border-[#a855f7] bg-[#1a1f2e]' : 'border-[#283046] bg-[#161d31] hover:bg-[#1a1f2e]'}`}
+                >
+                  <span className="font-medium">{plan}</span>
+                  <span className="text-sm text-gray-300">₹ {amt.toLocaleString()}</span>
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={!selectedPlan}
+              className={`px-4 py-2 rounded-lg ${selectedPlan ? 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]' : 'bg-gray-600 cursor-not-allowed'}`}
+              onClick={confirmPlanAndRedirect}
+            >
+              Continue to Payment
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

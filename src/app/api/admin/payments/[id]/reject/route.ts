@@ -17,9 +17,11 @@ export async function POST(
     }
 
     const transactionId = params.id;
+    const body = await request.json().catch(() => ({}));
+    const { rejectionReason } = body as { rejectionReason?: string };
     
     // Update transaction status to failed (rejected)
-    const updateResult = await updateTransactionStatus(transactionId, 'failed', session.user.id);
+    const updateResult = await updateTransactionStatus(transactionId, 'failed', session.user.id, undefined, rejectionReason);
     
     if (!updateResult.success || !updateResult.transaction) {
       return NextResponse.json(

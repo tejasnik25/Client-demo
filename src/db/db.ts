@@ -3,6 +3,11 @@ import { config } from 'dotenv';
 
 config(); // Load environment variables from .env file
 
+// Optional TLS/SSL support via envs
+const useSSL = (process.env.DB_SSL === 'true' || process.env.DB_SSL === '1');
+const rejectUnauthorized = (process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true' || process.env.DB_SSL_REJECT_UNAUTHORIZED === '1');
+const sslConfig = useSSL ? { rejectUnauthorized } : undefined;
+
 // Create a connection pool
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -13,6 +18,7 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  ...(sslConfig ? { ssl: sslConfig as any } : {}),
 });
 
 export default pool;

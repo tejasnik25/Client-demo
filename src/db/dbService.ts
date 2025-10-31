@@ -71,6 +71,8 @@ type WalletTransaction = {
   mt_account_id?: string;
   mt_account_password?: string; // Stored as plain text per requirement
   terms_accepted?: boolean;
+  strategy_id?: string;
+  plan_level?: 'Premium' | 'Expert' | 'Pro';
   // New optional fields
   inr_amount?: number;
   inr_to_usd_rate?: number;
@@ -79,6 +81,7 @@ type WalletTransaction = {
   wallet_app_deeplink?: string;
   status: 'pending' | 'completed' | 'failed';
   admin_id?: string;
+  rejection_reason?: string;
   created_at: string;
   updated_at?: string;
 };
@@ -131,8 +134,11 @@ const initializeDatabase = async () => {
         mt_account_id VARCHAR(255),
         mt_account_password VARCHAR(255),
         terms_accepted BOOLEAN DEFAULT FALSE,
+        strategy_id VARCHAR(255),
+        plan_level ENUM('Premium','Expert','Pro'),
         status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
         admin_id VARCHAR(255),
+        rejection_reason TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -162,6 +168,8 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_id VARCHAR(255)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_password VARCHAR(255)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN terms_accepted BOOLEAN DEFAULT FALSE"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN strategy_id VARCHAR(255)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN plan_level ENUM('Premium','Expert','Pro')"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN admin_id VARCHAR(255)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch (e) {}
     // Add INR/USDT columns for new payment flows
@@ -170,6 +178,7 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_network ENUM('ERC20','TRC20')"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
     // Add strategy columns if missing
     try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_type VARCHAR(16)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_url VARCHAR(500)"); } catch (e) {}
@@ -778,6 +787,8 @@ export const createWalletTransaction = async (transactionData: {
   mt_account_id?: string;
   mt_account_password?: string; // Stored as plain text per requirement
   terms_accepted?: boolean;
+  strategy_id?: string;
+  plan_level?: 'Premium' | 'Expert' | 'Pro';
   // New optional fields
   inr_amount?: number;
   inr_to_usd_rate?: number;
@@ -792,8 +803,8 @@ export const createWalletTransaction = async (transactionData: {
     await ensureUserExistsInMySQL(transactionData.user_id, transactionData.user_name, transactionData.user_email);
     
     await pool.execute(
-      `INSERT INTO wallet_transactions (id, user_id, amount, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, terms_accepted, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO wallet_transactions (id, user_id, amount, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, terms_accepted, strategy_id, plan_level, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         transactionData.user_id,
@@ -806,6 +817,8 @@ export const createWalletTransaction = async (transactionData: {
         transactionData.mt_account_id || null,
         transactionData.mt_account_password || null,
         transactionData.terms_accepted ?? false,
+        transactionData.strategy_id || null,
+        transactionData.plan_level || null,
         transactionData.inr_amount ?? null,
         transactionData.inr_to_usd_rate ?? null,
         transactionData.crypto_network || null,
@@ -835,6 +848,8 @@ export const createWalletTransaction = async (transactionData: {
         mt_account_id: transactionData.mt_account_id,
         mt_account_password: transactionData.mt_account_password,
         terms_accepted: transactionData.terms_accepted ?? false,
+        strategy_id: transactionData.strategy_id,
+        plan_level: transactionData.plan_level,
         inr_amount: transactionData.inr_amount,
         inr_to_usd_rate: transactionData.inr_to_usd_rate,
         crypto_network: transactionData.crypto_network as any,
@@ -937,7 +952,8 @@ export const updateTransactionStatus = async (
   transactionId: string,
   status: 'completed' | 'failed',
   adminId: string,
-  tokensToAdd?: number
+  tokensToAdd?: number,
+  rejectionReason?: string
 ): Promise<{ success: boolean; transaction?: WalletTransaction; user?: Omit<User, 'password'> }> => {
   try {
     const transaction = await getTransactionById(transactionId);
@@ -945,10 +961,10 @@ export const updateTransactionStatus = async (
       return { success: false };
     }
 
-    // Update transaction status
+    // Update transaction status and optional rejection reason
     await pool.execute(
-      'UPDATE wallet_transactions SET status = ?, admin_id = ? WHERE id = ?',
-      [status, adminId, transactionId]
+      'UPDATE wallet_transactions SET status = ?, admin_id = ?, rejection_reason = ? WHERE id = ?',
+      [status, adminId, rejectionReason || null, transactionId]
     );
 
     let updatedUser = null;
@@ -977,6 +993,12 @@ export const updateTransactionStatus = async (
       txs[idx].status = status;
       txs[idx].admin_id = adminId;
       txs[idx].updated_at = new Date().toISOString();
+      if (status === 'failed') {
+        txs[idx].rejection_reason = rejectionReason || null;
+      } else {
+        // clear any previous rejection reason on approval
+        txs[idx].rejection_reason = null;
+      }
 
       let updatedUser: Omit<User, 'password'> | undefined = undefined;
       if (status === 'completed' && tokensToAdd && tokensToAdd > 0) {

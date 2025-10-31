@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   mt_account_id VARCHAR(255),
   mt_account_password VARCHAR(255),
   terms_accepted BOOLEAN DEFAULT FALSE,
+  strategy_id VARCHAR(255),
+  plan_level ENUM('Premium','Expert','Pro'),
   -- New fields for INR and USDT details
   inr_amount DECIMAL(12, 2),
   inr_to_usd_rate DECIMAL(12, 6),
@@ -38,6 +40,7 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   crypto_wallet_address VARCHAR(128),
   wallet_app_deeplink VARCHAR(255),
   status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
+  rejection_reason TEXT,
   admin_id VARCHAR(36),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
