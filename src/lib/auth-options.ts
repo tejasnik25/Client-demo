@@ -29,21 +29,37 @@ export const authOptions: NextAuthOptions = {
 
         console.log(`Login attempt with email: ${credentials.email}`);
 
-        // Admin login
+        // Admin login - prioritize this check
         if (credentials.email === adminUser.email) {
           console.log('Admin user detected');
-          // For admin login, use direct comparison with 'admin123' in production
+          
+          // IMPORTANT: For admin login in production, always check direct password first
           // This ensures admin login works even if bcrypt has issues in serverless environment
-          const isAdminPassword = credentials.password === 'admin123';
-          const passwordMatch = isAdminPassword || await bcrypt.compare(credentials.password, adminUser.password);
-          console.log('Admin password match:', passwordMatch);
-          if (passwordMatch) {
+          if (credentials.password === 'admin123') {
+            console.log('Admin password matched directly');
             return {
               id: adminUser.id,
               name: adminUser.name,
               email: adminUser.email,
               role: adminUser.role,
             };
+          }
+          
+          // Fallback to bcrypt comparison if direct match fails
+          try {
+            const passwordMatch = await bcrypt.compare(credentials.password, adminUser.password);
+            console.log('Admin bcrypt password match:', passwordMatch);
+            if (passwordMatch) {
+              return {
+                id: adminUser.id,
+                name: adminUser.name,
+                email: adminUser.email,
+                role: adminUser.role,
+              };
+            }
+          } catch (error) {
+            console.error('Error comparing admin password with bcrypt:', error);
+            // If bcrypt fails but we already checked direct password, don't proceed
           }
         }
 
