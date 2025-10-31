@@ -335,8 +335,13 @@ const addDefaultStrategies = async () => {
   }
 };
 
-// Initialize database on startup
-initializeDatabase();
+// Initialize database on startup (dev-only)
+// Avoid running migrations during Vercel production builds to prevent build-time DB connections.
+const shouldAutoInit = (process.env.NODE_ENV !== 'production') && !process.env.VERCEL;
+if (shouldAutoInit) {
+  // Best-effort init for local dev environments
+  initializeDatabase();
+}
 
 // Strategy CRUD operations
 export const getAllStrategies = async (): Promise<Strategy[]> => {

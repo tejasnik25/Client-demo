@@ -3,7 +3,7 @@
 // This component is a Client Component that handles user authentication
 // It uses next-auth for authentication and manages form state with React hooks
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -13,7 +13,7 @@ import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import '@/styles/vuexy-theme.css';
 
-export default function LoginPage() {
+function LoginFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = searchParams?.get('redirect') || '/strategies';
@@ -201,5 +201,14 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  // Wrap searchParams usage in Suspense per Next.js guidance
+  return (
+    <Suspense>
+      <LoginFormInner />
+    </Suspense>
   );
 }
