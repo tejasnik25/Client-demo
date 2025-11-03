@@ -29,10 +29,19 @@ interface Strategy {
   id: string;
   name: string;
   description: string;
+  // Deprecated fields (kept for backward comp): performance/riskLevel/category
   performance: number;
   riskLevel: 'Low' | 'Medium' | 'High';
   category: 'Growth' | 'Income' | 'Momentum' | 'Value';
   imageUrl: string;
+  // New metrics
+  minCapital?: number;
+  avgDrawdown?: number;
+  riskReward?: number;
+  winStreak?: number;
+  // Tag and plan prices
+  tag?: string;
+  planPrices?: { Pro?: number; Expert?: number; Premium?: number };
   details: string;
   parameters: Record<string, string>;
   created_at: string;
@@ -59,6 +68,7 @@ const StrategyManagement: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [expandedParameters, setExpandedParameters] = useState<Record<string, boolean>>({});
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedIcon, setSelectedIcon] = useState<File | null>(null);
   const [contentType, setContentType] = useState<'html' | 'pdf' | 'text'>('html');
 
   // Fetch strategies from the API
@@ -89,10 +99,13 @@ const StrategyManagement: React.FC = () => {
     setCurrentStrategy({
       name: '',
       description: '',
-      performance: 0,
-      riskLevel: 'Medium',
-      category: 'Growth',
       imageUrl: '/strategy1.svg',
+      minCapital: undefined,
+      avgDrawdown: undefined,
+      riskReward: undefined,
+      winStreak: undefined,
+      tag: '',
+      planPrices: { Pro: undefined, Expert: undefined, Premium: undefined },
       details: '',
       enabled: true,
       contentType: 'html'
@@ -101,6 +114,7 @@ const StrategyManagement: React.FC = () => {
     setError(null);
     setSuccess(null);
     setSelectedFile(null);
+    setSelectedIcon(null);
     setContentType('html');
   };
 
@@ -138,6 +152,13 @@ const StrategyManagement: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  // Handle icon selection
+  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedIcon(e.target.files[0]);
     }
   };
   
@@ -206,17 +227,35 @@ const StrategyManagement: React.FC = () => {
       // Create FormData for file upload
       const formData = new FormData();
       
-      // Append individual fields to formData (no performance/risk/category/parameters)
+      // Append individual fields to formData
       formData.append('name', currentStrategy.name || '');
       formData.append('description', currentStrategy.description || '');
       formData.append('details', currentStrategy.details || '');
+      // Legacy imageUrl preserved when no icon selected
       formData.append('imageUrl', currentStrategy.imageUrl || '/strategy1.svg');
       formData.append('contentType', contentType);
       formData.append('enabled', String(currentStrategy.enabled ?? true));
 
+      // New metrics/tag
+      if (currentStrategy.minCapital !== undefined) formData.append('minCapital', String(currentStrategy.minCapital));
+      if (currentStrategy.avgDrawdown !== undefined) formData.append('avgDrawdown', String(currentStrategy.avgDrawdown));
+      if (currentStrategy.riskReward !== undefined) formData.append('riskReward', String(currentStrategy.riskReward));
+      if (currentStrategy.winStreak !== undefined) formData.append('winStreak', String(currentStrategy.winStreak));
+      if (currentStrategy.tag !== undefined) formData.append('tag', String(currentStrategy.tag));
+
+      // Plans
+      const pp = currentStrategy.planPrices || {};
+      if (pp.Pro !== undefined) formData.append('planPro', String(pp.Pro));
+      if (pp.Expert !== undefined) formData.append('planExpert', String(pp.Expert));
+      if (pp.Premium !== undefined) formData.append('planPremium', String(pp.Premium));
+
       // Add file if selected
       if (selectedFile) {
         formData.append('file', selectedFile);
+      }
+      // Add icon if selected
+      if (selectedIcon) {
+        formData.append('icon', selectedIcon);
       }
 
       let result;
@@ -413,24 +452,24 @@ const StrategyManagement: React.FC = () => {
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="p-2 bg-muted/50 rounded">
-                    <span className="font-medium text-muted-foreground">Performance:</span>
-                    <span className="ml-1 font-semibold text-green-600">{strategy.performance}%</span>
+                    <span className="font-medium text-muted-foreground">Min Capital:</span>
+                    <span className="ml-1">{strategy.minCapital ?? '-'}</span>
                   </div>
                   <div className="p-2 bg-muted/50 rounded">
-                    <span className="font-medium text-muted-foreground">Risk Level:</span>
-                    <Badge variant="outline" className="ml-1">
-                      {strategy.riskLevel}
-                    </Badge>
+                    <span className="font-medium text-muted-foreground">Avg Drawdown:</span>
+                    <span className="ml-1">{strategy.avgDrawdown ?? '-'}</span>
                   </div>
                   <div className="p-2 bg-muted/50 rounded">
-                    <span className="font-medium text-muted-foreground">Category:</span>
-                    <Badge variant="outline" className="ml-1">
-                      {strategy.category}
-                    </Badge>
+                    <span className="font-medium text-muted-foreground">Risk Reward:</span>
+                    <span className="ml-1">{strategy.riskReward ?? '-'}</span>
                   </div>
                   <div className="p-2 bg-muted/50 rounded">
-                    <span className="font-medium text-muted-foreground">Created:</span>
-                    <span className="ml-1">{new Date(strategy.created_at).toLocaleDateString()}</span>
+                    <span className="font-medium text-muted-foreground">Win Streak:</span>
+                    <span className="ml-1">{strategy.winStreak ?? '-'}</span>
+                  </div>
+                  <div className="p-2 bg-muted/50 rounded col-span-2">
+                    <span className="font-medium text-muted-foreground">Tag:</span>
+                    <Badge variant="outline" className="ml-1">{strategy.tag || '-'}</Badge>
                   </div>
                 </div>
                 
@@ -561,16 +600,19 @@ const StrategyManagement: React.FC = () => {
               {/* Strategy Settings */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="imageUrl">Image URL</Label>
+                  <Label htmlFor="icon">Upload Icon/Image</Label>
                   <Input
-                    id="imageUrl"
-                    name="imageUrl"
-                    value={currentStrategy.imageUrl || ''}
-                    onChange={handleInputChange}
-                    placeholder="/strategy1.svg"
+                    id="icon"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleIconChange}
+                    className="cursor-pointer"
                   />
+                  {currentStrategy.imageUrl && !selectedIcon && (
+                    <p className="text-xs mt-1">Current: <span className="underline">{currentStrategy.imageUrl}</span></p>
+                  )}
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="enabled">Status</Label>
                   <div className="flex items-center space-x-2">
@@ -594,6 +636,59 @@ const StrategyManagement: React.FC = () => {
                   accept={contentType === 'pdf' ? 'application/pdf' : '.html,text/html'}
                   onChange={handleFileChange}
                 />
+              </div>
+
+              {/* New Metrics */}
+              <Separator className="my-2" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="minCapital">Min Capital</Label>
+                  <Input id="minCapital" name="minCapital" type="number" value={String(currentStrategy.minCapital ?? '')} onChange={handleInputChange} placeholder="e.g. 1000" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="avgDrawdown">Avg Drawdown (%)</Label>
+                  <Input id="avgDrawdown" name="avgDrawdown" type="number" step="0.01" value={String(currentStrategy.avgDrawdown ?? '')} onChange={handleInputChange} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="riskReward">Risk Reward</Label>
+                  <Input id="riskReward" name="riskReward" type="number" step="0.01" value={String(currentStrategy.riskReward ?? '')} onChange={handleInputChange} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="winStreak">Win Streak</Label>
+                  <Input id="winStreak" name="winStreak" type="number" value={String(currentStrategy.winStreak ?? '')} onChange={handleInputChange} />
+                </div>
+              </div>
+
+              {/* Tag */}
+              <div className="space-y-2">
+                <Label htmlFor="tag">Tag</Label>
+                <Input id="tag" name="tag" value={currentStrategy.tag || ''} onChange={handleInputChange} placeholder="Enter tag" />
+              </div>
+
+              {/* Plans */}
+              <Separator className="my-2" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="planPro">Pro Price</Label>
+                  <Input id="planPro" name="planPro" type="number" value={String((currentStrategy.planPrices?.Pro) ?? '')} onChange={(e) => {
+                    const val = e.target.value ? Number(e.target.value) : undefined;
+                    setCurrentStrategy(prev => ({ ...prev, planPrices: { ...(prev.planPrices || {}), Pro: val } }));
+                  }} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="planExpert">Expert Price</Label>
+                  <Input id="planExpert" name="planExpert" type="number" value={String((currentStrategy.planPrices?.Expert) ?? '')} onChange={(e) => {
+                    const val = e.target.value ? Number(e.target.value) : undefined;
+                    setCurrentStrategy(prev => ({ ...prev, planPrices: { ...(prev.planPrices || {}), Expert: val } }));
+                  }} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="planPremium">Premium Price</Label>
+                  <Input id="planPremium" name="planPremium" type="number" value={String((currentStrategy.planPrices?.Premium) ?? '')} onChange={(e) => {
+                    const val = e.target.value ? Number(e.target.value) : undefined;
+                    setCurrentStrategy(prev => ({ ...prev, planPrices: { ...(prev.planPrices || {}), Premium: val } }));
+                  }} />
+                </div>
               </div>
             </form>
           </ScrollArea>

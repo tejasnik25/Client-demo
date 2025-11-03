@@ -177,10 +177,22 @@ export type Strategy = {
   id: string;
   name: string;
   description: string;
+  // Deprecated display fields (retained for backward compatibility)
   performance: number;
   riskLevel: 'Low' | 'Medium' | 'High';
   category: 'Growth' | 'Income' | 'Momentum' | 'Value';
+  // Display image/icon
   imageUrl: string;
+  // New metrics
+  minCapital?: number;
+  avgDrawdown?: number;
+  riskReward?: number;
+  winStreak?: number;
+  // Tag
+  tag?: string;
+  // Plan prices by level
+  planPrices?: { Pro?: number; Expert?: number; Premium?: number };
+  // Details and content
   details: string;
   parameters: Record<string, string>;
   contentType?: string;
@@ -232,6 +244,20 @@ const initializeDatabase = async () => {
       )
     `);
 
+    // Analysis history table (used in getUserById)
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS analysis_history (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        symbol VARCHAR(64),
+        analysis TEXT,
+        score DECIMAL(6,2),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_analysis_user (user_id, created_at)
+      )
+    `);
+
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS strategies (
         id VARCHAR(255) PRIMARY KEY,
@@ -266,10 +292,22 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
-    // Add strategy columns if missing
-    try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_type VARCHAR(16)"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_url VARCHAR(500)"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE strategies ADD COLUMN enabled BOOLEAN DEFAULT TRUE"); } catch (e) {}
+  // Add strategy columns if missing
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_type VARCHAR(16)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_url VARCHAR(500)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN enabled BOOLEAN DEFAULT TRUE"); } catch (e) {}
+  // New fields
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN min_capital DECIMAL(14,2)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN avg_drawdown DECIMAL(8,2)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN risk_reward DECIMAL(8,2)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN win_streak INT"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN tag VARCHAR(255)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN plan_prices JSON"); } catch (e) {}
+    // Ensure analysis_history has expected columns (minimal auto-migrations)
+    try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN symbol VARCHAR(64)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN analysis TEXT"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN score DECIMAL(6,2)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE analysis_history ADD INDEX idx_analysis_user (user_id, created_at)"); } catch (e) {}
 
     console.log('Database tables initialized successfully');
     
@@ -439,6 +477,12 @@ export const getAllStrategies = async (): Promise<Strategy[]> => {
       ...row,
       riskLevel: row.risk_level,
       imageUrl: row.image_url,
+      minCapital: row.min_capital !== undefined ? Number(row.min_capital) : undefined,
+      avgDrawdown: row.avg_drawdown !== undefined ? Number(row.avg_drawdown) : undefined,
+      riskReward: row.risk_reward !== undefined ? Number(row.risk_reward) : undefined,
+      winStreak: row.win_streak !== undefined ? Number(row.win_streak) : undefined,
+      tag: row.tag,
+      planPrices: row.plan_prices ? JSON.parse(row.plan_prices) : undefined,
       parameters: JSON.parse(row.parameters || '{}'),
       contentType: row.content_type,
       contentUrl: row.content_url,
@@ -456,6 +500,12 @@ export const getAllStrategies = async (): Promise<Strategy[]> => {
         ...s,
         riskLevel: s.riskLevel ?? s.risk_level ?? 'medium',
         imageUrl: s.imageUrl ?? s.image_url ?? undefined,
+        minCapital: s.minCapital ?? s.min_capital,
+        avgDrawdown: s.avgDrawdown ?? s.avg_drawdown,
+        riskReward: s.riskReward ?? s.risk_reward,
+        winStreak: s.winStreak ?? s.win_streak,
+        tag: s.tag,
+        planPrices: s.planPrices ?? s.plan_prices,
         parameters: typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : (s.parameters || {}),
         contentType: s.contentType ?? s.content_type,
         contentUrl: s.contentUrl ?? s.content_url,
@@ -480,6 +530,12 @@ export const getStrategyById = async (id: string): Promise<Strategy | null> => {
       ...strategy,
       riskLevel: strategy.risk_level,
       imageUrl: strategy.image_url,
+      minCapital: strategy.min_capital !== undefined ? Number(strategy.min_capital) : undefined,
+      avgDrawdown: strategy.avg_drawdown !== undefined ? Number(strategy.avg_drawdown) : undefined,
+      riskReward: strategy.risk_reward !== undefined ? Number(strategy.risk_reward) : undefined,
+      winStreak: strategy.win_streak !== undefined ? Number(strategy.win_streak) : undefined,
+      tag: strategy.tag,
+      planPrices: strategy.plan_prices ? JSON.parse(strategy.plan_prices) : undefined,
       parameters: JSON.parse(strategy.parameters || '{}'),
       contentType: strategy.content_type,
       contentUrl: strategy.content_url,
@@ -499,8 +555,8 @@ export const createStrategy = async (
   try {
     const id = `strategy_${Date.now()}`;
     await pool.execute(
-      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, details, parameters, content_type, content_url, enabled) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, min_capital, avg_drawdown, risk_reward, win_streak, tag, plan_prices, details, parameters, content_type, content_url, enabled) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         strategy.name,
@@ -509,6 +565,12 @@ export const createStrategy = async (
         strategy.riskLevel,
         strategy.category,
         strategy.imageUrl,
+        strategy.minCapital ?? null,
+        strategy.avgDrawdown ?? null,
+        strategy.riskReward ?? null,
+        strategy.winStreak ?? null,
+        strategy.tag ?? null,
+        strategy.planPrices ? JSON.stringify(strategy.planPrices) : null,
         strategy.details,
         JSON.stringify(strategy.parameters || {}),
         strategy.contentType || null,
@@ -533,6 +595,12 @@ export const createStrategy = async (
         riskLevel: strategy.riskLevel ?? 'Medium',
         category: strategy.category ?? 'Growth',
         imageUrl: strategy.imageUrl ?? '/default-strategy.svg',
+        minCapital: strategy.minCapital,
+        avgDrawdown: strategy.avgDrawdown,
+        riskReward: strategy.riskReward,
+        winStreak: strategy.winStreak,
+        tag: strategy.tag,
+        planPrices: strategy.planPrices,
         details: strategy.details ?? '',
         parameters: strategy.parameters || {},
         contentType: strategy.contentType,
@@ -565,6 +633,12 @@ export const updateStrategy = async (
     if (updates.riskLevel) { setClause.push('risk_level = ?'); values.push(updates.riskLevel); }
     if (updates.category) { setClause.push('category = ?'); values.push(updates.category); }
     if (updates.imageUrl) { setClause.push('image_url = ?'); values.push(updates.imageUrl); }
+    if (updates.minCapital !== undefined) { setClause.push('min_capital = ?'); values.push(updates.minCapital); }
+    if (updates.avgDrawdown !== undefined) { setClause.push('avg_drawdown = ?'); values.push(updates.avgDrawdown); }
+    if (updates.riskReward !== undefined) { setClause.push('risk_reward = ?'); values.push(updates.riskReward); }
+    if (updates.winStreak !== undefined) { setClause.push('win_streak = ?'); values.push(updates.winStreak); }
+    if (updates.tag !== undefined) { setClause.push('tag = ?'); values.push(updates.tag); }
+    if (updates.planPrices !== undefined) { setClause.push('plan_prices = ?'); values.push(JSON.stringify(updates.planPrices)); }
     if (updates.details) { setClause.push('details = ?'); values.push(updates.details); }
     if (updates.parameters) { setClause.push('parameters = ?'); values.push(JSON.stringify(updates.parameters)); }
     if (updates.contentType) { setClause.push('content_type = ?'); values.push(updates.contentType); }
@@ -598,6 +672,12 @@ export const updateStrategy = async (
         riskLevel: updates.riskLevel ?? existing.riskLevel ?? existing.risk_level ?? 'Medium',
         category: updates.category ?? existing.category,
         imageUrl: updates.imageUrl ?? existing.imageUrl ?? existing.image_url,
+        minCapital: updates.minCapital ?? (existing.minCapital ?? existing.min_capital),
+        avgDrawdown: updates.avgDrawdown ?? (existing.avgDrawdown ?? existing.avg_drawdown),
+        riskReward: updates.riskReward ?? (existing.riskReward ?? existing.risk_reward),
+        winStreak: updates.winStreak ?? (existing.winStreak ?? existing.win_streak),
+        tag: updates.tag ?? existing.tag,
+        planPrices: updates.planPrices ?? (existing.planPrices ?? existing.plan_prices),
         details: updates.details ?? existing.details,
         parameters: updates.parameters ?? (typeof existing.parameters === 'string' ? JSON.parse(existing.parameters || '{}') : existing.parameters || {}),
         contentType: updates.contentType ?? existing.contentType,
@@ -618,9 +698,11 @@ export const updateStrategy = async (
 };
 
 export const deleteStrategy = async (id: string): Promise<{ success: boolean; message?: string; error?: string }> => {
+  // Attempt to remove associated uploaded files (icon and content) before deleting record
+  const strategy = await getStrategyById(id);
   try {
+    // Delete DB record
     await pool.execute('DELETE FROM strategies WHERE id = ?', [id]);
-    return { success: true, message: 'Strategy deleted' };
   } catch (error) {
     console.error('MySQL deleteStrategy failed, falling back to JSON:', error);
     try {
@@ -629,12 +711,30 @@ export const deleteStrategy = async (id: string): Promise<{ success: boolean; me
       const filtered = arr.filter((s: any) => s.id !== id);
       db.strategies = filtered;
       writeDatabase(db);
-      return { success: true, message: 'Strategy deleted locally' };
     } catch (jsonError) {
       console.error('JSON fallback deleteStrategy failed:', jsonError);
       return { success: false, error: 'Failed to delete strategy locally' };
     }
   }
+  // Remove files from disk if they were uploaded to public/uploads paths
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const removeIfLocal = (url?: string) => {
+      if (!url) return;
+      if (url.startsWith('/uploads/')) {
+        const filePath = path.join(process.cwd(), 'public', url.replace(/^\//, ''));
+        if (fs.existsSync(filePath)) {
+          try { fs.unlinkSync(filePath); } catch (e) { console.warn('Failed to remove file', filePath, e); }
+        }
+      }
+    };
+    removeIfLocal(strategy?.imageUrl);
+    removeIfLocal(strategy?.contentUrl);
+  } catch (e) {
+    console.warn('File removal encountered an issue:', e);
+  }
+  return { success: true, message: 'Strategy deleted' };
 };
 
 // User management functions
@@ -771,15 +871,25 @@ export const getUserById = async (id: string): Promise<User | null> => {
     const user = users[0];
     
     // Get analysis history
-    const [historyRows] = await pool.execute(
-      'SELECT * FROM analysis_history WHERE user_id = ? ORDER BY created_at DESC',
-      [id]
-    );
-    
-    const analysis_history = (historyRows as any[]).map(row => ({
-      ...row,
-      created_at: row.created_at.toISOString()
-    }));
+    let analysis_history: any[] = [];
+    try {
+      const [historyRows] = await pool.execute(
+        'SELECT * FROM analysis_history WHERE user_id = ? ORDER BY created_at DESC',
+        [id]
+      );
+      analysis_history = (historyRows as any[]).map(row => ({
+        ...row,
+        created_at: row.created_at?.toISOString?.() ? row.created_at.toISOString() : row.created_at
+      }));
+    } catch (historyError: any) {
+      // If the table is missing, return user without history instead of failing entirely
+      if (historyError?.code === 'ER_NO_SUCH_TABLE' || historyError?.errno === 1146) {
+        console.warn('analysis_history table missing; proceeding without history');
+        analysis_history = [];
+      } else {
+        throw historyError;
+      }
+    }
 
     return {
       ...user,

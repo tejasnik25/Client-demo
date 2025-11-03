@@ -24,11 +24,25 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const name = formData.get('name') as string;
     const description = formData.get('description') as string;
-    const imageUrl = (formData.get('imageUrl') as string) || '/default-strategy.svg';
+    // Optional legacy string imageUrl (used when no icon upload provided)
+    let imageUrl = (formData.get('imageUrl') as string) || '/default-strategy.svg';
     const details = (formData.get('details') as string) || '';
     const contentType = (formData.get('contentType') as string) || 'html';
     const enabled = formData.get('enabled') === 'true';
     const file = formData.get('file') as File;
+    const icon = formData.get('icon') as File | null;
+
+    // New metrics and tag
+    const minCapital = formData.get('minCapital') ? Number(formData.get('minCapital') as string) : undefined;
+    const avgDrawdown = formData.get('avgDrawdown') ? Number(formData.get('avgDrawdown') as string) : undefined;
+    const riskReward = formData.get('riskReward') ? Number(formData.get('riskReward') as string) : undefined;
+    const winStreak = formData.get('winStreak') ? Number(formData.get('winStreak') as string) : undefined;
+    const tag = (formData.get('tag') as string) || undefined;
+
+    // Plan prices
+    const planPro = formData.get('planPro') ? Number(formData.get('planPro') as string) : undefined;
+    const planExpert = formData.get('planExpert') ? Number(formData.get('planExpert') as string) : undefined;
+    const planPremium = formData.get('planPremium') ? Number(formData.get('planPremium') as string) : undefined;
 
     // Sensible defaults for deprecated fields
     const performance = 0;
@@ -60,6 +74,19 @@ export async function POST(req: NextRequest) {
     // File URL for public access
     const contentUrl = `/uploads/${fileName}`;
 
+    // Optional: icon upload for display image
+    if (icon && icon.size > 0) {
+      const iconBytes = await icon.arrayBuffer();
+      const iconBuffer = Buffer.from(iconBytes);
+      const iconExt = (icon.type && icon.type.includes('png')) ? '.png' : (icon.type && icon.type.includes('jpg')) ? '.jpg' : (icon.type && icon.type.includes('jpeg')) ? '.jpeg' : (icon.type && icon.type.includes('svg')) ? '.svg' : '.png';
+      const iconName = `icon-${uuidv4()}${iconExt}`;
+      const iconDir = path.join(process.cwd(), 'public', 'uploads', 'strategy-icons');
+      await mkdir(iconDir, { recursive: true });
+      const iconPath = path.join(iconDir, iconName);
+      await writeFile(iconPath, iconBuffer);
+      imageUrl = `/uploads/strategy-icons/${iconName}`;
+    }
+
     // Create strategy in database
     const result = await createStrategy({
       name,
@@ -68,6 +95,12 @@ export async function POST(req: NextRequest) {
       riskLevel,
       category,
       imageUrl,
+      minCapital,
+      avgDrawdown,
+      riskReward,
+      winStreak,
+      tag,
+      planPrices: { Pro: planPro, Expert: planExpert, Premium: planPremium },
       details,
       contentType,
       contentUrl,
@@ -123,11 +156,24 @@ export async function PUT(req: NextRequest) {
     const formData = await req.formData();
     const name = formData.get('name') as string;
     const description = formData.get('description') as string;
-    const imageUrl = (formData.get('imageUrl') as string) || '/default-strategy.svg';
+    // Optional legacy string imageUrl
+    let imageUrl = (formData.get('imageUrl') as string) || undefined as any;
     const details = (formData.get('details') as string) || '';
     const contentType = (formData.get('contentType') as string) || 'html';
     const enabled = formData.get('enabled') === 'true';
     const file = formData.get('file') as File;
+    const icon = formData.get('icon') as File | null;
+
+    // New metrics and tag
+    const minCapital = formData.get('minCapital') ? Number(formData.get('minCapital') as string) : undefined;
+    const avgDrawdown = formData.get('avgDrawdown') ? Number(formData.get('avgDrawdown') as string) : undefined;
+    const riskReward = formData.get('riskReward') ? Number(formData.get('riskReward') as string) : undefined;
+    const winStreak = formData.get('winStreak') ? Number(formData.get('winStreak') as string) : undefined;
+    const tag = (formData.get('tag') as string) || undefined;
+    // Plan prices
+    const planPro = formData.get('planPro') ? Number(formData.get('planPro') as string) : undefined;
+    const planExpert = formData.get('planExpert') ? Number(formData.get('planExpert') as string) : undefined;
+    const planPremium = formData.get('planPremium') ? Number(formData.get('planPremium') as string) : undefined;
     
     // Validate required fields
     if (!name || !description) {
@@ -165,6 +211,27 @@ export async function PUT(req: NextRequest) {
       // File URL for public access
       updates.contentUrl = `/uploads/${fileName}`;
     }
+
+    // Process icon upload if provided
+    if (icon && icon.size > 0) {
+      const iconBytes = await icon.arrayBuffer();
+      const iconBuffer = Buffer.from(iconBytes);
+      const iconExt = (icon.type && icon.type.includes('png')) ? '.png' : (icon.type && icon.type.includes('jpg')) ? '.jpg' : (icon.type && icon.type.includes('jpeg')) ? '.jpeg' : (icon.type && icon.type.includes('svg')) ? '.svg' : '.png';
+      const iconName = `icon-${uuidv4()}${iconExt}`;
+      const iconDir = path.join(process.cwd(), 'public', 'uploads', 'strategy-icons');
+      await mkdir(iconDir, { recursive: true });
+      const iconPath = path.join(iconDir, iconName);
+      await writeFile(iconPath, iconBuffer);
+      updates.imageUrl = `/uploads/strategy-icons/${iconName}`;
+    }
+
+    // Include metrics/tag/prices if provided
+    if (minCapital !== undefined) updates.minCapital = minCapital;
+    if (avgDrawdown !== undefined) updates.avgDrawdown = avgDrawdown;
+    if (riskReward !== undefined) updates.riskReward = riskReward;
+    if (winStreak !== undefined) updates.winStreak = winStreak;
+    if (tag !== undefined) updates.tag = tag;
+    updates.planPrices = { Pro: planPro, Expert: planExpert, Premium: planPremium };
 
     // Update strategy in database
     const result = await updateStrategy(id, updates);

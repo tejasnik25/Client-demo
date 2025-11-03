@@ -87,7 +87,7 @@ const RunningStrategiesPage: React.FC = () => {
               const s = tx.strategy_id ? stratById.get(tx.strategy_id) : undefined;
               if (!s) return null;
               return (
-                <div key={tx.id} className="group bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046]">
+                <div key={tx.id} className="group fx-3d-card bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046]">
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                     <div className="flex items-start gap-4 flex-1">
                       <div className="w-14 h-14 bg-gradient-to-br from-[#7c3aed] to-[#a855f7] rounded-xl flex items-center justify-center p-2">
@@ -100,7 +100,7 @@ const RunningStrategiesPage: React.FC = () => {
                         </div>
                         <div className="flex gap-2 mt-2">
                           <span className="text-xs px-2 py-1 bg-[#283046] rounded-full uppercase">{s.category}</span>
-                          <span className={`text-xs px-2 py-1 rounded-full ${
+                          <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
                             s.riskLevel === 'High' ? 'bg-red-900/30 text-red-300' :
                             s.riskLevel === 'Medium' ? 'bg-yellow-900/30 text-yellow-300' :
                             'bg-green-900/30 text-green-300'
@@ -108,10 +108,10 @@ const RunningStrategiesPage: React.FC = () => {
                             {s.riskLevel}
                           </span>
                         </div>
-                        <p className="mt-2 text-sm text-gray-400">{s.description}</p>
+                        <p className="mt-2 text-base md:text-sm leading-6 text-gray-400">{s.description}</p>
                       </div>
                     </div>
-                    <div className="flex gap-8 text-sm">
+                    <div className="text-sm grid grid-cols-2 gap-4 w-full md:w-auto md:flex md:gap-8">
                       <div>
                         <div className="text-gray-500">Performance</div>
                         <div className="font-bold text-white">{s.performance}%</div>

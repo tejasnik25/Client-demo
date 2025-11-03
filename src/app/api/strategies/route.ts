@@ -36,10 +36,10 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, description, performance, riskLevel, category, imageUrl, details } = body;
+    const { name, description, imageUrl, details, enabled, contentType, contentUrl, minCapital, avgDrawdown, riskReward, winStreak, tag, planPrices } = body;
 
     // Validate required fields
-    if (!name || !description || !riskLevel || !category) {
+    if (!name || !description) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -49,11 +49,21 @@ export async function POST(req: NextRequest) {
     const result = await createStrategy({
       name,
       description,
-      performance: performance || 0,
-      riskLevel,
-      category,
+      performance: 0,
+      parameters: {},
+      riskLevel: 'Medium',
+      category: 'Value',
       imageUrl: imageUrl || '/default-strategy.svg',
-      details: details || ''
+      minCapital,
+      avgDrawdown,
+      riskReward,
+      winStreak,
+      tag,
+      planPrices,
+      details: details || '',
+      enabled: enabled !== undefined ? enabled : true,
+      contentType,
+      contentUrl
     });
 
     if (!result.success) {
@@ -92,10 +102,10 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, name, description, performance, riskLevel, category, imageUrl, details, enabled, contentType, contentUrl } = body;
+    const { id, name, description, imageUrl, details, enabled, contentType, contentUrl, minCapital, avgDrawdown, riskReward, winStreak, tag, planPrices } = body;
 
     // Validate required fields
-    if (!id || !name || !description || !riskLevel || !category) {
+    if (!id || !name || !description) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -105,14 +115,17 @@ export async function PUT(req: NextRequest) {
     const result = await updateStrategy(id, {
       name,
       description,
-      performance: performance || 0,
-      riskLevel,
-      category,
-      imageUrl: imageUrl || '/default-strategy.svg',
+      imageUrl: imageUrl || undefined,
       details: details || '',
       enabled: enabled !== undefined ? enabled : true,
       contentType,
-      contentUrl
+      contentUrl,
+      minCapital,
+      avgDrawdown,
+      riskReward,
+      winStreak,
+      tag,
+      planPrices
     });
 
     if (!result.success) {

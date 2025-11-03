@@ -127,5 +127,5 @@ export const authOptions: NextAuthOptions = {
   // Use NextAuth default cookies to avoid domain mismatch issues in serverless
   secret: process.env.NEXTAUTH_SECRET || 'your-secret-key',
   // Allow dynamic hosts in serverless environments like Vercel
-  trustHost: true,
+  // trustHost: true, // Removed: not a valid NextAuth option
 };

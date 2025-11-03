@@ -1,18 +1,20 @@
 // components/UserLayout.tsx
 'use client';
 
-import React, { useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import React, { useEffect, useState } from 'react';
+import { useSession, signOut } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { UserSidebar } from '@/components/ui/UserSidebar';
 import { UserHeader } from '@/components/ui/UserHeader';
-import Button from '@/components/ui/Button';
+import { FusionXSidebar } from '@/components/ui/FusionXSidebar';
+import  Button  from '@/components/ui/Button';
 import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
-import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
+import MobileBottomNav from '@/components/ui/MobileBottomNav';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { FiHome, FiTrendingUp, FiDollarSign, FiUser, FiLogOut, FiMenu, FiCreditCard, FiActivity } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiDollarSign, FiUser, FiLogOut, FiCreditCard, FiActivity, FiGrid, FiSettings, FiShare2, FiPieChart, FiMenu, FiArrowLeft } from 'react-icons/fi';
+import MobileHamburgerMenu from '@/components/ui/MobileHamburgerMenu';
 
 interface UserLayoutProps {
   children: React.ReactNode;
@@ -23,6 +25,8 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
   const router = useRouter();
   const pathname = usePathname();
   const isMobile = useIsMobile();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // ── Auth redirect ─────────────────────────────────────
   useEffect(() => {
@@ -103,19 +107,20 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
       </div>
 
       {/* Navigation */}
-       <nav className="flex-1 space-y-1 p-4">
+       <nav className="flex-1 space-y-2 p-4">
          {navigationItems.map((item) => (
            <Link
              key={item.path}
              href={item.path}
-             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+             title={item.label}
+             aria-label={item.label}
+             className={`flex items-center justify-center rounded-lg w-12 h-12 text-sm transition-colors fx-3d-card ${
                pathname === item.path.split('?')[0] || (item.path.includes('strategies') && pathname.startsWith('/strategies'))
-                 ? 'bg-blue-600 text-white'
-                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                 ? 'text-white'
+                 : 'text-gray-700 dark:text-gray-300'
              }`}
            >
-             {item.icon}
-             {item.label}
+             <span className="fx-3d-icon">{item.icon}</span>
            </Link>
          ))}
        </nav>
@@ -134,39 +139,91 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
     </div>
   );
 
-  // ── Render (Admin Style Layout) ─────────────────────────────────────────────
+  // ── Render (FusionX Style Layout) ─────────────────────────────────────────────
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-      {/* Mobile Header */}
-      {isMobile && (
-        <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
-          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">FusionX</h1>
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button className="p-2 bg-blue-600 text-white hover:bg-blue-700">
-                <FiMenu className="h-5 w-5" />
+    <div className="flex min-h-screen bg-[#0e1726] text-white overflow-x-hidden">
+      {/* FusionX Sidebar - Desktop Only */}
+      {!isMobile && <FusionXSidebar onLogout={handleLogout} />}
+
+      {/* Main Content */}
+      <div className="flex flex-col flex-1 md:ml-16 ml-0">
+        {/* Header with onboarding steps */}
+        <header className="sticky top-0 z-50 h-14 md:h-16 bg-[#0e1726] border-b border-[#1b2e4b] px-4 md:px-6 flex items-center justify-between overflow-x-hidden">
+          <div className="flex items-center space-x-3">
+            {isMobile && (
+              <button
+                className="md:hidden fx-3d-card p-2 rounded-lg"
+                onClick={() => setMenuOpen(true)}
+                aria-label="Open menu"
+                title="Open menu"
+              >
+                <span className="fx-3d-icon"><FiMenu className="h-5 w-5" /></span>
+              </button>
+            )}
+            <div className="flex items-center">
+              <Image src="/financial-growth.svg" alt="FusionX" width={22} height={22} className="mr-2" />
+              <h1 className="text-lg md:text-xl font-semibold text-[#00d09c]">Copy Trade</h1>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {(pathname?.startsWith('/strategies/') && pathname !== '/strategies') && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="fx-3d-card px-2 py-1 h-8 w-8 flex items-center justify-center"
+                aria-label="Back"
+                title="Back"
+                onClick={() => router.push('/strategies')}
+              >
+                <span className="fx-3d-icon"><FiArrowLeft className="h-4 w-4" /></span>
               </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-[85vw] max-w-xs p-0">
-              <SheetTitle className="sr-only">Menu</SheetTitle>
-              <MobileSidebar />
-            </SheetContent>
-          </Sheet>
+            )}
+
+            {isMobile && (
+              <Button
+                variant="default"
+                size="sm"
+                className="md:hidden fx-3d-card"
+                onClick={handleLogout}
+                aria-label="Logout"
+                title="Logout"
+              >
+                <span className="fx-3d-icon">
+                  <FiLogOut className="h-5 w-5" />
+                </span>
+              </Button>
+            )}
+          </div>
         </header>
-      )}
-
-      {/* Desktop Sidebar */}
-      {!isMobile && <DesktopSidebar />}
-
-      {/* Main Content Area */}
-      <div className={`flex flex-col flex-1 overflow-hidden ${isMobile ? 'pt-16' : ''}`}>
-        {/* Desktop Header */}
-        {!isMobile && <UserHeader />}
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto p-4 bg-gray-100 dark:bg-gray-900">
-          {children}
+        <main className={`flex-1 bg-[#0e1726] p-4 md:p-6 ${isMobile ? 'pb-24' : ''} overflow-x-hidden`}>
+          <div className="w-full">
+            {children}
+          </div>
         </main>
+        
+        {/* Footer */}
+        <footer className="py-3 px-6 text-xs text-gray-400 border-t border-[#1b2e4b] overflow-x-hidden">
+          <div className="flex justify-between items-center">
+            <p className="text-[10px]">Stock Market Investments are subject to market risk. Please read the offer documents carefully before investing. Past performances are no guarantee of future returns. This content is solely for educational purposes only.</p>
+            <div className="text-[#00d09c] text-[10px]">
+              Disclaimer
+            </div>
+          </div>
+        </footer>
+
+        {/* Mobile Hamburger Menu Drawer */}
+        {isMobile && (
+          <MobileHamburgerMenu
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            onLogout={handleLogout}
+          />
+        )}
+
+        {/* Mobile Bottom Navigation removed for mobile-only redesign; use hamburger menu instead */}
       </div>
     </div>
   );

@@ -1,300 +1,248 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
-import { FiBarChart2, FiDollarSign, FiUser, FiTrendingUp } from 'react-icons/fi';
+import React, { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { FiFolder, FiTrendingUp } from "react-icons/fi";
+import { FaFire } from "react-icons/fa";
 
-import Card, { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import Button from "@/components/ui/Button";
+import UserLayout from "@/components/UserLayout";
 
-import UserLayout from '@/components/UserLayout';
+// Types for running and listed strategies
+type RunningStrategy = {
+  id: string;
+  name: string;
+  orders: any[];
+  profit: number;
+};
+
+type ListedStrategy = {
+  id: string;
+  name: string;
+  description: string;
+  performance: number;
+  riskLevel: "Low" | "Medium" | "High";
+  category: "Growth" | "Income" | "Momentum" | "Value";
+  imageUrl: string;
+};
 
 // Dashboard page content
 function DashboardPageContent() {
   const { data: session } = useSession();
-  const router = useRouter();
-  // Removed analysis history logic
+  const [activeTab, setActiveTab] = useState("day");
+  const [running, setRunning] = useState<RunningStrategy[]>([]);
+  const [listed, setListed] = useState<ListedStrategy[]>([]);
+  const [loadingRunning, setLoadingRunning] = useState(true);
+  const [loadingListed, setLoadingListed] = useState(true);
+
+  // Fetch running strategies
+  useEffect(() => {
+    const fetchRunning = async () => {
+      try {
+        const response = await fetch("/api/strategies/running");
+        const data = await response.json();
+        setRunning(data.strategies || []);
+      } catch (error) {
+        console.error("Error fetching running strategies:", error);
+        setRunning([]);
+      } finally {
+        setLoadingRunning(false);
+      }
+    };
+    fetchRunning();
+  }, []);
+
+  // Fetch listed strategies (enabled)
+  useEffect(() => {
+    const fetchListed = async () => {
+      try {
+        const response = await fetch("/api/strategies");
+        const data = await response.json();
+        const enabled = (data.strategies || []).filter((s: any) => s.enabled !== false);
+        setListed(enabled);
+      } catch (error) {
+        console.error("Error fetching listed strategies:", error);
+        setListed([]);
+      } finally {
+        setLoadingListed(false);
+      }
+    };
+    fetchListed();
+  }, []);
+
+  // Metrics removed per request
 
   return (
-    <div className="w-full py-6 space-y-6">
-      {/* Navigation Boxes */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
-        <button 
-          onClick={() => router.push('/strategies')}
-          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-[#161d31] border border-[#283046] text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-[#7367f0]/10 to-transparent group-hover:from-[#7367f0]/20 transition-colors duration-300"></div>
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-[#7367f0]/15 text-[#7367f0] group-hover:bg-[#7367f0]/25 transition-colors duration-300">
-            <FiTrendingUp className="h-8 w-8" />
+    <div className="space-y-4 md:space-y-6">
+      {/* Header with greeting */}
+      <div className="bg-gradient-to-br from-[#101b2d] to-[#0e1726] rounded-2xl p-4 md:p-6 border border-[#1b2e4b] shadow-2xl shadow-black/30 transform-gpu">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <div className="bg-orange-500 p-2 rounded-full">
+              <FaFire className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg md:text-xl font-semibold text-white">Hey! {session?.user?.name?.split(" ")[0] || "User"}</h2>
+              <p className="text-xs md:text-sm text-gray-400">Welcome back</p>
+            </div>
           </div>
-          <h3 className="text-base font-medium text-center text-white">Strategies</h3>
-          <p className="text-xs text-gray-300 text-center mt-1">Explore trading strategies</p>
-          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-primary/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
-        </button>
-        
-
-        <button 
-          onClick={() => router.push('/wallet')}
-          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-[#161d31] border border-[#283046] text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent group-hover:from-emerald-500/20 transition-colors duration-300"></div>
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400 group-hover:bg-emerald-500/25 transition-colors duration-300">
-            <FiDollarSign className="h-8 w-8" />
+          <div className="flex items-center space-x-2">
+            <button
+              className={`px-3 py-1 rounded-md text-xs md:text-sm ${activeTab === "day" ? "bg-[#00d09c] text-white" : "bg-[#0e1726] text-gray-400"}`}
+              onClick={() => setActiveTab("day")}
+            >
+              Day
+            </button>
+            <button
+              className={`px-3 py-1 rounded-md text-xs md:text-sm ${activeTab === "week" ? "bg-[#00d09c] text-white" : "bg-[#0e1726] text-gray-400"}`}
+              onClick={() => setActiveTab("week")}
+            >
+              Week
+            </button>
+            <button
+              className={`px-3 py-1 rounded-md text-xs md:text-sm ${activeTab === "month" ? "bg-[#00d09c] text-white" : "bg-[#0e1726] text-gray-400"}`}
+              onClick={() => setActiveTab("month")}
+            >
+              Month
+            </button>
           </div>
-          <h3 className="text-base font-medium text-center text-white">Wallet</h3>
-          <p className="text-xs text-gray-300 text-center mt-1">Manage your tokens</p>
-          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-green-500/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
-        </button>
-        
-        <button 
-          onClick={() => router.push('/dashboard?tab=profile')}
-          className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-[#161d31] border border-[#283046] text-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-[1.03] overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-[#7367f0]/10 to-transparent group-hover:from-[#7367f0]/20 transition-colors duration-300"></div>
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-[#7367f0]/15 text-[#7367f0] group-hover:bg-[#7367f0]/25 transition-colors duration-300">
-            <FiUser className="h-8 w-8" />
-          </div>
-          <h3 className="text-base font-medium text-center text-white">Profile</h3>
-          <p className="text-xs text-gray-300 text-center mt-1">Account settings</p>
-          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-tr from-purple-500/5 to-transparent rounded-full transform rotate-45 transition-transform duration-500 group-hover:rotate-0"></div>
-        </button>
+        </div>
       </div>
-      
-      <Tabs defaultValue="overview" className="mt-6">
-        <TabsList className="grid w-full grid-cols-4 bg-[#283046] text-gray-200">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="tokens">Buy Tokens</TabsTrigger>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-        </TabsList>
-        <TabsContent value="overview" className="mt-6 space-y-4">
-          <Card className="bg-[#161d31] border border-[#283046] text-white">
-            <CardHeader>
-              <CardTitle className="text-white">Overview</CardTitle>
-              <CardDescription className="text-gray-300">Quick access to key features</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button onClick={() => router.push('/strategies')} className="w-full bg-[#7367f0] hover:bg-[#6a5ce6] text-white">Explore Strategies</Button>
-                <Button onClick={() => router.push('/wallet')} className="w-full bg-[#283046] text-gray-200 hover:bg-[#2e3650]">Manage Wallet</Button>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={() => router.push('/strategies')} className="w-full bg-[#7367f0] hover:bg-[#6a5ce6] text-white">Get Started</Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
 
-        <TabsContent value="tokens" className="mt-6 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Purchase Tokens</CardTitle>
-              <CardDescription>
-                Buy tokens for platform features
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle>10 Tokens</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold">$4.99</p>
-                    <p className="text-muted-foreground">Basic package</p>
-                  </CardContent>
-                  <CardFooter>
-                    <Button className="w-full">Purchase</Button>
-                  </CardFooter>
-                </Card>
-                
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle>50 Tokens</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold">$19.99</p>
-                    <p className="text-muted-foreground">Standard package</p>
-                  </CardContent>
-                  <CardFooter>
-                    <Button className="w-full">Purchase</Button>
-                  </CardFooter>
-                </Card>
-                
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle>100 Tokens</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold">$29.99</p>
-                    <p className="text-muted-foreground">Premium package</p>
-                  </CardContent>
-                  <CardFooter>
-                    <Button className="w-full">Purchase</Button>
-                  </CardFooter>
-                </Card>
+      {/* Metrics removed */}
+
+      {/* Two partitions: Running & Listed */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+        {/* Running strategies */}
+        <div className="bg-gradient-to-br from-[#101b2d] to-[#0e1726] rounded-2xl p-4 md:p-6 border border-[#1b2e4b] shadow-2xl shadow-black/30 transform-gpu">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-lg md:text-xl font-semibold text-white">Current Positions</h2>
+            <Link href="/strategies/running" className="text-[#00d09c] text-sm hover:underline">
+              View all
+            </Link>
+          </div>
+          {loadingRunning ? (
+            <div className="flex justify-center py-8">
+              <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-[#00d09c]" />
+            </div>
+          ) : running.length > 0 ? (
+            <div className="flex flex-col gap-4">
+              {running.slice(0, 4).map((strategy) => (
+                <Link
+                  key={strategy.id}
+                  href={`/strategies/${strategy.id}/info`}
+                  className="bg-gradient-to-br from-[#0e1726] to-[#1b2e4b] rounded-xl p-4 md:p-5 border border-[#22304d] shadow-xl shadow-black/40 transition-transform transform-gpu hover:-translate-y-0.5 hover:shadow-2xl"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <div className="bg-[#172238] p-3 rounded-lg shadow-inner">
+                        <FiTrendingUp className="h-5 w-5 text-[#00d09c]" />
+                      </div>
+                      <h3 className="font-medium text-white text-sm md:text-base truncate">{strategy.name}</h3>
+                    </div>
+                    <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm w-full sm:w-auto flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+                      <div>
+                        <p className="text-gray-400">Orders</p>
+                        <p className="text-white text-right">{strategy.orders?.length || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Profit</p>
+                        <p className={`${strategy.profit > 0 ? "text-green-500" : strategy.profit < 0 ? "text-red-500" : "text-white"} text-right`}>
+                          ${strategy.profit?.toFixed(2) || "0.00"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="bg-[#0e1726] p-4 rounded-full mb-4">
+                <FiFolder className="h-8 w-8 text-gray-400" />
               </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>Premium Subscription</CardTitle>
-              <CardDescription>
-                Get unlimited stock analysis access
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white p-6 rounded-lg">
-                <h3 className="text-xl font-bold mb-2">Premium Plan</h3>
-                <p className="mb-4">Unlimited stock analyses, priority support, and more</p>
-                <div className="flex items-baseline mb-4">
-                  <span className="text-3xl font-bold">$19.99</span>
-                  <span className="ml-2">/month</span>
-                </div>
-                <Button variant="secondary">Subscribe Now</Button>
+              <h3 className="text-base md:text-lg font-medium text-white mb-2">Nothing to show</h3>
+              <p className="text-gray-400 mb-4">You don't have any running strategies yet.</p>
+              <Link href="/strategies">
+                <Button variant="primary">Browse Strategies</Button>
+              </Link>
+            </div>
+          )}
+        </div>
+
+        {/* Listed strategies */}
+        <div className="bg-gradient-to-br from-[#101b2d] to-[#0e1726] rounded-2xl p-4 md:p-6 border border-[#1b2e4b] shadow-2xl shadow-black/30 transform-gpu">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-lg md:text-xl font-semibold text-white">Listed Strategies</h2>
+            <Link href="/strategies" className="text-[#00d09c] text-sm hover:underline">
+              View all
+            </Link>
+          </div>
+          {loadingListed ? (
+            <div className="flex justify-center py-8">
+              <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-[#00d09c]" />
+            </div>
+          ) : listed.length > 0 ? (
+            <div className="flex flex-col gap-4">
+              {listed.slice(0, 4).map((s) => (
+                <Link
+                  key={s.id}
+                  href={`/strategies/${s.id}/info`}
+                  className="bg-gradient-to-br from-[#0e1726] to-[#1b2e4b] rounded-xl p-4 md:p-5 border border-[#22304d] shadow-xl shadow-black/40 transition-transform transform-gpu hover:-translate-y-0.5 hover:shadow-2xl"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <div className="bg-[#172238] p-3 rounded-lg shadow-inner">
+                        <FiTrendingUp className="h-5 w-5 text-[#a855f7]" />
+                      </div>
+                      <h3 className="font-medium text-white text-sm md:text-base truncate">{s.name}</h3>
+                    </div>
+                    <div className="flex items-center gap-4 md:gap-8 text-xs md:text-sm w-full sm:w-auto flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+                      <div>
+                        <p className="text-gray-400">Category</p>
+                        <p className="text-white text-right">{s.category}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Performance</p>
+                        <p className="text-green-500 text-right">{s.performance}%</p>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="bg-[#0e1726] p-4 rounded-full mb-4">
+                <FiFolder className="h-8 w-8 text-gray-400" />
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="profile" className="mt-6 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Information</CardTitle>
-              <CardDescription>
-                View and update your profile details
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Full Name</label>
-                    <input 
-                      type="text" 
-                      className="w-full p-2 border rounded-md" 
-                      value={session?.user?.name || ''} 
-                      readOnly 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Email</label>
-                    <input 
-                      type="email" 
-                      className="w-full p-2 border rounded-md" 
-                      value={session?.user?.email || ''} 
-                      readOnly 
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Account Type</label>
-                  <input 
-                    type="text" 
-                    className="w-full p-2 border rounded-md" 
-                    value={'Standard'} 
-                    readOnly 
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Member Since</label>
-                  <input 
-                    type="text" 
-                    className="w-full p-2 border rounded-md" 
-                    value={new Date().toLocaleDateString()} 
-                    readOnly 
-                  />
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button disabled>Update Profile</Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="settings" className="mt-6 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Settings</CardTitle>
-              <CardDescription>
-                Manage your account preferences
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-medium">Email Notifications</h3>
-                    <p className="text-sm text-muted-foreground">Receive email updates about your account</p>
-                  </div>
-                  <div className="h-6 w-11 bg-muted rounded-full p-1 cursor-pointer">
-                    <div className="h-4 w-4 rounded-full bg-primary ml-auto"></div>
-                  </div>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-medium">SMS Alerts</h3>
-                    <p className="text-sm text-muted-foreground">Get text messages for important updates</p>
-                  </div>
-                  <div className="h-6 w-11 bg-muted rounded-full p-1 cursor-pointer">
-                    <div className="h-4 w-4 rounded-full bg-muted-foreground"></div>
-                  </div>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-medium">Two-Factor Authentication</h3>
-                    <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
-                  </div>
-                  <Button variant="outline">Enable</Button>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline">Cancel</Button>
-              <Button>Save Changes</Button>
-            </CardFooter>
-          </Card>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>Danger Zone</CardTitle>
-              <CardDescription>
-                Irreversible account actions
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="p-4 border border-destructive/20 rounded-md">
-                  <h3 className="font-medium text-destructive">Delete Account</h3>
-                  <p className="text-sm text-muted-foreground mt-1 mb-4">
-                    Once you delete your account, there is no going back. Please be certain.
-                  </p>
-                  <Button variant="outline" className="text-destructive">Delete Account</Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              <h3 className="text-base md:text-lg font-medium text-white mb-2">No strategies found</h3>
+              <p className="text-gray-400 mb-4">Explore and deploy strategies from the catalog.</p>
+              <Link href="/strategies">
+                <Button variant="primary">Explore Strategies</Button>
+              </Link>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer Disclaimer */}
+      <div className="bg-[#283046] rounded-lg p-4 mt-6">
+        <p className="text-xs text-gray-400 text-center">
+          Stock Market investments are subject to market risk. Please read the offer documents carefully before investing. Past performances are no guarantee of future returns. This content is solely for educational purposes only.
+        </p>
+        <p className="text-xs text-green-500 text-right mt-1">Disclaimer</p>
+      </div>
     </div>
   );
 }
 
-// Main dashboard page
-function DashboardPage() {
+// Dashboard page
+export default function Dashboard() {
   return (
     <UserLayout>
       <DashboardPageContent />
     </UserLayout>
   );
 }
-
-export default DashboardPage;

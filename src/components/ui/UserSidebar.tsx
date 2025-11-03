@@ -23,12 +23,13 @@ const NavItem = ({ href, icon, label, active }: NavItemProps) => {
   return (
     <Link 
       href={href}
-      className={`flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${active 
-        ? 'bg-blue-600 text-white' 
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800'}`}
+      title={label}
+      aria-label={label}
+      className={`flex items-center justify-center w-12 h-12 text-sm rounded-lg transition-colors fx-3d-card ${active 
+        ? 'text-white' 
+        : 'text-gray-600 dark:text-gray-300'}`}
     >
-      <span className="mr-3">{icon}</span>
-      <span>{label}</span>
+      <span className="fx-3d-icon">{icon}</span>
     </Link>
   );
 };
@@ -49,7 +50,7 @@ export function UserSidebar({ onLogout }: UserSidebarProps) {
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Trading Platform</p>
       </div>
       
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         <NavItem 
           href="/dashboard" 
           icon={<FiHome size={18} />} 
@@ -85,9 +86,9 @@ export function UserSidebar({ onLogout }: UserSidebarProps) {
       <div className="p-4 border-t border-gray-200 dark:border-gray-700">
         <button
           onClick={onLogout}
-          className="flex items-center w-full px-4 py-2 text-sm text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+          className="flex items-center w-full px-4 py-2 text-sm text-gray-600 dark:text-gray-300 rounded-lg transition-colors fx-3d-card"
         >
-          <FiLogOut size={18} className="mr-3" />
+          <span className="mr-3 fx-3d-icon"><FiLogOut size={18} /></span>
           <span>Logout</span>
         </button>
       </div>

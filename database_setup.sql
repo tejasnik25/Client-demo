@@ -49,6 +49,18 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Analysis History Table
+CREATE TABLE IF NOT EXISTS analysis_history (
+  id VARCHAR(255) PRIMARY KEY,
+  user_id VARCHAR(255) NOT NULL,
+  symbol VARCHAR(64),
+  analysis TEXT,
+  score DECIMAL(6,2),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_analysis_user (user_id, created_at)
+);
+
 -- Strategies Table
 CREATE TABLE IF NOT EXISTS strategies (
   id VARCHAR(255) PRIMARY KEY,

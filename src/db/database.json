@@ -178,20 +178,30 @@
   ],
   "strategies": [
     {
-      "id": "strategy_1761333014393",
-      "name": "Swing Trading",
-      "description": "Focuses on high-growth stocks with strong earnings potential.",
+      "id": "strategy_1761985356125",
+      "name": "Best Scalping Strategy ",
+      "description": "Test",
       "performance": 0,
       "riskLevel": "Medium",
       "category": "Value",
       "imageUrl": "/strategy1.svg",
-      "details": "Buying and selling stocks over days to weeks for profit.",
+      "details": "Liquidity Grab + EMA Tap: Price sweeps a low, taps 20 EMA, prints bullish engulfing → Buy scalp.\r\n\r\nBreakout Retest: 5m range breaks, price retests breakout level, volume spike → Enter continuation.\r\n\r\nReversal Scalps: Only if higher timeframe shows overextension; fade a sweep back into range.\r\n",
       "parameters": {},
       "contentType": "html",
-      "contentUrl": "/uploads/strategy-320f2df6-85e1-4c72-b3ed-6f639d44ec20.html",
+      "contentUrl": "/uploads/strategy-3a5ad757-416b-4244-b2a5-d0f48113023a.html",
       "enabled": true,
-      "created_at": "2025-10-24T19:10:14.393Z",
-      "updated_at": "2025-10-24T19:10:14.393Z"
+      "created_at": "2025-11-01T08:22:36.125Z",
+      "updated_at": "2025-11-02T10:26:59.543Z",
+      "minCapital": 5000,
+      "avgDrawdown": 10,
+      "riskReward": 1,
+      "winStreak": -1,
+      "tag": "High Risk",
+      "planPrices": {
+        "Pro": 5000,
+        "Expert": 10000,
+        "Premium": 20000
+      }
     }
   ]
 }

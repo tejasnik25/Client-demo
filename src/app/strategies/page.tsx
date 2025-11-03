@@ -15,9 +15,21 @@ interface Strategy {
   id: string;
   name: string;
   description: string;
-  performance: number;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  category: 'Growth' | 'Income' | 'Momentum' | 'Value';
+  // Deprecated fields (kept for backward compatibility)
+  performance?: number;
+  riskLevel?: 'Low' | 'Medium' | 'High';
+  category?: 'Growth' | 'Income' | 'Momentum' | 'Value';
+  // New fields from admin
+  minCapital?: number;
+  avgDrawdown?: number;
+  riskReward?: number;
+  winStreak?: number;
+  tag?: string;
+  planPrices?: {
+    Pro?: number;
+    Expert?: number;
+    Premium?: number;
+  };
   imageUrl: string;
   details: string;
   parameters: Record<string, string>;
@@ -31,6 +43,8 @@ const StrategiesPage: React.FC = () => {
   const { user } = useAuth();
   const router = useRouter();
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
+  // Separate state so Info dialog does NOT auto-open on deploy
+  const [infoDialogOpen, setInfoDialogOpen] = useState(false);
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'Premium' | 'Expert' | 'Pro' | null>(null);
   const [activeTab, setActiveTab] = useState('all');
@@ -88,17 +102,30 @@ const StrategiesPage: React.FC = () => {
 
   const handleViewInfo = (s: Strategy) => {
     if (!session) return router.push('/login?redirect=/strategies');
-    setSelectedStrategy(s);
+    router.push(`/strategies/${s.id}/info`);
   };
 
   const handleDeploy = (s: Strategy) => {
     if (!session) return router.push('/login?redirect=/strategies');
     setSelectedStrategy(s);
+    // Ensure only plans are shown; keep info dialog closed
+    setInfoDialogOpen(false);
     setPlanDialogOpen(true);
   };
 
   const getPlanPrices = (s: Strategy | null) => {
     if (!s) return { Premium: 5000, Expert: 10000, Pro: 20000 };
+    
+    // Use new planPrices field if available, otherwise fallback to parameters
+    if (s.planPrices) {
+      return {
+        Premium: s.planPrices.Premium ?? 5000,
+        Expert: s.planPrices.Expert ?? 10000,
+        Pro: s.planPrices.Pro ?? 20000,
+      };
+    }
+    
+    // Fallback to old parameters method for backward compatibility
     const params = s.parameters || {} as Record<string, string>;
     const parseNum = (v?: string) => {
       const n = v ? parseFloat(v) : NaN;
@@ -124,7 +151,7 @@ const StrategiesPage: React.FC = () => {
 
   const filtered = activeTab === 'all'
     ? strategies
-    : strategies.filter(s => s.category.toLowerCase() === activeTab);
+    : strategies.filter(s => s.category?.toLowerCase() === activeTab);
 
   return (
     <UserLayout>
@@ -134,24 +161,8 @@ const StrategiesPage: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-2xl font-bold">Explore Strategies</h3>
-            <p className="text-sm text-gray-400 mt-1">Browse and deploy FusionX-style trading strategies.</p>
+            <p className="text-sm text-gray-400 mt-1">Browse and deploy Copy-Trade-style trading strategies.</p>
           </div>
-          <Button className="bg-[#00cfe8] text-black hover:bg-[#00bcd4]">Complete Now</Button>
-        </div>
-        {/* Progress Steps */}
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
-          {[
-            { label: 'Sign up', done: true },
-            { label: 'Complete KYC', done: false },
-            { label: 'Connect a broker', done: false },
-            { label: 'Deploy a strategy', done: false },
-          ].map((step, idx) => (
-            <div key={step.label} className="flex items-center gap-2">
-              <span className={`flex h-7 w-7 items-center justify-center rounded-full border ${step.done ? 'bg-[#28c76f] border-[#28c76f] text-black' : 'bg-[#1a1f2e] border-[#283046] text-gray-300'}`}>{idx + 1}</span>
-              <span className={`font-medium ${step.done ? 'text-white' : 'text-gray-300'}`}>{step.label}</span>
-              {idx < 3 && <span className="mx-1 text-[#283046]">—</span>}
-            </div>
-          ))}
         </div>
       </div>
 
@@ -181,21 +192,6 @@ const StrategiesPage: React.FC = () => {
           </button>
         </div>
 
-        {/* Category Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-4 w-full bg-[#1a1f2e] p-1 rounded-xl h-11">
-            {['all', 'growth', 'value', 'income'].map(cat => (
-              <TabsTrigger
-                key={cat}
-                value={cat}
-                className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#7c3aed] data-[state=active]:to-[#a855f7] data-[state=active]:text-white rounded-lg text-sm font-medium capitalize"
-              >
-                {cat}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
         {/* Filter chips */}
         <div className="flex gap-2">
           {['Premium', 'Expert', 'Pro'].map((chip) => (
@@ -224,7 +220,7 @@ const StrategiesPage: React.FC = () => {
                 const s = tx.strategy_id ? stratById.get(tx.strategy_id) : undefined;
                 if (!s) return null;
                 return (
-                  <div key={tx.id} className="group bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046]">
+                  <div key={tx.id} className="group fx-3d-card bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046]">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                       <div className="flex items-start gap-4 flex-1">
                         <div className="w-14 h-14 bg-gradient-to-br from-[#7c3aed] to-[#a855f7] rounded-xl flex items-center justify-center p-2">
@@ -236,27 +232,65 @@ const StrategiesPage: React.FC = () => {
                             <span className="text-xs text-gray-500">Plan: {tx.plan_level ?? '—'}</span>
                           </div>
                           <div className="flex gap-2 mt-2">
-                            <span className="text-xs px-2 py-1 bg-[#283046] rounded-full uppercase">{s.category}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              s.riskLevel === 'High' ? 'bg-red-900/30 text-red-300' :
-                              s.riskLevel === 'Medium' ? 'bg-yellow-900/30 text-yellow-300' :
-                              'bg-green-900/30 text-green-300'
-                            }`}>
-                              {s.riskLevel}
-                            </span>
+                            {s.tag && (
+                              <span className="text-xs px-2 py-1 bg-[#7c3aed] text-white rounded-full">{s.tag}</span>
+                            )}
+                            {/* Fallback to deprecated fields if new ones aren't available */}
+                            {s.category && (
+                              <span className="text-xs px-2 py-1 bg-[#283046] rounded-full uppercase">{s.category}</span>
+                            )}
+                            {s.riskLevel && (
+                              <span className={`text-xs px-2 py-1 rounded-full ${
+                                s.riskLevel === 'High' ? 'bg-red-900/30 text-red-300' :
+                                s.riskLevel === 'Medium' ? 'bg-yellow-900/30 text-yellow-300' :
+                                'bg-green-900/30 text-green-300'
+                              }`}>
+                                {s.riskLevel}
+                              </span>
+                            )}
                           </div>
                           <p className="mt-2 text-sm text-gray-400">{s.description}</p>
                         </div>
                       </div>
                       <div className="flex gap-8 text-sm">
-                        <div>
-                          <div className="text-gray-500">Performance</div>
-                          <div className="font-bold text-white">{s.performance}%</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Risk Level</div>
-                          <div className="font-bold text-white">{s.riskLevel}</div>
-                        </div>
+                        {/* Display new metrics if available, otherwise fallback to deprecated ones */}
+                        {s.minCapital !== undefined ? (
+                          <div>
+                            <div className="text-gray-500">Min Capital</div>
+                            <div className="font-bold text-white">₹{s.minCapital.toLocaleString()}</div>
+                          </div>
+                        ) : s.performance !== undefined ? (
+                          <div>
+                            <div className="text-gray-500">Performance</div>
+                            <div className="font-bold text-white">{s.performance}%</div>
+                          </div>
+                        ) : null}
+                        
+                        {s.avgDrawdown !== undefined ? (
+                          <div>
+                            <div className="text-gray-500">Avg Drawdown</div>
+                            <div className="font-bold text-white">{s.avgDrawdown}%</div>
+                          </div>
+                        ) : s.riskLevel ? (
+                          <div>
+                            <div className="text-gray-500">Risk Level</div>
+                            <div className="font-bold text-white">{s.riskLevel}</div>
+                          </div>
+                        ) : null}
+                        
+                        {s.riskReward !== undefined && (
+                          <div>
+                            <div className="text-gray-500">Risk Reward</div>
+                            <div className="font-bold text-white">{s.riskReward}</div>
+                          </div>
+                        )}
+                        
+                        {s.winStreak !== undefined && (
+                          <div>
+                            <div className="text-gray-500">Win Streak</div>
+                            <div className="font-bold text-white">{s.winStreak}</div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -279,7 +313,7 @@ const StrategiesPage: React.FC = () => {
           filtered.map(strategy => (
             <div
               key={strategy.id}
-              className="group bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046] hover:border-[#a855f7]/50 transition-all"
+              className="group fx-3d-card bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046] hover:border-[#a855f7]/50 transition-all"
             >
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                 {/* Left */}
@@ -293,48 +327,84 @@ const StrategiesPage: React.FC = () => {
                       <span className="text-xs text-gray-500">by Fusion</span>
                     </div>
                     <div className="flex gap-2 mt-2">
-                      <span className="text-xs px-2 py-1 bg-[#283046] rounded-full uppercase">{strategy.category}</span>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        strategy.riskLevel === 'High' ? 'bg-red-900/30 text-red-300' :
-                        strategy.riskLevel === 'Medium' ? 'bg-yellow-900/30 text-yellow-300' :
-                        'bg-green-900/30 text-green-300'
-                      }`}>
-                        {strategy.riskLevel}
-                      </span>
+                    {strategy.tag && (
+                        <span className="text-xs px-2 py-1 bg-[#7c3aed] text-white rounded-full whitespace-nowrap">{strategy.tag}</span>
+                      )}
+                      {/* Fallback to deprecated fields if new ones aren't available */}
+                      {strategy.category && (
+                        <span className="text-xs px-2 py-1 bg-[#283046] rounded-full uppercase whitespace-nowrap">{strategy.category}</span>
+                      )}
+                      {strategy.riskLevel && (
+                        <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
+                          strategy.riskLevel === 'High' ? 'bg-red-900/30 text-red-300' :
+                          strategy.riskLevel === 'Medium' ? 'bg-yellow-900/30 text-yellow-300' :
+                          'bg-green-900/30 text-green-300'
+                        }`}>
+                          {strategy.riskLevel}
+                        </span>
+                      )}
                     </div>
-                    <p className="mt-2 text-sm text-gray-400">{strategy.description}</p>
+                    <p className="mt-2 text-base md:text-sm leading-6 text-gray-400">{strategy.description}</p>
                   </div>
                 </div>
 
                 {/* Center */}
-                <div className="flex gap-8 text-sm">
-                  <div>
-                    <div className="text-gray-500">Performance</div>
-                    <div className="font-bold text-white">{strategy.performance}%</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">Risk Level</div>
-                    <div className="font-bold text-white">{strategy.riskLevel}</div>
-                  </div>
+                <div className="text-sm grid grid-cols-2 gap-4 w-full md:w-auto md:flex md:gap-8">
+                  {/* Display new metrics if available, otherwise fallback to deprecated ones */}
+                  {strategy.minCapital !== undefined ? (
+                    <div>
+                      <div className="text-gray-500">Min Capital</div>
+                      <div className="font-bold text-white">₹{strategy.minCapital.toLocaleString()}</div>
+                    </div>
+                  ) : strategy.performance !== undefined ? (
+                    <div>
+                      <div className="text-gray-500">Performance</div>
+                      <div className="font-bold text-white">{strategy.performance}%</div>
+                    </div>
+                  ) : null}
+                  
+                  {strategy.avgDrawdown !== undefined ? (
+                    <div>
+                      <div className="text-gray-500">Avg Drawdown</div>
+                      <div className="font-bold text-white">{strategy.avgDrawdown}%</div>
+                    </div>
+                  ) : strategy.riskLevel ? (
+                    <div>
+                      <div className="text-gray-500">Risk Level</div>
+                      <div className="font-bold text-white">{strategy.riskLevel}</div>
+                    </div>
+                  ) : null}
+                  
+                  {strategy.riskReward !== undefined && (
+                    <div>
+                      <div className="text-gray-500">Risk Reward</div>
+                      <div className="font-bold text-white">{strategy.riskReward}</div>
+                    </div>
+                  )}
+                  
+                  {strategy.winStreak !== undefined && (
+                    <div>
+                      <div className="text-gray-500">Win Streak</div>
+                      <div className="font-bold text-white">{strategy.winStreak}</div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Right */}
-                <div className="flex gap-3">
+                <div className="grid grid-cols-1 gap-3 w-full md:w-auto md:flex md:gap-3">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="border-[#a855f7] text-[#a855f7] hover:bg-[#a855f7] hover:text-white"
+                    className="h-11 w-full md:w-auto border-[#a855f7] text-[#a855f7] hover:bg-[#a855f7] hover:text-white"
                     onClick={() => handleViewInfo(strategy)}
                   >
-                    <FiInfo className="mr-2 h-4 w-4" />
                     Info
                   </Button>
                   <Button
                     size="sm"
-                    className="bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]"
+                    className="h-11 w-full md:w-auto bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]"
                     onClick={() => handleDeploy(strategy)}
                   >
-                    <FiPlay className="mr-2 h-4 w-4" />
                     Deploy
                   </Button>
                 </div>
@@ -344,8 +414,8 @@ const StrategiesPage: React.FC = () => {
         )}
       </div>
 
-      {/* Dialog */}
-      <Dialog open={!!selectedStrategy} onOpenChange={o => !o && setSelectedStrategy(null)}>
+      {/* Info Dialog (kept, but controlled independently so deploy won't open it) */}
+      <Dialog open={infoDialogOpen} onOpenChange={(o) => setInfoDialogOpen(o)}>
         <DialogContent className="max-w-4xl bg-[#161d31] text-white border-[#283046]">
           {selectedStrategy && (
             <>
@@ -354,33 +424,41 @@ const StrategiesPage: React.FC = () => {
                 <DialogDescription className="text-gray-400">{selectedStrategy.description}</DialogDescription>
               </DialogHeader>
               <div className="py-4 space-y-6">
-                <div className="h-48 bg-gradient-to-br from-[#7c3aed]/20 to-transparent rounded-xl flex items-center justify-center">
-                  <div className="text-6xl font-bold text-[#a855f7]/50">FX</div>
-                </div>
-                <p>{selectedStrategy.details}</p>
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <h4 className="font-semibold mb-3">Parameters</h4>
-                    {Object.entries(selectedStrategy.parameters).map(([k, v]) => (
-                      <div key={k} className="flex justify-between py-1 text-sm">
-                        <span className="text-gray-400">{k}:</span>
-                        <span>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div>
-                    <h4 className="font-semibold mb-3">Stats</h4>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between"><span className="text-gray-400">Performance:</span> <span>{selectedStrategy.performance}%</span></div>
-                      <div className="flex justify-between"><span className="text-gray-400">Risk:</span> <span>{selectedStrategy.riskLevel}</span></div>
-                      <div className="flex justify-between"><span className="text-gray-400">Category:</span> <span>{selectedStrategy.category}</span></div>
+                {/* FusionX-style info content container */}
+                <div className="rounded-xl border border-white/10 bg-[#0f172a] p-3">
+                  {selectedStrategy.contentUrl ? (
+                    selectedStrategy.contentType === 'pdf' ? (
+                      <object
+                        data={selectedStrategy.contentUrl}
+                        type="application/pdf"
+                        className="w-full h-[70vh]"
+                      >
+                        <iframe
+                          src={selectedStrategy.contentUrl}
+                          className="w-full h-full"
+                        />
+                      </object>
+                    ) : (
+                      <iframe
+                        src={selectedStrategy.contentUrl}
+                        className="w-full h-[70vh] rounded-lg"
+                      />
+                    )
+                  ) : (
+                    <div className="h-48 bg-gradient-to-br from-[#7c3aed]/20 to-transparent rounded-xl flex items-center justify-center">
+                      <div className="text-sm text-gray-400">No info document available</div>
                     </div>
-                  </div>
+                  )}
                 </div>
+
+                {/* Optional details below the embedded content */}
+                {selectedStrategy.details && (
+                  <p className="text-sm text-gray-300">{selectedStrategy.details}</p>
+                )}
               </div>
               <DialogFooter>
                 <Button className="bg-gradient-to-r from-[#7c3aed] to-[#a855f7]" onClick={() => handleDeploy(selectedStrategy)}>
-                  <FiPlay className="mr-2" /> Deploy Strategy
+                  <FiPlay className="mr-2 fx-3d-icon" /> Deploy Strategy
                 </Button>
               </DialogFooter>
             </>
@@ -388,39 +466,77 @@ const StrategiesPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Plan Selection Dialog */}
+      {/* Plan Selection Dialog - Full Overlay */}
       <Dialog open={planDialogOpen} onOpenChange={(o) => setPlanDialogOpen(o)}>
-        <DialogContent className="max-w-lg bg-[#161d31] text-white border-[#283046]">
-          <DialogHeader>
-            <DialogTitle className="text-xl">Select a Plan</DialogTitle>
-            <DialogDescription className="text-gray-400">Choose Premium, Expert, or Pro to continue.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {(['Premium','Expert','Pro'] as const).map((plan) => {
-              const prices = getPlanPrices(selectedStrategy);
-              const amt = prices[plan];
-              const active = selectedPlan === plan;
-              return (
-                <button
-                  key={plan}
-                  onClick={() => setSelectedPlan(plan)}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition ${active ? 'border-[#a855f7] bg-[#1a1f2e]' : 'border-[#283046] bg-[#161d31] hover:bg-[#1a1f2e]'}`}
+        <DialogContent className="max-w-md bg-gray-900 text-white border-gray-700 shadow-2xl">
+          {/* Custom Overlay with 100% opacity */}
+          <div className="fixed inset-0 z-40 bg-black" />
+          
+          <div className="relative z-50">
+            <DialogHeader>
+              <div className="flex justify-between items-center border-b border-gray-700 pb-4">
+                <DialogTitle className="text-xl font-bold text-white">Select a Plan</DialogTitle>
+                <button 
+                  onClick={() => setPlanDialogOpen(false)}
+                  className="text-gray-400 hover:text-white text-2xl leading-none"
                 >
-                  <span className="font-medium">{plan}</span>
-                  <span className="text-sm text-gray-300">₹ {amt.toLocaleString()}</span>
+                  ×
                 </button>
-              );
-            })}
+              </div>
+              <DialogDescription className="mt-4 text-gray-400">
+                Choose Premium, Expert, or Pro to continue.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="mt-6 space-y-4">
+              {(['Premium','Expert','Pro'] as const).map((plan) => {
+                const prices = getPlanPrices(selectedStrategy);
+                const amt = prices[plan];
+                const active = selectedPlan === plan;
+                const descriptions = {
+                  Premium: 'Basic access with standard features.',
+                  Expert: 'Advanced features with priority support.',
+                  Pro: 'Full access with premium analytics.'
+                };
+                
+                return (
+                  <div
+                    key={plan}
+                    onClick={() => setSelectedPlan(plan)}
+                    className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      active 
+                        ? 'border-purple-500 bg-purple-900/20' 
+                        : 'border-gray-700 hover:border-gray-600 bg-gray-800/50'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-white text-lg">{plan}</h3>
+                        <p className="text-sm text-gray-400 mt-1">{descriptions[plan]}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-teal-400">₹{amt.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <DialogFooter className="mt-6">
+              <button
+                disabled={!selectedPlan}
+                onClick={confirmPlanAndRedirect}
+                className={`w-full py-3 rounded-xl font-semibold transition-all ${
+                  selectedPlan 
+                    ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white' 
+                    : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                Continue to Payment
+              </button>
+            </DialogFooter>
           </div>
-          <DialogFooter>
-            <Button
-              disabled={!selectedPlan}
-              className={`px-4 py-2 rounded-lg ${selectedPlan ? 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]' : 'bg-gray-600 cursor-not-allowed'}`}
-              onClick={confirmPlanAndRedirect}
-            >
-              Continue to Payment
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -429,4 +545,5 @@ const StrategiesPage: React.FC = () => {
 };
 
 export default StrategiesPage;
+
 

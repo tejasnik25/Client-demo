@@ -29,7 +29,9 @@ export function UserHeader() {
         </h1>
         <div className="relative w-full max-w-md">
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-            <FiSearch className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <span className="fx-3d-icon">
+              <FiSearch className="w-4 h-4 text-gray-300" />
+            </span>
           </div>
           <input
             type="text"
@@ -44,7 +46,9 @@ export function UserHeader() {
       <div className="flex items-center space-x-4">
         <div className="relative">
           <button className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-            <FiBell size={20} />
+            <span className="fx-3d-icon">
+              <FiBell size={20} />
+            </span>
             <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">2</span>
           </button>
         </div>

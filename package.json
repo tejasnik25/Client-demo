@@ -24,6 +24,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
+    "file-saver": "^2.0.5",
     "lucide-react": "^0.544.0",
     "mysql2": "^3.15.1",
     "next": "15.5.2",
@@ -36,7 +37,8 @@
     "stripe": "^18.5.0",
     "swr": "^2.3.6",
     "tailwind-merge": "^3.3.1",
-    "tough-cookie": "^6.0.0"
+    "tough-cookie": "^6.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
