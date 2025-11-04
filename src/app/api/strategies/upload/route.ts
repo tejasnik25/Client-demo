@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     const category = 'Value' as 'Growth' | 'Income' | 'Momentum' | 'Value';
     
     // Validate required fields
-    if (!name || !description || !file) {
+    if (!name || !description || (contentType !== 'text' && !file)) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -183,6 +183,8 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const contentUrl = formData.get('contentUrl') as string;
+
     // Prepare update object (do not override deprecated fields)
     const updates: any = {
       name,
@@ -190,7 +192,8 @@ export async function PUT(req: NextRequest) {
       imageUrl,
       details,
       contentType,
-      enabled
+      enabled,
+      contentUrl
     };
 
     // Process file upload if provided

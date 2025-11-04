@@ -240,6 +240,7 @@ const StrategyManagement: React.FC = () => {
       // Legacy imageUrl preserved when no icon selected
       formData.append('imageUrl', currentStrategy.imageUrl || '/strategy1.svg');
       formData.append('contentType', contentType);
+      formData.append('contentUrl', currentStrategy.contentUrl || '');
       formData.append('enabled', String(currentStrategy.enabled ?? true));
 
       // New metrics/tag
