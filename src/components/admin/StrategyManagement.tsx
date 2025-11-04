@@ -94,22 +94,22 @@ const StrategyManagement: React.FC = () => {
     fetchStrategies();
   }, []);
 
-  // Reset form for adding new strategy
-  const resetAddForm = () => {
-    setCurrentStrategy({
-      name: '',
-      description: '',
-      imageUrl: '/strategy1.svg',
-      minCapital: undefined,
-      avgDrawdown: undefined,
-      riskReward: undefined,
-      winStreak: undefined,
-      tag: '',
-      planPrices: { Pro: undefined, Expert: undefined, Premium: undefined },
+ // Reset form for adding new strategy
+ const resetAddForm = () => {
+   setCurrentStrategy({
+     name: '',
+     description: '',
+     imageUrl: '/strategy1.svg',
+     minCapital: undefined,
+     avgDrawdown: undefined,
+     riskReward: undefined,
+     winStreak: undefined,
+     tag: '',
+     planPrices: { Pro: undefined, Expert: undefined, Premium: undefined },
       details: '',
-      enabled: true,
-      contentType: 'html'
-    });
+     enabled: true,
+     contentType: 'html'
+   });
     setParameters([{ key: '', value: '', id: `param-${Date.now()}` }]);
     setError(null);
     setSuccess(null);
@@ -213,14 +213,20 @@ const StrategyManagement: React.FC = () => {
       setError('Description is required');
       return;
     }
-    if (!currentStrategy.details?.trim()) {
-      setError('Detailed description is required');
-      return;
-    }
-
-    if (!selectedFile && isAdding) {
-      setError('Please upload a strategy document (HTML or PDF)');
-      return;
+    // Content validation: require text details only for text content;
+    // for HTML/PDF content, allow either a new upload or existing file on edit.
+    const hasTextDetails = !!currentStrategy.details?.trim();
+    const hasFileOrExisting = !!selectedFile || (!!currentStrategy.contentUrl && !isAdding);
+    if (contentType === 'text') {
+      if (!hasTextDetails) {
+        setError('Detailed description is required for text content');
+        return;
+      }
+    } else {
+      if (!hasFileOrExisting) {
+        setError('Please upload a strategy document (HTML or PDF)');
+        return;
+      }
     }
 
     try {
