@@ -203,6 +203,9 @@ export type Strategy = {
   parameters: Record<string, string>;
   contentType?: string;
   contentUrl?: string;
+  // Server-side only: binary content storage
+  contentBlob?: Buffer;
+  contentMime?: string;
   enabled?: boolean;
   created_at: string;
   updated_at: string;
@@ -301,6 +304,8 @@ const initializeDatabase = async () => {
   // Add strategy columns if missing
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_type VARCHAR(16)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_url VARCHAR(500)"); } catch (e) {}
+  // Widen content_url to TEXT to support longer URLs (e.g., data URLs)
+  try { await pool.execute("ALTER TABLE strategies MODIFY content_url TEXT"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN enabled BOOLEAN DEFAULT TRUE"); } catch (e) {}
   // New fields
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN min_capital DECIMAL(14,2)"); } catch (e) {}
@@ -310,6 +315,9 @@ const initializeDatabase = async () => {
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN tag VARCHAR(255)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN plan_prices JSON"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN plan_details JSON"); } catch (e) {}
+  // Binary content storage for Vercel-safe uploads
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_blob LONGBLOB"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_mime VARCHAR(255)"); } catch (e) {}
     // Ensure analysis_history has expected columns (minimal auto-migrations)
     try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN symbol VARCHAR(64)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN analysis TEXT"); } catch (e) {}
@@ -549,6 +557,8 @@ export const getStrategyById = async (id: string): Promise<Strategy | null> => {
       parameters: JSON.parse(strategy.parameters || '{}'),
       contentType: strategy.content_type,
       contentUrl: strategy.content_url,
+      contentBlob: strategy.content_blob,
+      contentMime: strategy.content_mime,
       enabled: strategy.enabled !== undefined ? !!strategy.enabled : true,
       created_at: strategy.created_at.toISOString(),
       updated_at: strategy.updated_at.toISOString()
@@ -560,13 +570,13 @@ export const getStrategyById = async (id: string): Promise<Strategy | null> => {
 };
 
 export const createStrategy = async (
-  strategy: Omit<Strategy, 'id' | 'created_at' | 'updated_at'> & { contentType?: string, contentUrl?: string, enabled?: boolean }
+  strategy: Omit<Strategy, 'id' | 'created_at' | 'updated_at'> & { contentType?: string, contentUrl?: string, contentBlob?: Buffer, contentMime?: string, enabled?: boolean }
 ): Promise<{ success: boolean; strategy?: Strategy; error?: string }> => {
   try {
     const id = `strategy_${Date.now()}`;
     await pool.execute(
-      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, min_capital, avg_drawdown, risk_reward, win_streak, tag, plan_prices, plan_details, details, parameters, content_type, content_url, enabled) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, min_capital, avg_drawdown, risk_reward, win_streak, tag, plan_prices, plan_details, details, parameters, content_type, content_url, content_blob, content_mime, enabled) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         strategy.name,
@@ -586,6 +596,8 @@ export const createStrategy = async (
         JSON.stringify(strategy.parameters || {}),
         strategy.contentType || null,
         strategy.contentUrl || null,
+        strategy.contentBlob || null,
+        strategy.contentMime || null,
         strategy.enabled !== false
       ]
     );
@@ -614,12 +626,14 @@ export const createStrategy = async (
         planPrices: strategy.planPrices,
         planDetails: strategy.planDetails,
         details: strategy.details ?? '',
-        parameters: strategy.parameters || {},
-        contentType: strategy.contentType,
-        contentUrl: strategy.contentUrl,
-        enabled: strategy.enabled !== false,
-        created_at: now,
-        updated_at: now
+      parameters: strategy.parameters || {},
+      contentType: strategy.contentType,
+      contentUrl: strategy.contentUrl,
+      contentBlob: strategy.contentBlob,
+      contentMime: strategy.contentMime,
+      enabled: strategy.enabled !== false,
+      created_at: now,
+      updated_at: now
       };
       db.strategies = [strategyObj, ...arr];
       writeDatabase(db);
@@ -656,6 +670,8 @@ export const updateStrategy = async (
     if (updates.parameters) { setClause.push('parameters = ?'); values.push(JSON.stringify(updates.parameters)); }
     if (updates.contentType) { setClause.push('content_type = ?'); values.push(updates.contentType); }
     if (updates.contentUrl) { setClause.push('content_url = ?'); values.push(updates.contentUrl); }
+    if (updates.contentBlob !== undefined) { setClause.push('content_blob = ?'); values.push(updates.contentBlob ?? null); }
+    if (updates.contentMime !== undefined) { setClause.push('content_mime = ?'); values.push(updates.contentMime ?? null); }
     if (updates.enabled !== undefined) { setClause.push('enabled = ?'); values.push(updates.enabled); }
 
     if (setClause.length === 0) {
@@ -696,6 +712,8 @@ export const updateStrategy = async (
         parameters: updates.parameters ?? (typeof existing.parameters === 'string' ? JSON.parse(existing.parameters || '{}') : existing.parameters || {}),
         contentType: updates.contentType ?? existing.contentType,
         contentUrl: updates.contentUrl ?? existing.contentUrl,
+        contentBlob: updates.contentBlob ?? existing.contentBlob,
+        contentMime: updates.contentMime ?? existing.contentMime,
         enabled: updates.enabled ?? (existing.enabled !== false),
         created_at: existing.created_at,
         updated_at: new Date().toISOString()

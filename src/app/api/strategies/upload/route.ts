@@ -13,6 +13,8 @@ import { v4 as uuidv4 } from 'uuid';
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
+    const isReadOnlyFs = !!process.env.VERCEL; // Vercel serverless is read-only
+    const storageMode = process.env.STORAGE_MODE || 'db'; // 'db' (default, Vercel-safe)
     
     if (!session || session.user.role !== 'ADMIN') {
       return NextResponse.json(
@@ -64,25 +66,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Process file upload
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    
-    // Create unique filename
-    const fileExt = contentType === 'html' ? '.html' : '.pdf';
-    const fileName = `strategy-${uuidv4()}${fileExt}`;
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-    await mkdir(uploadDir, { recursive: true });
-    const filePath = path.join(uploadDir, fileName);
-    
-    // Save file
-    await writeFile(filePath, buffer);
-    
-    // File URL for public access
-    const contentUrl = `/uploads/${fileName}`;
+    // Determine content storage (avoid filesystem writes on Vercel)
+    let contentUrl: string | undefined = undefined;
+    let contentBlob: Buffer | undefined = undefined;
+    let contentMime: string | undefined = undefined;
+    if (contentType === 'text') {
+      // No file expected for text-only content; rely on details field
+      contentUrl = '';
+    } else if (file && file.size > 0) {
+      if (storageMode === 'db') {
+        const bytes = await file.arrayBuffer();
+        contentBlob = Buffer.from(bytes);
+        contentMime = file.type || (contentType === 'html' ? 'text/html' : 'application/pdf');
+        contentUrl = null as any;
+      } else if (!isReadOnlyFs) {
+        // Optional: local disk path for non-Vercel dev (not used on Vercel)
+        const bytes = await file.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+        const fileExt = contentType === 'html' ? '.html' : '.pdf';
+        const fileName = `strategy-${uuidv4()}${fileExt}`;
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+        await mkdir(uploadDir, { recursive: true });
+        const filePath = path.join(uploadDir, fileName);
+        await writeFile(filePath, buffer);
+        contentUrl = `/uploads/${fileName}`;
+      } else {
+        // On Vercel and non-db storageMode, fail gracefully
+        return NextResponse.json(
+          { error: 'File storage mode not supported on Vercel without DB or external storage' },
+          { status: 400 }
+        );
+      }
+    }
 
     // Optional: icon upload for display image
-    if (icon && icon.size > 0) {
+    if (icon && icon.size > 0 && !isReadOnlyFs) {
       const iconBytes = await icon.arrayBuffer();
       const iconBuffer = Buffer.from(iconBytes);
       const iconExt = (icon.type && icon.type.includes('png')) ? '.png' : (icon.type && icon.type.includes('jpg')) ? '.jpg' : (icon.type && icon.type.includes('jpeg')) ? '.jpeg' : (icon.type && icon.type.includes('svg')) ? '.svg' : '.png';
@@ -116,6 +134,8 @@ export async function POST(req: NextRequest) {
       details,
       contentType,
       contentUrl,
+      contentBlob,
+      contentMime,
       enabled,
       parameters: {}
     });
@@ -147,6 +167,8 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
+    const isReadOnlyFs = !!process.env.VERCEL;
+    const storageMode = process.env.STORAGE_MODE || 'db';
     
     if (!session || session.user.role !== 'ADMIN') {
       return NextResponse.json(
@@ -215,27 +237,33 @@ export async function PUT(req: NextRequest) {
       contentUrl
     };
 
-    // Process file upload if provided
+    // Process file upload if provided (DB BLOB on Vercel)
     if (file && file.size > 0) {
-      const bytes = await file.arrayBuffer();
-      const buffer = Buffer.from(bytes);
-      
-      // Create unique filename
-      const fileExt = contentType === 'html' ? '.html' : '.pdf';
-      const fileName = `strategy-${uuidv4()}${fileExt}`;
-      const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-      await mkdir(uploadDir, { recursive: true });
-      const filePath = path.join(uploadDir, fileName);
-      
-      // Save file
-      await writeFile(filePath, buffer);
-      
-      // File URL for public access
-      updates.contentUrl = `/uploads/${fileName}`;
+      if (storageMode === 'db') {
+        const bytes = await file.arrayBuffer();
+        updates.contentBlob = Buffer.from(bytes);
+        updates.contentMime = file.type || (contentType === 'html' ? 'text/html' : 'application/pdf');
+        updates.contentUrl = null;
+      } else if (!isReadOnlyFs) {
+        const bytes = await file.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+        const fileExt = contentType === 'html' ? '.html' : '.pdf';
+        const fileName = `strategy-${uuidv4()}${fileExt}`;
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+        await mkdir(uploadDir, { recursive: true });
+        const filePath = path.join(uploadDir, fileName);
+        await writeFile(filePath, buffer);
+        updates.contentUrl = `/uploads/${fileName}`;
+      } else {
+        return NextResponse.json(
+          { error: 'File storage mode not supported on Vercel without DB or external storage' },
+          { status: 400 }
+        );
+      }
     }
 
-    // Process icon upload if provided
-    if (icon && icon.size > 0) {
+    // Process icon upload if provided (skip on Vercel)
+    if (icon && icon.size > 0 && !isReadOnlyFs) {
       const iconBytes = await icon.arrayBuffer();
       const iconBuffer = Buffer.from(iconBytes);
       const iconExt = (icon.type && icon.type.includes('png')) ? '.png' : (icon.type && icon.type.includes('jpg')) ? '.jpg' : (icon.type && icon.type.includes('jpeg')) ? '.jpeg' : (icon.type && icon.type.includes('svg')) ? '.svg' : '.png';
