@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     let imageUrl = (formData.get('imageUrl') as string) || '/default-strategy.svg';
     const details = (formData.get('details') as string) || '';
     const contentType = (formData.get('contentType') as string) || 'html';
+    const contentUrlInput = (formData.get('contentUrl') as string) || undefined;
     const enabled = formData.get('enabled') === 'true';
     const file = formData.get('file') as File;
     const icon = formData.get('icon') as File | null;
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     const category = 'Value' as 'Growth' | 'Income' | 'Momentum' | 'Value';
     
     // Validate required fields
-    if (!name || !description || (contentType !== 'text' && !file)) {
+    if (!name || !description || (contentType !== 'text' && !file && !contentUrlInput)) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -73,6 +74,9 @@ export async function POST(req: NextRequest) {
     if (contentType === 'text') {
       // No file expected for text-only content; rely on details field
       contentUrl = '';
+    } else if (contentUrlInput) {
+      // Accept external or data URL directly; no file required
+      contentUrl = contentUrlInput;
     } else if (file && file.size > 0) {
       if (storageMode === 'db') {
         const bytes = await file.arrayBuffer();
