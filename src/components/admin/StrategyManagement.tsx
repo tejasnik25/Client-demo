@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
-  FiPlus, 
-  FiEdit, 
-  FiTrash2, 
-  FiX, 
-  FiCheck, 
-  FiAlertCircle, 
-  FiChevronDown, 
-  FiChevronUp 
+  FiPlus,
+  FiEdit,
+  FiTrash2,
+  FiX,
+  FiCheck,
+  FiAlertCircle,
+  FiChevronDown,
+  FiChevronUp,
+  FiUpload,
 } from 'react-icons/fi';
 import Button from '@/components/ui/Button';
 import Card, { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -23,33 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ScrollArea from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import Badge from '@/components/ui/Badge';
-
-// Local Strategy type to avoid importing server modules in client
-interface Strategy {
-  id: string;
-  name: string;
-  description: string;
-  // Deprecated fields (kept for backward comp): performance/riskLevel/category
-  performance: number;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  category: 'Growth' | 'Income' | 'Momentum' | 'Value';
-  imageUrl: string;
-  // New metrics
-  minCapital?: number;
-  avgDrawdown?: number;
-  riskReward?: number;
-  winStreak?: number;
-  // Tag and plan prices
-  tag?: string;
-  planPrices?: { Pro?: number; Expert?: number; Premium?: number };
-  details: string;
-  parameters: Record<string, string>;
-  created_at: string;
-  updated_at: string;
-  contentType: 'html' | 'pdf' | 'text';
-  contentUrl: string;
-  enabled: boolean;
-}
+import { Strategy } from "@/types/strategy";
 
 interface ParameterRow {
   key: string;

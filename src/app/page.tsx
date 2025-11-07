@@ -4,6 +4,8 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
+import { FiArrowRight, FiBarChart2, FiShield, FiTrendingUp } from "react-icons/fi";
+import { Strategy } from "@/types/strategy";
 
 interface StrategyCard {
   id: string;

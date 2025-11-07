@@ -8,40 +8,9 @@ import Button from '@/components/ui/Button';
 import Tabs, { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import UserLayout from '@/components/UserLayout';
-import { FiInfo, FiPlay } from 'react-icons/fi';
+import { FiInfo, FiPlay, FiX } from 'react-icons/fi';
+import { Strategy } from "@/types/strategy";
 import { useAuth } from '@/hooks/use-auth';
-
-  interface Strategy {
-  id: string;
-  name: string;
-  description: string;
-  // Deprecated fields (kept for backward compatibility)
-  performance?: number;
-  riskLevel?: 'Low' | 'Medium' | 'High';
-  category?: 'Growth' | 'Income' | 'Momentum' | 'Value';
-  // New fields from admin
-  minCapital?: number;
-  avgDrawdown?: number;
-  riskReward?: number;
-  winStreak?: number;
-  tag?: string;
-    planPrices?: {
-      Pro?: number;
-      Expert?: number;
-      Premium?: number;
-    };
-    planDetails?: {
-      Pro?: { priceLabel?: string; percent?: number };
-      Expert?: { priceLabel?: string; percent?: number };
-      Premium?: { priceLabel?: string; percent?: number };
-    };
-  imageUrl: string;
-  details: string;
-  parameters: Record<string, string>;
-  contentType?: 'html' | 'pdf';
-  contentUrl?: string;
-  enabled?: boolean;
-}
 
 const StrategiesPage: React.FC = () => {
   const { data: session } = useSession();

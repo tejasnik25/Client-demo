@@ -6,33 +6,7 @@ import { useSession } from "next-auth/react";
 import Image from "next/image";
 import Button from "@/components/ui/Button";
 import { FiArrowLeft } from "react-icons/fi";
-
-type Strategy = {
-  id: string;
-  name: string;
-  description: string;
-  // Deprecated fields (kept for backward compatibility)
-  performance?: number;
-  riskLevel?: "Low" | "Medium" | "High";
-  category?: "Growth" | "Income" | "Momentum" | "Value";
-  // New fields from admin
-  minCapital?: number;
-  avgDrawdown?: number;
-  riskReward?: number;
-  winStreak?: number;
-  tag?: string;
-  planPrices?: {
-    Pro?: number;
-    Expert?: number;
-    Premium?: number;
-  };
-  imageUrl: string;
-  details: string;
-  parameters: Record<string, string>;
-  contentType?: "html" | "pdf";
-  contentUrl?: string;
-  enabled?: boolean;
-};
+import { Strategy } from "@/types/strategy";
 
 const StrategyInfoPage: React.FC = () => {
   const params = useParams<{ id: string }>();
