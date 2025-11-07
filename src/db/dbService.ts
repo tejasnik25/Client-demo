@@ -497,9 +497,9 @@ export const getAllStrategies = async (): Promise<Strategy[]> => {
       riskReward: row.risk_reward !== undefined ? Number(row.risk_reward) : undefined,
       winStreak: row.win_streak !== undefined ? Number(row.win_streak) : undefined,
       tag: row.tag,
-      planPrices: row.plan_prices ? JSON.parse(row.plan_prices) : undefined,
-      planDetails: row.plan_details ? JSON.parse(row.plan_details) : undefined,
-      parameters: JSON.parse(row.parameters || '{}'),
+      planPrices: typeof row.plan_prices === 'string' ? JSON.parse(row.plan_prices) : row.plan_prices,
+      planDetails: typeof row.plan_details === 'string' ? JSON.parse(row.plan_details) : row.plan_details,
+      parameters: typeof row.parameters === 'string' ? JSON.parse(row.parameters || '{}') : (row.parameters || {}),
       contentType: row.content_type,
       contentUrl: row.content_url,
       enabled: row.enabled !== undefined ? !!row.enabled : true,
@@ -552,9 +552,9 @@ export const getStrategyById = async (id: string): Promise<Strategy | null> => {
       riskReward: strategy.risk_reward !== undefined ? Number(strategy.risk_reward) : undefined,
       winStreak: strategy.win_streak !== undefined ? Number(strategy.win_streak) : undefined,
       tag: strategy.tag,
-      planPrices: strategy.plan_prices ? JSON.parse(strategy.plan_prices) : undefined,
-      planDetails: strategy.plan_details ? JSON.parse(strategy.plan_details) : undefined,
-      parameters: JSON.parse(strategy.parameters || '{}'),
+      planPrices: typeof strategy.plan_prices === 'string' ? JSON.parse(strategy.plan_prices) : strategy.plan_prices,
+      planDetails: typeof strategy.plan_details === 'string' ? JSON.parse(strategy.plan_details) : strategy.plan_details,
+      parameters: typeof strategy.parameters === 'string' ? JSON.parse(strategy.parameters || '{}') : (strategy.parameters || {}),
       contentType: strategy.content_type,
       contentUrl: strategy.content_url,
       contentBlob: strategy.content_blob,
@@ -862,7 +862,7 @@ export const loginUser = async (
 
       const userWithHistory = await getUserById(user.id);
       if (userWithHistory) {
-        return { success: true, user: userWithHistory };
+        return { success: true, userWithHistory };
       }
     }
   } catch (error) {
