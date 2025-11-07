@@ -1,6 +1,6 @@
--- MySQL Database Schema for Stock Analysis App
+-- MySQL Database Schema for Stock Analysis App (used by migrate.js)
 
-CREATE DATABASE IF NOT EXISTS stock_analysis_db;
+CREATE DATABASE IF NOT EXISTS stock_analysis_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE stock_analysis_db;
 
 -- Users Table
@@ -8,15 +8,16 @@ CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(36) PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   email VARCHAR(100) NOT NULL UNIQUE,
-  password VARCHAR(255) NOT NULL, -- In production, this should be hashed
+  password VARCHAR(255) NOT NULL,
   wallet_balance DECIMAL(10, 2) DEFAULT 0.00,
   role ENUM('USER', 'ADMIN') DEFAULT 'USER',
   email_verified BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  stock_analysis_access BOOLEAN DEFAULT FALSE,
+  analysis_count INT DEFAULT 0,
+  trial_expiry DATETIME NULL
 );
-
-
 
 -- Wallet Transactions Table
 CREATE TABLE IF NOT EXISTS wallet_transactions (
@@ -33,7 +34,6 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   terms_accepted BOOLEAN DEFAULT FALSE,
   strategy_id VARCHAR(255),
   plan_level ENUM('Premium','Expert','Pro'),
-  -- New fields for INR and USDT details
   inr_amount DECIMAL(12, 2),
   inr_to_usd_rate DECIMAL(12, 6),
   crypto_network ENUM('ERC20','TRC20'),
@@ -59,7 +59,53 @@ CREATE TABLE IF NOT EXISTS analysis_history (
   INDEX idx_analysis_user (user_id, created_at)
 );
 
+-- Strategies Table (complete, S3-ready)
+CREATE TABLE IF NOT EXISTS strategies (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  performance INT DEFAULT 0,
+  risk_level ENUM('Low','Medium','High') DEFAULT 'Medium',
+  category ENUM('Growth','Income','Momentum','Value') DEFAULT 'Growth',
+  image_url VARCHAR(500),
+  details TEXT,
+  parameters JSON,
+  plan_prices JSON,
+  plan_details JSON,
+  min_capital DECIMAL(14,2),
+  avg_drawdown DECIMAL(8,2),
+  risk_reward DECIMAL(8,2),
+  win_streak INT,
+  tag VARCHAR(255),
+  content_type VARCHAR(16),
+  content_url TEXT,
+  content_blob LONGBLOB,
+  content_mime VARCHAR(255),
+  content_s3_key VARCHAR(512),
+  enabled BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
 
--- Insert test user
-INSERT INTO users (id, name, email, password, wallet_balance, email_verified)
-VALUES ('user123', 'Test User', 'test@example.com', 'password123', 100.00, TRUE);
+-- Seed Admin User (password: admin123)
+INSERT INTO users (id, name, email, password, role, email_verified, wallet_balance) 
+VALUES ('admin123', 'Admin User', 'admin@stockanalysis.com', '$2b$12$CNEH75BtbiEtjc76Kdvv6.67nJ/aF4uAEc5znGg3CN.lH3JN6nGXq', 'ADMIN', TRUE, 0.00)
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- Seed Test User (password: userpass123)
+INSERT INTO users (id, name, email, password, wallet_balance, email_verified) 
+VALUES ('user123', 'Test User', 'test@example.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj6ukx/2jzmK', 100.00, TRUE)
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- Sample Strategies
+INSERT INTO strategies (id, name, description, performance, risk_level, category, enabled) VALUES
+('strategy-1', 'Growth Momentum', 'High-growth stocks with strong momentum indicators', 85, 'High', 'Growth', TRUE),
+('strategy-2', 'Value Income', 'Undervalued dividend-paying stocks', 72, 'Low', 'Income', TRUE),
+('strategy-3', 'Tech Innovation', 'Technology sector focus with innovation metrics', 91, 'Medium', 'Growth', TRUE),
+('strategy-4', 'Defensive Value', 'Conservative value plays in stable sectors', 68, 'Low', 'Value', TRUE)
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- Verification queries
+SELECT 'Schema created successfully' AS status;
+SELECT COUNT(*) AS user_count FROM users;
+SELECT COUNT(*) AS strategy_count FROM strategies;

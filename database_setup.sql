@@ -72,8 +72,21 @@ CREATE TABLE IF NOT EXISTS strategies (
   image_url VARCHAR(500),
   details TEXT,
   parameters JSON,
+  -- Pricing and display metadata
+  plan_prices JSON,
+  plan_details JSON,
+  -- Metrics
+  min_capital DECIMAL(14,2),
+  avg_drawdown DECIMAL(8,2),
+  risk_reward DECIMAL(8,2),
+  win_streak INT,
+  tag VARCHAR(255),
+  -- Content metadata and storage
   content_type VARCHAR(16),
-  content_url VARCHAR(500),
+  content_url TEXT,
+  content_blob LONGBLOB,
+  content_mime VARCHAR(255),
+  content_s3_key VARCHAR(512),
   enabled BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

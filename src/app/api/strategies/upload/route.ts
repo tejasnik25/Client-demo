@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth-options';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { uploadToS3 } from '@/lib/s3';
 
 /**
  * POST /api/strategies/upload
@@ -83,6 +84,16 @@ export async function POST(req: NextRequest) {
         contentBlob = Buffer.from(bytes);
         contentMime = file.type || (contentType === 'html' ? 'text/html' : 'application/pdf');
         contentUrl = null as any;
+      } else if (storageMode === 's3') {
+        const bytes = await file.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+        const fileExt = contentType === 'html' ? '.html' : '.pdf';
+        const fileName = `strategy-${uuidv4()}${fileExt}`;
+        const key = `strategies/content/${fileName}`;
+        const { url } = await uploadToS3(key, buffer, file.type || (contentType === 'html' ? 'text/html' : 'application/pdf'));
+        contentUrl = url;
+        contentBlob = undefined;
+        contentMime = file.type || (contentType === 'html' ? 'text/html' : 'application/pdf');
       } else if (!isReadOnlyFs) {
         // Optional: local disk path for non-Vercel dev (not used on Vercel)
         const bytes = await file.arrayBuffer();
@@ -97,23 +108,29 @@ export async function POST(req: NextRequest) {
       } else {
         // On Vercel and non-db storageMode, fail gracefully
         return NextResponse.json(
-          { error: 'File storage mode not supported on Vercel without DB or external storage' },
+          { error: 'File storage mode not supported on Vercel without DB or S3' },
           { status: 400 }
         );
       }
     }
 
     // Optional: icon upload for display image
-    if (icon && icon.size > 0 && !isReadOnlyFs) {
+    if (icon && icon.size > 0) {
       const iconBytes = await icon.arrayBuffer();
       const iconBuffer = Buffer.from(iconBytes);
       const iconExt = (icon.type && icon.type.includes('png')) ? '.png' : (icon.type && icon.type.includes('jpg')) ? '.jpg' : (icon.type && icon.type.includes('jpeg')) ? '.jpeg' : (icon.type && icon.type.includes('svg')) ? '.svg' : '.png';
       const iconName = `icon-${uuidv4()}${iconExt}`;
-      const iconDir = path.join(process.cwd(), 'public', 'uploads', 'strategy-icons');
-      await mkdir(iconDir, { recursive: true });
-      const iconPath = path.join(iconDir, iconName);
-      await writeFile(iconPath, iconBuffer);
-      imageUrl = `/uploads/strategy-icons/${iconName}`;
+      if (storageMode === 's3') {
+        const key = `strategies/icons/${iconName}`;
+        const { url } = await uploadToS3(key, iconBuffer, icon.type || 'image/png');
+        imageUrl = url;
+      } else if (!isReadOnlyFs) {
+        const iconDir = path.join(process.cwd(), 'public', 'uploads', 'strategy-icons');
+        await mkdir(iconDir, { recursive: true });
+        const iconPath = path.join(iconDir, iconName);
+        await writeFile(iconPath, iconBuffer);
+        imageUrl = `/uploads/strategy-icons/${iconName}`;
+      }
     }
 
     // Create strategy in database
@@ -248,6 +265,16 @@ export async function PUT(req: NextRequest) {
         updates.contentBlob = Buffer.from(bytes);
         updates.contentMime = file.type || (contentType === 'html' ? 'text/html' : 'application/pdf');
         updates.contentUrl = null;
+      } else if (storageMode === 's3') {
+        const bytes = await file.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+        const fileExt = contentType === 'html' ? '.html' : '.pdf';
+        const fileName = `strategy-${uuidv4()}${fileExt}`;
+        const key = `strategies/content/${fileName}`;
+        const { url } = await uploadToS3(key, buffer, file.type || (contentType === 'html' ? 'text/html' : 'application/pdf'));
+        updates.contentUrl = url;
+        updates.contentBlob = null;
+        updates.contentMime = file.type || (contentType === 'html' ? 'text/html' : 'application/pdf');
       } else if (!isReadOnlyFs) {
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
@@ -260,23 +287,29 @@ export async function PUT(req: NextRequest) {
         updates.contentUrl = `/uploads/${fileName}`;
       } else {
         return NextResponse.json(
-          { error: 'File storage mode not supported on Vercel without DB or external storage' },
+          { error: 'File storage mode not supported on Vercel without DB or S3' },
           { status: 400 }
         );
       }
     }
 
     // Process icon upload if provided (skip on Vercel)
-    if (icon && icon.size > 0 && !isReadOnlyFs) {
+    if (icon && icon.size > 0) {
       const iconBytes = await icon.arrayBuffer();
       const iconBuffer = Buffer.from(iconBytes);
       const iconExt = (icon.type && icon.type.includes('png')) ? '.png' : (icon.type && icon.type.includes('jpg')) ? '.jpg' : (icon.type && icon.type.includes('jpeg')) ? '.jpeg' : (icon.type && icon.type.includes('svg')) ? '.svg' : '.png';
       const iconName = `icon-${uuidv4()}${iconExt}`;
-      const iconDir = path.join(process.cwd(), 'public', 'uploads', 'strategy-icons');
-      await mkdir(iconDir, { recursive: true });
-      const iconPath = path.join(iconDir, iconName);
-      await writeFile(iconPath, iconBuffer);
-      updates.imageUrl = `/uploads/strategy-icons/${iconName}`;
+      if (storageMode === 's3') {
+        const key = `strategies/icons/${iconName}`;
+        const { url } = await uploadToS3(key, iconBuffer, icon.type || 'image/png');
+        updates.imageUrl = url;
+      } else if (!isReadOnlyFs) {
+        const iconDir = path.join(process.cwd(), 'public', 'uploads', 'strategy-icons');
+        await mkdir(iconDir, { recursive: true });
+        const iconPath = path.join(iconDir, iconName);
+        await writeFile(iconPath, iconBuffer);
+        updates.imageUrl = `/uploads/strategy-icons/${iconName}`;
+      }
     }
 
     // Include metrics/tag/prices if provided

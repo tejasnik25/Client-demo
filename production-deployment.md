@@ -29,6 +29,17 @@
    - Deploy the `.next` folder, `public` directory, and `package.json`
    - Set up environment variables in your hosting platform
    - Configure proper Node.js version (16.x or higher recommended)
+   - For Vercel + AWS S3 file storage, add:
+     - `STORAGE_MODE=s3`
+     - `AWS_REGION=your-region`
+     - `AWS_S3_BUCKET=your-bucket`
+     - `AWS_ACCESS_KEY_ID=your-access-key`
+     - `AWS_SECRET_ACCESS_KEY=your-secret-key`
+     - Optional: `AWS_S3_PUBLIC_URL_PREFIX=https://cdn.example.com` (if using CloudFront)
+
+4. **Database migration**:
+   - Ensure DB credentials are set: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and optionally `DB_SSL=true`.
+   - Run `npm run migrate` to apply schema from `src/db/mysql_schema.sql`.
 
 ## Performance Optimizations
 
