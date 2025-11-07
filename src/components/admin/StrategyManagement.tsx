@@ -63,6 +63,10 @@ const StrategyManagement: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [currentStrategy, setCurrentStrategy] = useState<Partial<Strategy>>({});
+  // Local range strings for plan inputs; first number will be used for payments
+  const [planRanges, setPlanRanges] = useState<{ Pro?: string; Expert?: string; Premium?: string }>({});
+  // Percent values per plan for user-facing display
+  const [planPercents, setPlanPercents] = useState<{ Pro?: number; Expert?: number; Premium?: number }>({});
   const [parameters, setParameters] = useState<ParameterRow[]>([{ key: '', value: '', id: `param-${Date.now()}` }]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -94,22 +98,23 @@ const StrategyManagement: React.FC = () => {
     fetchStrategies();
   }, []);
 
- // Reset form for adding new strategy
- const resetAddForm = () => {
-   setCurrentStrategy({
-     name: '',
-     description: '',
-     imageUrl: '/strategy1.svg',
-     minCapital: undefined,
-     avgDrawdown: undefined,
-     riskReward: undefined,
-     winStreak: undefined,
-     tag: '',
-     planPrices: { Pro: undefined, Expert: undefined, Premium: undefined },
-      details: '',
-     enabled: true,
-     contentType: 'html'
-   });
+// Reset form for adding new strategy
+const resetAddForm = () => {
+  setCurrentStrategy({
+    name: '',
+    description: '',
+    imageUrl: '/strategy1.svg',
+    minCapital: undefined,
+    avgDrawdown: undefined,
+    riskReward: undefined,
+    winStreak: undefined,
+    tag: '',
+    planPrices: { Pro: undefined, Expert: undefined, Premium: undefined },
+     details: '',
+    enabled: true,
+    contentType: 'html'
+  });
+    setPlanRanges({ Pro: '', Expert: '', Premium: '' });
     setParameters([{ key: '', value: '', id: `param-${Date.now()}` }]);
     setError(null);
     setSuccess(null);
@@ -128,6 +133,18 @@ const StrategyManagement: React.FC = () => {
   // Open edit strategy dialog
   const handleEditClick = (strategy: Strategy) => {
     setCurrentStrategy({ ...strategy });
+    // Initialize range strings from existing numeric prices (fallback to "+" style)
+    setPlanRanges({
+      Pro: strategy.planPrices?.Pro !== undefined ? `$${strategy.planPrices.Pro}+` : '',
+      Expert: strategy.planPrices?.Expert !== undefined ? `$${strategy.planPrices.Expert}+` : '',
+      Premium: strategy.planPrices?.Premium !== undefined ? `$${strategy.planPrices.Premium}+` : ''
+    });
+    // Initialize percents from planDetails if present
+    setPlanPercents({
+      Pro: strategy as any && (strategy as any).planDetails?.Pro?.percent,
+      Expert: strategy as any && (strategy as any).planDetails?.Expert?.percent,
+      Premium: strategy as any && (strategy as any).planDetails?.Premium?.percent,
+    });
     setParameters(Object.entries(strategy.parameters).map(([key, value]) => ({
       key,
       value,
@@ -177,6 +194,15 @@ const StrategyManagement: React.FC = () => {
       ...prev,
       enabled: checked
     }));
+  };
+
+  // Parse a price range string and return the first numeric value
+  const parseFirstPrice = (range: string): number | undefined => {
+    // Extract the first group of digits in the string
+    const match = range.replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+    if (!match) return undefined;
+    const val = Number(match[0]);
+    return isNaN(val) ? undefined : val;
   };
 
   // Handle parameter input changes
@@ -255,6 +281,14 @@ const StrategyManagement: React.FC = () => {
       if (pp.Pro !== undefined) formData.append('planPro', String(pp.Pro));
       if (pp.Expert !== undefined) formData.append('planExpert', String(pp.Expert));
       if (pp.Premium !== undefined) formData.append('planPremium', String(pp.Premium));
+
+      // Plan display details
+      if (planRanges.Pro) formData.append('planProLabel', planRanges.Pro);
+      if (planRanges.Expert) formData.append('planExpertLabel', planRanges.Expert);
+      if (planRanges.Premium) formData.append('planPremiumLabel', planRanges.Premium);
+      if (planPercents.Pro !== undefined) formData.append('planProPercent', String(planPercents.Pro));
+      if (planPercents.Expert !== undefined) formData.append('planExpertPercent', String(planPercents.Expert));
+      if (planPercents.Premium !== undefined) formData.append('planPremiumPercent', String(planPercents.Premium));
 
       // Add file if selected
       if (selectedFile) {
@@ -672,29 +706,116 @@ const StrategyManagement: React.FC = () => {
                 <Input id="tag" name="tag" value={currentStrategy.tag || ''} onChange={handleInputChange} placeholder="Enter tag" />
               </div>
 
-              {/* Plans */}
+              {/* Plans: enter USD ranges; first number used for payments */}
               <Separator className="my-2" />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
+              <div className="space-y-2">
                   <Label htmlFor="planPro">Pro Price</Label>
-                  <Input id="planPro" name="planPro" type="number" value={String((currentStrategy.planPrices?.Pro) ?? '')} onChange={(e) => {
-                    const val = e.target.value ? Number(e.target.value) : undefined;
-                    setCurrentStrategy(prev => ({ ...prev, planPrices: { ...(prev.planPrices || {}), Pro: val } }));
-                  }} />
+                  <Input
+                    id="planPro"
+                    name="planPro"
+                    type="text"
+                    placeholder="$1000-$2999"
+                    value={planRanges.Pro ?? ''}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setPlanRanges(prev => ({ ...prev, Pro: text }));
+                      const first = parseFirstPrice(text);
+                      setCurrentStrategy(prev => ({
+                        ...prev,
+                        planPrices: { ...(prev.planPrices || {}), Pro: first }
+                      }));
+                    }}
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="planProPercent">Pro Percent (%)</Label>
+                    <Input
+                      id="planProPercent"
+                      name="planProPercent"
+                      type="number"
+                      step="0.01"
+                      placeholder="17"
+                      value={planPercents.Pro ?? '' as any}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const num = val === '' ? undefined : Number(val);
+                        setPlanPercents(prev => ({ ...prev, Pro: isNaN(num as any) ? undefined : num }));
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Enter USD range; first number used for payments.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="planExpert">Expert Price</Label>
-                  <Input id="planExpert" name="planExpert" type="number" value={String((currentStrategy.planPrices?.Expert) ?? '')} onChange={(e) => {
-                    const val = e.target.value ? Number(e.target.value) : undefined;
-                    setCurrentStrategy(prev => ({ ...prev, planPrices: { ...(prev.planPrices || {}), Expert: val } }));
-                  }} />
+                  <Input
+                    id="planExpert"
+                    name="planExpert"
+                    type="text"
+                    placeholder="$3000-$5999"
+                    value={planRanges.Expert ?? ''}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setPlanRanges(prev => ({ ...prev, Expert: text }));
+                      const first = parseFirstPrice(text);
+                      setCurrentStrategy(prev => ({
+                        ...prev,
+                        planPrices: { ...(prev.planPrices || {}), Expert: first }
+                      }));
+                    }}
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="planExpertPercent">Expert Percent (%)</Label>
+                    <Input
+                      id="planExpertPercent"
+                      name="planExpertPercent"
+                      type="number"
+                      step="0.01"
+                      placeholder="15"
+                      value={planPercents.Expert ?? '' as any}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const num = val === '' ? undefined : Number(val);
+                        setPlanPercents(prev => ({ ...prev, Expert: isNaN(num as any) ? undefined : num }));
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Enter USD range; first number used for payments.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="planPremium">Premium Price</Label>
-                  <Input id="planPremium" name="planPremium" type="number" value={String((currentStrategy.planPrices?.Premium) ?? '')} onChange={(e) => {
-                    const val = e.target.value ? Number(e.target.value) : undefined;
-                    setCurrentStrategy(prev => ({ ...prev, planPrices: { ...(prev.planPrices || {}), Premium: val } }));
-                  }} />
+                  <Input
+                    id="planPremium"
+                    name="planPremium"
+                    type="text"
+                    placeholder="$6000+"
+                    value={planRanges.Premium ?? ''}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setPlanRanges(prev => ({ ...prev, Premium: text }));
+                      const first = parseFirstPrice(text);
+                      setCurrentStrategy(prev => ({
+                        ...prev,
+                        planPrices: { ...(prev.planPrices || {}), Premium: first }
+                      }));
+                    }}
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="planPremiumPercent">Premium Percent (%)</Label>
+                    <Input
+                      id="planPremiumPercent"
+                      name="planPremiumPercent"
+                      type="number"
+                      step="0.01"
+                      placeholder="12"
+                      value={planPercents.Premium ?? '' as any}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const num = val === '' ? undefined : Number(val);
+                        setPlanPercents(prev => ({ ...prev, Premium: isNaN(num as any) ? undefined : num }));
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Enter USD range; first number used for payments.</p>
                 </div>
               </div>
             </form>

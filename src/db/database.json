@@ -191,16 +191,30 @@
       "contentUrl": "/uploads/strategy-3a5ad757-416b-4244-b2a5-d0f48113023a.html",
       "enabled": true,
       "created_at": "2025-11-01T08:22:36.125Z",
-      "updated_at": "2025-11-02T10:26:59.543Z",
+      "updated_at": "2025-11-07T06:10:51.427Z",
       "minCapital": 5000,
       "avgDrawdown": 10,
       "riskReward": 1,
       "winStreak": -1,
       "tag": "High Risk",
       "planPrices": {
-        "Pro": 5000,
-        "Expert": 10000,
-        "Premium": 20000
+        "Pro": 1000,
+        "Expert": 3000,
+        "Premium": 6000
+      },
+      "planDetails": {
+        "Pro": {
+          "priceLabel": "$1000+",
+          "percent": 10
+        },
+        "Expert": {
+          "priceLabel": "$3000+",
+          "percent": 12
+        },
+        "Premium": {
+          "priceLabel": "$6000+",
+          "percent": 15
+        }
       }
     }
   ]

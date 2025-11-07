@@ -43,6 +43,13 @@ export async function POST(req: NextRequest) {
     const planPro = formData.get('planPro') ? Number(formData.get('planPro') as string) : undefined;
     const planExpert = formData.get('planExpert') ? Number(formData.get('planExpert') as string) : undefined;
     const planPremium = formData.get('planPremium') ? Number(formData.get('planPremium') as string) : undefined;
+    // Plan display labels and percents
+    const planProLabel = (formData.get('planProLabel') as string) || undefined;
+    const planExpertLabel = (formData.get('planExpertLabel') as string) || undefined;
+    const planPremiumLabel = (formData.get('planPremiumLabel') as string) || undefined;
+    const planProPercent = formData.get('planProPercent') ? Number(formData.get('planProPercent') as string) : undefined;
+    const planExpertPercent = formData.get('planExpertPercent') ? Number(formData.get('planExpertPercent') as string) : undefined;
+    const planPremiumPercent = formData.get('planPremiumPercent') ? Number(formData.get('planPremiumPercent') as string) : undefined;
 
     // Sensible defaults for deprecated fields
     const performance = 0;
@@ -101,6 +108,11 @@ export async function POST(req: NextRequest) {
       winStreak,
       tag,
       planPrices: { Pro: planPro, Expert: planExpert, Premium: planPremium },
+      planDetails: {
+        Pro: { priceLabel: planProLabel, percent: planProPercent },
+        Expert: { priceLabel: planExpertLabel, percent: planExpertPercent },
+        Premium: { priceLabel: planPremiumLabel, percent: planPremiumPercent },
+      },
       details,
       contentType,
       contentUrl,
@@ -174,6 +186,13 @@ export async function PUT(req: NextRequest) {
     const planPro = formData.get('planPro') ? Number(formData.get('planPro') as string) : undefined;
     const planExpert = formData.get('planExpert') ? Number(formData.get('planExpert') as string) : undefined;
     const planPremium = formData.get('planPremium') ? Number(formData.get('planPremium') as string) : undefined;
+    // Plan display labels and percents
+    const planProLabel = (formData.get('planProLabel') as string) || undefined;
+    const planExpertLabel = (formData.get('planExpertLabel') as string) || undefined;
+    const planPremiumLabel = (formData.get('planPremiumLabel') as string) || undefined;
+    const planProPercent = formData.get('planProPercent') ? Number(formData.get('planProPercent') as string) : undefined;
+    const planExpertPercent = formData.get('planExpertPercent') ? Number(formData.get('planExpertPercent') as string) : undefined;
+    const planPremiumPercent = formData.get('planPremiumPercent') ? Number(formData.get('planPremiumPercent') as string) : undefined;
     
     // Validate required fields
     if (!name || !description) {
@@ -235,6 +254,11 @@ export async function PUT(req: NextRequest) {
     if (winStreak !== undefined) updates.winStreak = winStreak;
     if (tag !== undefined) updates.tag = tag;
     updates.planPrices = { Pro: planPro, Expert: planExpert, Premium: planPremium };
+    updates.planDetails = {
+      Pro: { priceLabel: planProLabel, percent: planProPercent },
+      Expert: { priceLabel: planExpertLabel, percent: planExpertPercent },
+      Premium: { priceLabel: planPremiumLabel, percent: planPremiumPercent },
+    };
 
     // Update strategy in database
     const result = await updateStrategy(id, updates);

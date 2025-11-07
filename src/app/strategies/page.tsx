@@ -11,7 +11,7 @@ import UserLayout from '@/components/UserLayout';
 import { FiInfo, FiPlay } from 'react-icons/fi';
 import { useAuth } from '@/hooks/use-auth';
 
-interface Strategy {
+  interface Strategy {
   id: string;
   name: string;
   description: string;
@@ -25,11 +25,16 @@ interface Strategy {
   riskReward?: number;
   winStreak?: number;
   tag?: string;
-  planPrices?: {
-    Pro?: number;
-    Expert?: number;
-    Premium?: number;
-  };
+    planPrices?: {
+      Pro?: number;
+      Expert?: number;
+      Premium?: number;
+    };
+    planDetails?: {
+      Pro?: { priceLabel?: string; percent?: number };
+      Expert?: { priceLabel?: string; percent?: number };
+      Premium?: { priceLabel?: string; percent?: number };
+    };
   imageUrl: string;
   details: string;
   parameters: Record<string, string>;
@@ -139,6 +144,25 @@ const StrategiesPage: React.FC = () => {
       Expert: expert ?? 10000,
       Pro: pro ?? 20000,
     };
+  };
+
+  // Display user-facing range labels per plan in the deploy dialog
+  const getPlanDisplayRange = (plan: 'Premium' | 'Expert' | 'Pro'): string => {
+    const s = selectedStrategy;
+    const label = s?.planDetails?.[plan]?.priceLabel;
+    if (label && label.trim().length > 0) return label;
+    if (plan === 'Premium') return '$6000+';
+    if (plan === 'Expert') return '$3000-$5999';
+    return '$1000-$2999';
+  };
+
+  const getPlanPercent = (plan: 'Premium' | 'Expert' | 'Pro'): number => {
+    const s = selectedStrategy;
+    const pct = s?.planDetails?.[plan]?.percent;
+    if (typeof pct === 'number' && !isNaN(pct)) return pct;
+    if (plan === 'Premium') return 12;
+    if (plan === 'Expert') return 15;
+    return 17;
   };
 
   const confirmPlanAndRedirect = () => {
@@ -490,8 +514,7 @@ const StrategiesPage: React.FC = () => {
             
             <div className="mt-6 space-y-4">
               {(['Premium','Expert','Pro'] as const).map((plan) => {
-                const prices = getPlanPrices(selectedStrategy);
-                const amt = prices[plan];
+                const rangeLabel = getPlanDisplayRange(plan);
                 const active = selectedPlan === plan;
                 const descriptions = {
                   Premium: 'Basic access with standard features.',
@@ -515,7 +538,8 @@ const StrategiesPage: React.FC = () => {
                         <p className="text-sm text-gray-400 mt-1">{descriptions[plan]}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-2xl font-bold text-teal-400">₹{amt.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-teal-400">{rangeLabel}</p>
+                        <p className="text-xs text-gray-400 mt-1">{getPlanPercent(plan)}% of your capital for 1 year</p>
                       </div>
                     </div>
                   </div>

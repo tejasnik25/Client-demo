@@ -192,6 +192,12 @@ export type Strategy = {
   tag?: string;
   // Plan prices by level
   planPrices?: { Pro?: number; Expert?: number; Premium?: number };
+  // Optional user-facing plan details (labels/percents)
+  planDetails?: {
+    Pro?: { priceLabel?: string; percent?: number };
+    Expert?: { priceLabel?: string; percent?: number };
+    Premium?: { priceLabel?: string; percent?: number };
+  };
   // Details and content
   details: string;
   parameters: Record<string, string>;
@@ -303,6 +309,7 @@ const initializeDatabase = async () => {
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN win_streak INT"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN tag VARCHAR(255)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN plan_prices JSON"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE strategies ADD COLUMN plan_details JSON"); } catch (e) {}
     // Ensure analysis_history has expected columns (minimal auto-migrations)
     try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN symbol VARCHAR(64)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN analysis TEXT"); } catch (e) {}
@@ -483,6 +490,7 @@ export const getAllStrategies = async (): Promise<Strategy[]> => {
       winStreak: row.win_streak !== undefined ? Number(row.win_streak) : undefined,
       tag: row.tag,
       planPrices: row.plan_prices ? JSON.parse(row.plan_prices) : undefined,
+      planDetails: row.plan_details ? JSON.parse(row.plan_details) : undefined,
       parameters: JSON.parse(row.parameters || '{}'),
       contentType: row.content_type,
       contentUrl: row.content_url,
@@ -506,6 +514,7 @@ export const getAllStrategies = async (): Promise<Strategy[]> => {
         winStreak: s.winStreak ?? s.win_streak,
         tag: s.tag,
         planPrices: s.planPrices ?? s.plan_prices,
+        planDetails: s.planDetails ?? s.plan_details,
         parameters: typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : (s.parameters || {}),
         contentType: s.contentType ?? s.content_type,
         contentUrl: s.contentUrl ?? s.content_url,
@@ -536,6 +545,7 @@ export const getStrategyById = async (id: string): Promise<Strategy | null> => {
       winStreak: strategy.win_streak !== undefined ? Number(strategy.win_streak) : undefined,
       tag: strategy.tag,
       planPrices: strategy.plan_prices ? JSON.parse(strategy.plan_prices) : undefined,
+      planDetails: strategy.plan_details ? JSON.parse(strategy.plan_details) : undefined,
       parameters: JSON.parse(strategy.parameters || '{}'),
       contentType: strategy.content_type,
       contentUrl: strategy.content_url,
@@ -555,8 +565,8 @@ export const createStrategy = async (
   try {
     const id = `strategy_${Date.now()}`;
     await pool.execute(
-      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, min_capital, avg_drawdown, risk_reward, win_streak, tag, plan_prices, details, parameters, content_type, content_url, enabled) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, min_capital, avg_drawdown, risk_reward, win_streak, tag, plan_prices, plan_details, details, parameters, content_type, content_url, enabled) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         strategy.name,
@@ -571,6 +581,7 @@ export const createStrategy = async (
         strategy.winStreak ?? null,
         strategy.tag ?? null,
         strategy.planPrices ? JSON.stringify(strategy.planPrices) : null,
+        strategy.planDetails ? JSON.stringify(strategy.planDetails) : null,
         strategy.details,
         JSON.stringify(strategy.parameters || {}),
         strategy.contentType || null,
@@ -601,6 +612,7 @@ export const createStrategy = async (
         winStreak: strategy.winStreak,
         tag: strategy.tag,
         planPrices: strategy.planPrices,
+        planDetails: strategy.planDetails,
         details: strategy.details ?? '',
         parameters: strategy.parameters || {},
         contentType: strategy.contentType,
@@ -639,6 +651,7 @@ export const updateStrategy = async (
     if (updates.winStreak !== undefined) { setClause.push('win_streak = ?'); values.push(updates.winStreak); }
     if (updates.tag !== undefined) { setClause.push('tag = ?'); values.push(updates.tag); }
     if (updates.planPrices !== undefined) { setClause.push('plan_prices = ?'); values.push(JSON.stringify(updates.planPrices)); }
+    if (updates.planDetails !== undefined) { setClause.push('plan_details = ?'); values.push(JSON.stringify(updates.planDetails)); }
     if (updates.details) { setClause.push('details = ?'); values.push(updates.details); }
     if (updates.parameters) { setClause.push('parameters = ?'); values.push(JSON.stringify(updates.parameters)); }
     if (updates.contentType) { setClause.push('content_type = ?'); values.push(updates.contentType); }
@@ -678,6 +691,7 @@ export const updateStrategy = async (
         winStreak: updates.winStreak ?? (existing.winStreak ?? existing.win_streak),
         tag: updates.tag ?? existing.tag,
         planPrices: updates.planPrices ?? (existing.planPrices ?? existing.plan_prices),
+        planDetails: updates.planDetails ?? (existing.planDetails ?? existing.plan_details),
         details: updates.details ?? existing.details,
         parameters: updates.parameters ?? (typeof existing.parameters === 'string' ? JSON.parse(existing.parameters || '{}') : existing.parameters || {}),
         contentType: updates.contentType ?? existing.contentType,
