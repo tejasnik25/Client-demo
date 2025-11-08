@@ -3,13 +3,7 @@ import { S3Client, PutObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s
 const region = process.env.AWS_REGION as string;
 const bucket = process.env.AWS_S3_BUCKET as string;
 
-export const s3Client = new S3Client({
-  region,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
-  },
-});
+export const s3Client = new S3Client({ region });
 
 async function detectBucketRegion(client: S3Client): Promise<string | null> {
   try {
@@ -35,8 +29,7 @@ async function detectBucketRegion(client: S3Client): Promise<string | null> {
 export async function uploadToS3(
   key: string,
   body: Buffer | Uint8Array | Blob | string,
-  contentType: string,
-  acl: 'private' | 'public-read' = 'public-read'
+  contentType: string
 ) {
   if (!bucket || !region) {
     throw new Error('Missing AWS_S3_BUCKET or AWS_REGION');
@@ -46,7 +39,6 @@ export async function uploadToS3(
     Key: key,
     Body: body as any,
     ContentType: contentType,
-    ACL: acl,
   });
   try {
     await s3Client.send(command);
@@ -56,13 +48,7 @@ export async function uploadToS3(
     if (isPermanentRedirect) {
       const hintedRegion = await detectBucketRegion(s3Client);
       if (hintedRegion && hintedRegion !== region) {
-        const retryClient = new S3Client({
-          region: hintedRegion,
-          credentials: {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
-          },
-        });
+        const retryClient = new S3Client({ region: hintedRegion });
         await retryClient.send(command);
         const url = process.env.AWS_S3_PUBLIC_URL_PREFIX
           ? `${process.env.AWS_S3_PUBLIC_URL_PREFIX}/${key}`
