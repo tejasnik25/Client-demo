@@ -862,7 +862,7 @@ export const loginUser = async (
 
       const userWithHistory = await getUserById(user.id);
       if (userWithHistory) {
-        return { success: true, userWithHistory };
+        return { success: true, user: userWithHistory };
       }
     }
   } catch (error) {

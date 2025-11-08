@@ -153,20 +153,28 @@ const StrategyInfoPage: React.FC = () => {
             {/* subtle top gradient border */}
             <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-purple-500/40 to-transparent" />
             {strategy.contentUrl ? (
-              strategy.contentType === "pdf" ? (
-                <object
-                  data={strategy.contentUrl}
-                  type="application/pdf"
-                  className="w-full h-[82vh]"
-                >
-                  <iframe src={strategy.contentUrl} className="w-full h-full" />
-                </object>
-              ) : (
-                <iframe
-                  src={strategy.contentUrl}
-                  className="w-full h-[82vh]"
-                />
-              )
+              (() => {
+                const mime = (strategy.contentMime || strategy.contentType || '').toLowerCase();
+                const url = (strategy.contentUrl || '').toLowerCase();
+                const isPdf = mime.includes('pdf') || url.endsWith('.pdf');
+                if (isPdf) {
+                  return (
+                    <object
+                      data={strategy.contentUrl}
+                      type="application/pdf"
+                      className="w-full h-[82vh]"
+                    >
+                      <iframe src={strategy.contentUrl} className="w-full h-full" />
+                    </object>
+                  );
+                }
+                return (
+                  <iframe
+                    src={strategy.contentUrl}
+                    className="w-full h-[82vh]"
+                  />
+                );
+              })()
             ) : (
               <div className="h-60 bg-gradient-to-br from-[#7c3aed]/20 to-transparent flex items-center justify-center">
                 <div className="text-sm text-gray-400">No info document available</div>
