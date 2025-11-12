@@ -1572,3 +1572,73 @@ export const deleteUserAdmin = async (id: string): Promise<{ success: boolean; e
     return { success: false, error: 'Failed to delete user' };
   }
 };
+
+// Fetch running strategies for a user from MySQL
+export const getRunningStrategiesForUser = async (
+  userId: string
+): Promise<{ id: string; strategyName: string; status: string }[]> => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT rs.id, s.name AS strategyName, rs.status
+       FROM running_strategies rs
+       JOIN strategies s ON s.id = rs.strategy_id
+       WHERE rs.user_id = ? AND rs.status IN ('in-process','active')
+       ORDER BY rs.created_at DESC`,
+      [userId]
+    );
+
+    return (rows as any[]).map((r) => ({
+      id: r.id,
+      strategyName: r.strategyName,
+      status: r.status,
+    }));
+  } catch (error) {
+    console.error('Error fetching running strategies:', error);
+    return [];
+  }
+};
+
+// Admin: fetch running strategies with richer fields
+export const getRunningStrategiesAdmin = async (): Promise<
+  Array<{
+    id: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    strategyId: string;
+    strategyName: string;
+    plan: 'Pro' | 'Expert' | 'Premium';
+    capital: number;
+    status: 'in-process' | 'active' | 'stopped';
+    createdAt: string;
+  }>
+> => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT rs.id, rs.user_id AS userId, u.name AS userName, u.email AS userEmail,
+              rs.strategy_id AS strategyId, s.name AS strategyName, rs.plan, rs.capital, rs.status,
+              DATE_FORMAT(rs.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+       FROM running_strategies rs
+       JOIN users u ON u.id = rs.user_id
+       JOIN strategies s ON s.id = rs.strategy_id
+       WHERE rs.status IN ('in-process','active')
+       ORDER BY rs.created_at DESC`
+    );
+
+    return (rows as any[]).map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      userName: r.userName,
+      userEmail: r.userEmail,
+      strategyId: r.strategyId,
+      strategyName: r.strategyName,
+      plan: r.plan,
+      capital: Number(r.capital),
+      status: r.status,
+      createdAt: r.createdAt,
+    }));
+  } catch (error) {
+    console.error('getRunningStrategiesAdmin failed:', error);
+    return [];
+  }
+};
