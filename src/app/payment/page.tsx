@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Timer from '@/components/payment/Timer';
 import Stage1_MethodSelection from '@/components/payment/Stage1_MethodSelection';
@@ -12,7 +12,7 @@ import { PaymentData } from '@/types';
 import { useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 
-const PaymentPage = () => {
+const PaymentContent = () => {
   const [stage, setStage] = useState(1);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const router = useRouter();
@@ -117,6 +117,14 @@ const PaymentPage = () => {
         </div>
       </div>
     </div>
+  );
+};
+
+const PaymentPage = () => {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white">Loading...</div>}>
+      <PaymentContent />
+    </Suspense>
   );
 };
 
