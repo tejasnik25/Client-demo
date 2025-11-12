@@ -7,6 +7,7 @@ import Image from "next/image";
 import Button from "@/components/ui/Button";
 import { FiArrowLeft } from "react-icons/fi";
 import { Strategy } from "@/types/strategy";
+import { FiInfo } from "react-icons/fi";
 
 const StrategyInfoPage: React.FC = () => {
   const params = useParams<{ id: string }>();
@@ -177,7 +178,10 @@ const StrategyInfoPage: React.FC = () => {
               })()
             ) : (
               <div className="h-60 bg-gradient-to-br from-[#7c3aed]/20 to-transparent flex items-center justify-center">
-                <div className="text-sm text-gray-400">No info document available</div>
+                <div className="flex items-center text-sm text-gray-400">
+                  <FiInfo className="mr-2" />
+                  <span>Powered by <span className="font-semibold text-blue-400">Copy Trade</span></span>
+                </div>
               </div>
             )}
           </div>

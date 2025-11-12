@@ -1,72 +1,202 @@
-'use client';
+"use client";
 
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import PaymentVerification from '@/components/admin/PaymentVerification';
-import { FiArrowLeft } from 'react-icons/fi';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { FaMoneyBillWave } from 'react-icons/fa';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from 'recharts';
 
-export default function AdminPaymentsPage() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
+type Payment = {
+  id: string;
+  userId: string;
+  strategyId: string;
+  plan: 'Pro' | 'Expert' | 'Premium';
+  capital: number;
+  payable: number;
+  method: 'USDT_ERC20' | 'USDT_TRC20' | 'UPI';
+  txId: string;
+  proofUrl: string;
+  status: string;
+  createdAt?: string;
+};
+
+const PaymentsPage = () => {
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === 'loading') return; // Do nothing while loading
-    
-    // Check if this is an active admin session
-    const isAdminSessionActive = typeof window !== 'undefined' && 
-                               localStorage.getItem('adminSessionActive') === 'true';
-    
-    if (status === 'unauthenticated') {
-      // Clear admin session indicator if not authenticated
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('adminSessionActive');
+    const fetchPayments = async () => {
+      try {
+        const res = await fetch('/api/payments');
+        if (!res.ok) throw new Error('Failed to load payments');
+        const data = await res.json();
+        setPayments(Array.isArray(data) ? data : (data.payments ?? []));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Unknown error');
+      } finally {
+        setLoading(false);
       }
-      router.push('/admin-login'); // Redirect to admin login if not authenticated
-    } else if (status === 'authenticated') {
-      // If this is explicitly an admin session but user doesn't have admin role
-      if (isAdminSessionActive && session?.user?.role !== 'ADMIN') {
-        // Display a warning before redirecting
-        alert('Admin session has expired or been replaced. Redirecting to user dashboard.');
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('adminSessionActive');
-        }
-        router.push('/dashboard');
-      }
-      // If this is a regular user session that navigated to admin page
-      else if (!isAdminSessionActive && session?.user?.role !== 'ADMIN') {
-        router.push('/dashboard');
-      }
+    };
+    fetchPayments();
+  }, []);
+
+  const stats = useMemo(() => {
+    const total = payments.length;
+    const pending = payments.filter(p => ['pending','in_process','renewal_pending'].includes(p.status)).length;
+    const approved = payments.filter(p => ['approved','renewal_approved'].includes(p.status)).length;
+    const renewals = payments.filter(p => p.status.includes('renewal')).length;
+    const totalAmountCollected = payments
+      .filter(p => ['approved','renewal_approved'].includes(p.status))
+      .reduce((sum, p) => sum + (p.payable || 0), 0);
+    return { total, pending, approved, renewals, totalAmountCollected };
+  }, [payments]);
+
+  // Monthly trends (count by month YYYY-MM)
+  const monthlyTrends = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of payments) {
+      const created = p.createdAt ? new Date(p.createdAt) : null;
+      if (!created) continue;
+      const key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, '0')}`;
+      map.set(key, (map.get(key) || 0) + 1);
     }
-  }, [session, status, router]);
+    const entries = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    // Limit to last 6-12 points for readability
+    const trimmed = entries.slice(-8);
+    return trimmed.map(([month, count]) => ({ month, count }));
+  }, [payments]);
 
-  // Show a loading state while session is being checked
-  if (status === 'loading') {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  // Payment method breakdown (counts)
+  const methodBreakdown = useMemo(() => {
+    const methods = ['USDT_ERC20', 'USDT_TRC20', 'UPI'] as const;
+    const counts: Record<string, number> = {};
+    for (const m of methods) counts[m] = 0;
+    for (const p of payments) {
+      counts[p.method] = (counts[p.method] || 0) + 1;
+    }
+    return methods
+      .map((m) => ({ name: m, value: counts[m] || 0 }))
+      .filter((d) => d.value > 0 || payments.length === 0) // keep empty state
+  }, [payments]);
 
-  // If user is not authenticated or not an admin, the useEffect will handle redirection
-  if (status === 'unauthenticated' || (session?.user?.role !== 'ADMIN')) {
-    return null;
-  }
+  const PIE_COLORS = ['#60a5fa', '#34d399', '#fbbf24'];
+
+  if (loading) return <div className="p-6">Loading...</div>;
+  if (error) return <div className="p-6 text-red-500">{error}</div>;
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex items-center mb-6">
-        <Link href="/admin" className="mr-4">
-          <FiArrowLeft className="h-6 w-6" />
-        </Link>
-        <h1 className="text-3xl font-bold">Payment Management</h1>
+    <div className="container mx-auto px-4 py-8 space-y-6">
+      <h1 className="text-3xl font-bold">Payments Dashboard</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Transactions</p><p className="text-2xl font-bold">{stats.total}</p></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Approved</p><p className="text-2xl font-bold">{stats.approved}</p></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Pending</p><p className="text-2xl font-bold">{stats.pending}</p></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Renewals</p><p className="text-2xl font-bold">{stats.renewals}</p></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Amount Collected</p><p className="text-2xl font-bold">${stats.totalAmountCollected.toFixed(2)}</p></div>
       </div>
-      
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-        <PaymentVerification />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
+          <h2 className="text-lg font-semibold mb-3">Monthly Transaction Trends</h2>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyTrends} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="month" tick={{ fill: 'currentColor', fontSize: 12 }} />
+                <YAxis allowDecimals={false} tick={{ fill: 'currentColor', fontSize: 12 }} />
+                <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151' }} />
+                <Legend />
+                <Line type="monotone" dataKey="count" stroke="#60a5fa" strokeWidth={2} dot={false} name="Transactions" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
+          <h2 className="text-lg font-semibold mb-3">Payment Method Breakdown</h2>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={methodBreakdown} dataKey="value" nameKey="name" outerRadius={90} fill="#8884d8" label>
+                  {methodBreakdown.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151' }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Link href="/admin/payments/pending" className="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition-shadow">
+          <FaMoneyBillWave className="text-4xl text-blue-500 mb-4" />
+          <h2 className="text-xl font-semibold">Pending Transactions</h2>
+          <p className="text-gray-600 dark:text-gray-400">Review and approve new payments.</p>
+        </Link>
+        <Link href="/admin/payments/approved" className="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition-shadow">
+          <FaMoneyBillWave className="text-4xl text-green-500 mb-4" />
+          <h2 className="text-xl font-semibold">Approved Transactions</h2>
+          <p className="text-gray-600 dark:text-gray-400">View verified payments and export.</p>
+        </Link>
+        <Link href="/admin/payments/renewal/pending" className="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition-shadow">
+          <FaMoneyBillWave className="text-4xl text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold">Renewal Pending</h2>
+          <p className="text-gray-600 dark:text-gray-400">Approve or hold renewal payments.</p>
+        </Link>
+        <Link href="/admin/payments/renewal/approved" className="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition-shadow">
+          <FaMoneyBillWave className="text-4xl text-purple-500 mb-4" />
+          <h2 className="text-xl font-semibold">Renewal Approved</h2>
+          <p className="text-gray-600 dark:text-gray-400">Track renewal approvals and expiry.</p>
+        </Link>
+      </div>
+      <div className="mt-6 p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+        <h2 className="text-xl font-semibold mb-3">Recent Transactions</h2>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="p-2">user_id</th>
+                <th className="p-2">Transaction ID</th>
+                <th className="p-2">User</th>
+                <th className="p-2">Amount</th>
+                <th className="p-2">Payment Method</th>
+                <th className="p-2">Date</th>
+                <th className="p-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payments.slice(0, 10).map(p => (
+                <tr key={p.id} className="border-b">
+                  <td className="p-2">{p.userId}</td>
+                  <td className="p-2">{p.txId}</td>
+                  <td className="p-2">{p.userId}</td>
+                  <td className="p-2">{p.payable}</td>
+                  <td className="p-2">{p.method}</td>
+                  <td className="p-2">{p.createdAt ? new Date(p.createdAt).toLocaleString() : '-'}</td>
+                  <td className="p-2">{p.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
-}
+};
+
+export default PaymentsPage;

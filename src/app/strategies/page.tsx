@@ -1,6 +1,7 @@
 // app/strategies/page.tsx
 'use client';
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -75,12 +76,16 @@ const StrategiesPage: React.FC = () => {
   }, [txs, user]);
 
   const handleViewInfo = (s: Strategy) => {
-    if (!session) return router.push('/login?redirect=/strategies');
+    if (!session || (session.user as any)?.role !== 'USER') {
+      return router.push('/login?redirect=/strategies');
+    }
     router.push(`/strategies/${s.id}/info`);
   };
 
   const handleDeploy = (s: Strategy) => {
-    if (!session) return router.push('/login?redirect=/strategies');
+    if (!session || (session.user as any)?.role !== 'USER') {
+      return router.push('/login?redirect=/strategies');
+    }
     setSelectedStrategy(s);
     // Ensure only plans are shown; keep info dialog closed
     setInfoDialogOpen(false);
@@ -135,11 +140,10 @@ const StrategiesPage: React.FC = () => {
   };
 
   const confirmPlanAndRedirect = () => {
-    if (!selectedStrategy || !selectedPlan) return;
-    const prices = getPlanPrices(selectedStrategy);
-    const amount = prices[selectedPlan];
-    const planParam = selectedPlan.toLowerCase();
-    router.push(`/payment/method?strategyId=${encodeURIComponent(selectedStrategy.id)}&plan=${encodeURIComponent(planParam)}&amount=${encodeURIComponent(amount)}`);
+    if (selectedPlan && selectedStrategy) {
+      // Redirect to the payment page with the selected plan and strategy
+      router.push(`/payment?strategy=${selectedStrategy.id}&plan=${selectedPlan}`);
+    }
   };
 
   const filtered = activeTab === 'all'

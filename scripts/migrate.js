@@ -16,8 +16,8 @@ async function migrate() {
   try {
     console.log('Connected to database');
     
-    // Read the schema file
-    const schemaPath = path.join(__dirname, '..', 'src', 'db', 'mysql_schema.sql');
+    // Read the consolidated schema file
+    const schemaPath = path.join(__dirname, '..', 'database_setup.sql');
     const schema = fs.readFileSync(schemaPath, 'utf8');
     
     // Split by semicolon and execute each statement

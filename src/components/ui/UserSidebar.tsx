@@ -11,6 +11,7 @@ import {
   FiCreditCard,
   FiActivity
 } from 'react-icons/fi';
+import Image from 'next/image';
 
 type NavItemProps = {
   href: string;
@@ -43,14 +44,13 @@ export function UserSidebar({ onLogout }: UserSidebarProps) {
 
   return (
     <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
-          FusionX
-        </h1>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Trading Platform</p>
+      <div className="flex items-center p-4 border-b border-gray-200 dark:border-gray-700">
+        <Image src="/logo.svg" alt="Logo" width={32} height={32} />
+        <span className="ml-4 text-xl font-bold">
+          Copy Trade
+        </span>
       </div>
-      
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+      <nav className="mt-4">
         <NavItem 
           href="/dashboard" 
           icon={<FiHome size={18} />} 

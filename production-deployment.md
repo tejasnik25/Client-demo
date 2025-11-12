@@ -39,7 +39,7 @@
 
 4. **Database migration**:
    - Ensure DB credentials are set: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and optionally `DB_SSL=true`.
-   - Run `npm run migrate` to apply schema from `src/db/mysql_schema.sql`.
+   - Run `npm run migrate` to apply the consolidated schema from `database_setup.sql`.
 
 ## Performance Optimizations
 

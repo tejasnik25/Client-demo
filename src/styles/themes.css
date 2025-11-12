@@ -103,3 +103,129 @@
 .sidebar-active-item {
   background: var(--primary-gradient);
 }
+
+/* Payments Table Styles */
+.payments-table {
+  border-collapse: separate;
+  border-spacing: 0 0.5rem;
+}
+
+.payments-table th {
+  font-weight: 600;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.payments-table td {
+  padding: 0.75rem 1rem;
+  background-color: #1e293b;
+  vertical-align: middle;
+}
+
+.payments-table tr:hover td {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.status-completed {
+  background-color: #10b981;
+  color: #ffffff;
+}
+
+.status-pending {
+  background-color: #f59e0b;
+  color: #ffffff;
+}
+
+.status-failed {
+  background-color: #ef4444;
+  color: #ffffff;
+}
+
+/* Glassmorphism table container and toolbar */
+.table-card {
+  background: radial-gradient(120% 120% at 0% 0%, rgba(15, 23, 42, 0.7) 0%, rgba(30, 41, 59, 0.6) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-radius: 0.75rem;
+}
+
+.table-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.toolbar-input,
+.toolbar-select,
+.toolbar-button {
+  background-color: rgba(2, 6, 23, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+}
+
+.toolbar-button:hover {
+  background-color: rgba(30, 41, 59, 0.7);
+}
+
+/* Alternating row shading */
+.payments-table tbody tr td {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.payments-table tbody tr:nth-child(odd) td {
+  background-color: rgba(30, 41, 59, 0.85);
+}
+
+.payments-table tbody tr:nth-child(even) td {
+  background-color: rgba(15, 23, 42, 0.85);
+}
+
+/* Empty state cell */
+.empty-3d {
+  background: linear-gradient(180deg, rgba(2, 8, 23, 0.3), rgba(2, 8, 23, 0.15));
+  border: 1px dashed rgba(148, 163, 184, 0.25);
+  color: #94a3b8;
+}
+
+/* Badge variants aligned with global rules */
+.badge-approved,
+.badge-active {
+  background-color: #10b981;
+  color: #ffffff;
+}
+
+.badge-pending,
+.badge-inprocess {
+  background-color: #f59e0b;
+  color: #111827;
+}
+
+.badge-rejected,
+.badge-expired {
+  background-color: #ef4444;
+  color: #ffffff;
+}
+
+/* Table header stickiness */
+.table-sticky thead th {
+  position: sticky;
+  top: 0;
+  background-color: rgba(2, 6, 23, 0.9);
+  backdrop-filter: blur(6px);
+}

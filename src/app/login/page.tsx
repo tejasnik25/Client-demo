@@ -106,7 +106,7 @@ function LoginFormInner() {
           <div className="vuexy-auth-brand">
             <Image 
               src="/logo.svg" 
-              alt="FusionX Logo" 
+              alt="Copy Trade Logo" 
               width={36} 
               height={36} 
             />

@@ -202,7 +202,7 @@ Or use the admin panel sync feature (if implemented in UI).
 │   ├── db/                   # Database configuration
 │   │   ├── database.json     # JSON fallback database
 │   │   ├── dbService.ts      # Database service layer
-│   │   └── mysql_schema.sql  # MySQL schema
+│   │   └── (consolidated)    # Schema moved to root database_setup.sql
 │   ├── lib/                  # Utility libraries
 │   │   ├── auth-options.ts   # NextAuth configuration
 │   │   └── utils.ts          # Helper utilities

@@ -3,14 +3,15 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { FiHome, FiTrendingUp, FiDollarSign, FiUser, FiLogOut, FiGrid, FiSettings, FiShare2, FiPieChart, FiBarChart2, FiCreditCard } from 'react-icons/fi';
 
-interface FusionXSidebarProps {
+interface CopyTradeSidebarProps {
   onLogout: () => void;
 }
 
-export const FusionXSidebar: React.FC<FusionXSidebarProps> = ({ onLogout }) => {
+export const CopyTradeSidebar: React.FC<CopyTradeSidebarProps> = ({ onLogout }) => {
+  const router = useRouter();
   const pathname = usePathname();
 
   const navigationItems = [
@@ -27,7 +28,7 @@ export const FusionXSidebar: React.FC<FusionXSidebarProps> = ({ onLogout }) => {
       {/* Logo */}
       <div className="flex items-center justify-center h-16 border-b border-[#1b2e4b]">
         <div className="flex h-8 w-8 items-center justify-center">
-          <Image src="/financial-growth.svg" alt="FusionX" width={24} height={24} />
+          <Image src="/financial-growth.svg" alt="Copy Trade" width={24} height={24} />
         </div>
       </div>
 

@@ -126,8 +126,8 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {loadingStrategies ? (
               Array(4).fill(0).map((_, i) => (
-                <div key={`skeleton-${i}`} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow">
-                  <div className="h-24 bg-gray-100 dark:bg-gray-700 animate-pulse rounded mb-4" />
+                <div key={`skeleton-${i}`} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow min-h-[240px]">
+                  <div className="h-32 bg-gray-100 dark:bg-gray-700 animate-pulse rounded mb-4" />
                   <div className="h-5 bg-gray-100 dark:bg-gray-700 animate-pulse rounded mb-2 w-3/4" />
                   <div className="h-4 bg-gray-100 dark:bg-gray-700 animate-pulse rounded w-1/2" />
                 </div>
@@ -136,7 +136,7 @@ export default function Home() {
               <div className="col-span-full text-center text-gray-600 dark:text-gray-300">No strategies yet</div>
             ) : (
               strategies.map((s) => (
-                <div key={s.id} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow hover:shadow-lg transition">
+                <div key={s.id} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow hover:shadow-lg transition min-h-[240px] flex flex-col">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{s.name}</h3>
                     <span className={`text-xs font-semibold px-2 py-1 rounded ${s.riskLevel === 'High' ? 'text-red-600 bg-red-100 dark:bg-red-900/30' : s.riskLevel === 'Medium' ? 'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/30' : 'text-green-700 bg-green-100 dark:bg-green-900/30'}`}>{s.riskLevel} Risk</span>
@@ -148,9 +148,9 @@ export default function Home() {
                     ))}
                     <span className={`px-2 py-1 rounded ${s.performance >= 0 ? 'text-green-700 bg-green-100 dark:bg-green-900/30' : 'text-red-700 bg-red-100 dark:bg-red-900/30'}`}>Perf: {s.performance >= 0 ? '+' : ''}{s.performance}%</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <Link href={session ? '/strategies' : '/login?redirect=/strategies'} className="text-blue-600 dark:text-blue-400 hover:underline">View All</Link>
-                    <Link href={session ? '/strategies' : '/login?redirect=/strategies'} className="text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">{session ? 'More info' : 'Login to view info'}</Link>
+                  <div className="mt-auto flex justify-between items-center">
+                    <Link href={(session && (session.user as any)?.role === 'USER') ? '/strategies' : '/login?redirect=/strategies'} className="text-blue-600 dark:text-blue-400 hover:underline">View All</Link>
+                    <Link href={(session && (session.user as any)?.role === 'USER') ? '/strategies' : '/login?redirect=/strategies'} className="text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">{(session && (session.user as any)?.role === 'USER') ? 'More info' : 'Login to view info'}</Link>
                   </div>
                 </div>
               ))

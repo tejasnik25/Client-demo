@@ -36,11 +36,11 @@ export default function AdminLayout({
   // Only render admin layout if user is authenticated and has admin role
   if (status === 'authenticated' && session?.user?.role === 'ADMIN') {
     return (
-      <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+      <div className="flex h-screen bg-[#0e1726] text-gray-300">
         <Sidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
           <Header />
-          <main className="flex-1 overflow-y-auto p-4">{children}</main>
+          <main className="flex-1 overflow-y-auto p-4 bg-[#0e1726]">{children}</main>
         </div>
       </div>
     );

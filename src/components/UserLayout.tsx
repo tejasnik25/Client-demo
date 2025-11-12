@@ -8,7 +8,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { UserSidebar } from '@/components/ui/UserSidebar';
 import { UserHeader } from '@/components/ui/UserHeader';
-import { FusionXSidebar } from '@/components/ui/FusionXSidebar';
+import { CopyTradeSidebar } from '@/components/ui/CopyTradeSidebar';
 import  Button  from '@/components/ui/Button';
 import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
 import MobileBottomNav from '@/components/ui/MobileBottomNav';
@@ -41,13 +41,15 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
       if (session?.user?.id) {
         try {
           const res = await fetch(`/api/users?id=${encodeURIComponent(session.user.id)}`);
-          if (!res.ok && res.status !== 404) throw new Error();
+          if (res.status === 401) {
+            // Unauthorized, session might be expired, trigger logout
+            handleLogout();
+            return;
+          }
+          if (!res.ok && res.status !== 404) throw new Error(`API responded with ${res.status}`);
           const data = await res.json();
           if (data.user?.enabled === false) {
-            await fetch('/api/auth/signout', { method: 'POST', credentials: 'include' });
-            sessionStorage.clear();
-            localStorage.clear();
-            router.push('/login');
+            await handleLogout();
           }
         } catch (e) {
           console.error('Error checking user status:', e);
@@ -57,7 +59,7 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
 
     if (status === 'authenticated' && session?.user?.id) {
       checkUserStatus();
-      const id = setInterval(checkUserStatus, 3000);
+      const id = setInterval(checkUserStatus, 30000); // Increased interval to 30s
       return () => clearInterval(id);
     }
   }, [session?.user?.id, status, router]);
@@ -143,7 +145,7 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
   return (
     <div className="flex min-h-screen bg-[#0e1726] text-white overflow-x-hidden">
       {/* FusionX Sidebar - Desktop Only */}
-      {!isMobile && <FusionXSidebar onLogout={handleLogout} />}
+      {!isMobile && <CopyTradeSidebar onLogout={handleLogout} />}
 
       {/* Main Content */}
       <div className="flex flex-col flex-1 md:ml-16 ml-0">

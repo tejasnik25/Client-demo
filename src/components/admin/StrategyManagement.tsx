@@ -283,7 +283,8 @@ const resetAddForm = () => {
         });
         
         if (!response.ok) {
-          throw new Error('Failed to create strategy');
+          const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
+          throw new Error(errorData.error || 'Failed to create strategy');
         }
         
         result = await response.json();
@@ -295,7 +296,8 @@ const resetAddForm = () => {
         });
         
         if (!response.ok) {
-          throw new Error('Failed to update strategy');
+          const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
+          throw new Error(errorData.error || 'Failed to update strategy');
         }
         
         result = await response.json();
@@ -313,8 +315,8 @@ const resetAddForm = () => {
       } else {
         setError(result?.error || 'Operation failed');
       }
-    } catch (err) {
-      setError('An error occurred during the operation');
+    } catch (err: any) {
+      setError(err.message || 'An error occurred during the operation');
       console.error('Error submitting strategy:', err);
     }
   };

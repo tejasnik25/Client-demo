@@ -488,6 +488,28 @@ if (!isBuildTime) {
 export const getAllStrategies = async (): Promise<Strategy[]> => {
   try {
     const [rows] = await pool.execute('SELECT * FROM strategies ORDER BY created_at DESC');
+    // If MySQL returns zero rows, fall back to JSON
+    if (!Array.isArray(rows) || rows.length === 0) {
+      console.warn('MySQL strategies table is empty, falling back to JSON');
+      const db: any = readDatabase();
+      const strategies: any[] = Array.isArray(db.strategies) ? db.strategies : [];
+      return strategies.map((s: any) => ({
+        ...s,
+        riskLevel: s.riskLevel ?? s.risk_level ?? 'medium',
+        imageUrl: s.imageUrl ?? s.image_url ?? undefined,
+        minCapital: s.minCapital ?? s.min_capital,
+        avgDrawdown: s.avgDrawdown ?? s.avg_drawdown,
+        riskReward: s.riskReward ?? s.risk_reward,
+        winStreak: s.winStreak ?? s.win_streak,
+        tag: s.tag,
+        planPrices: s.planPrices ?? s.plan_prices,
+        planDetails: s.planDetails ?? s.plan_details,
+        parameters: typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : (s.parameters || {}),
+        contentType: s.contentType ?? s.content_type,
+        contentUrl: s.contentUrl ?? s.content_url,
+        enabled: s.enabled !== false,
+      }));
+    }
     return (rows as any[]).map(row => ({
       ...row,
       riskLevel: row.risk_level,
@@ -1436,5 +1458,117 @@ export const syncJsonToMysql = async (): Promise<{ success: boolean; inserted: n
   } catch (error) {
     console.error('syncJsonToMysql failed:', error);
     return { success: false, inserted: 0, skipped: 0, error: 'Sync failed' };
+  }
+};
+
+// Update transaction proof (receipt_path) and tx id, optionally status
+export const updateTransactionProof = async (
+  transactionId: string,
+  txId: string,
+  proofUrl: string,
+  nextStatus: 'pending' | 'in-process' | 'completed' | 'failed' = 'in-process'
+): Promise<WalletTransaction | null> => {
+  try {
+    await pool.execute(
+      'UPDATE wallet_transactions SET transaction_id = ?, receipt_path = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [txId, proofUrl, nextStatus, transactionId]
+    );
+    return await getTransactionById(transactionId);
+  } catch (error) {
+    console.error('MySQL updateTransactionProof failed, falling back to JSON:', error);
+    try {
+      const db: any = readDatabase();
+      const arr: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      const idx = arr.findIndex(t => t.id === transactionId);
+      if (idx === -1) return null;
+      arr[idx].transaction_id = txId;
+      arr[idx].receipt_path = proofUrl;
+      arr[idx].status = nextStatus;
+      arr[idx].updated_at = new Date().toISOString();
+      writeDatabase({ ...db, wallet_transactions: arr });
+      return arr[idx] as WalletTransaction;
+    } catch (jsonError) {
+      console.error('JSON fallback updateTransactionProof failed:', jsonError);
+      return null;
+    }
+  }
+};
+
+// Admin user CRUD operations (MySQL-backed)
+export const createUserAdmin = async (
+  {
+    name,
+    email,
+    password,
+    role = 'USER',
+    enabled = true,
+  }: { name: string; email: string; password: string; role?: 'USER' | 'ADMIN'; enabled?: boolean }
+): Promise<{ success: boolean; user?: User; error?: string }> => {
+  try {
+    const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
+    if ((existing as any[]).length > 0) {
+      return { success: false, error: 'A user with this email already exists' };
+    }
+
+    const hashedPassword = await hashPassword(password);
+    const userId = `user_${Date.now()}`;
+    await pool.execute(
+      `INSERT INTO users (id, name, email, password, role, email_verified, wallet_balance, enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, name, email, hashedPassword, role, false, 0, enabled]
+    );
+
+    const user = await getUserById(userId);
+    return { success: true, user: user! };
+  } catch (error) {
+    console.error('createUserAdmin failed:', error);
+    return { success: false, error: 'Failed to add user' };
+  }
+};
+
+export const updateUserAdmin = async (
+  id: string,
+  updates: { name?: string; email?: string; role?: 'USER' | 'ADMIN'; enabled?: boolean }
+): Promise<{ success: boolean; user?: User; error?: string }> => {
+  try {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (typeof updates.name !== 'undefined') { fields.push('name = ?'); values.push(updates.name); }
+    if (typeof updates.email !== 'undefined') { fields.push('email = ?'); values.push(updates.email); }
+    if (typeof updates.role !== 'undefined') { fields.push('role = ?'); values.push(updates.role); }
+    if (typeof updates.enabled !== 'undefined') { fields.push('enabled = ?'); values.push(!!updates.enabled); }
+
+    if (fields.length === 0) {
+      const user = await getUserById(id);
+      return user ? { success: true, user } : { success: false, error: 'User not found' };
+    }
+
+    values.push(id);
+    const sql = `UPDATE users SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+    await pool.execute(sql, values);
+    const user = await getUserById(id);
+    return user ? { success: true, user } : { success: false, error: 'User not found' };
+  } catch (error) {
+    console.error('updateUserAdmin failed:', error);
+    return { success: false, error: 'Failed to update user' };
+  }
+};
+
+export const deleteUserAdmin = async (id: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    // Prevent deleting hardcoded admin
+    if (id === 'admin123') {
+      return { success: false, error: 'Cannot delete the admin account' };
+    }
+    const [rows] = await pool.execute('SELECT id FROM users WHERE id = ?', [id]);
+    if ((rows as any[]).length === 0) {
+      return { success: false, error: 'User not found' };
+    }
+    await pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    return { success: true };
+  } catch (error) {
+    console.error('deleteUserAdmin failed:', error);
+    return { success: false, error: 'Failed to delete user' };
   }
 };

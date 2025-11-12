@@ -25,7 +25,7 @@ type Strategy = {
 
 const RunningStrategiesPage: React.FC = () => {
   const { user } = useAuth();
-  const [txs, setTxs] = useState<Tx[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,16 +33,16 @@ const RunningStrategiesPage: React.FC = () => {
     const load = async () => {
       try {
         setLoading(true);
-        const [txRes, stratRes] = await Promise.all([
-          fetch('/api/wallet/transactions'),
+        const [paymentRes, stratRes] = await Promise.all([
+          fetch('/api/payments'),
           fetch('/api/strategies'),
         ]);
-        const txData = await txRes.json();
+        const paymentData = await paymentRes.json();
         const stratData = await stratRes.json();
-        setTxs(txData?.transactions || []);
+        setPayments(paymentData?.payments || []);
         setStrategies((stratData?.strategies || []).filter((s: any) => s.enabled !== false));
       } catch {
-        setTxs([]);
+        setPayments([]);
         setStrategies([]);
       } finally {
         setLoading(false);
@@ -52,9 +52,9 @@ const RunningStrategiesPage: React.FC = () => {
   }, []);
 
   const approvedMine = useMemo(() => {
-    if (!user) return [] as Tx[];
-    return txs.filter(t => t.user_id === user.id && t.status === 'completed' && t.strategy_id);
-  }, [txs, user]);
+    if (!user) return [] as any[];
+    return payments.filter(p => p.userId === user.id && (p.status === 'approved' || p.status === 'in_process'));
+  }, [payments, user]);
 
   const stratById = useMemo(() => {
     const map = new Map<string, Strategy>();
@@ -119,6 +119,12 @@ const RunningStrategiesPage: React.FC = () => {
                       <div>
                         <div className="text-gray-500">Risk Level</div>
                         <div className="font-bold text-white">{s.riskLevel}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">Status</div>
+                        <div className={`font-bold ${tx.status === 'in_process' ? 'text-yellow-400' : 'text-green-400'}`}>
+                          {tx.status === 'in_process' ? 'In Process' : 'Active'}
+                        </div>
                       </div>
                     </div>
                   </div>
