@@ -1,10 +1,10 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Header } from "@/components/ui/Header";
 import { Footer } from "@/components/ui/Footer";
 
-const PaymentPage: React.FC = () => {
+const PaymentInner: React.FC = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const plan = searchParams.get("plan");
@@ -135,4 +135,10 @@ const PaymentPage: React.FC = () => {
   );
 };
 
-export default PaymentPage;
+export default function PaymentPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white">Loading...</div>}>
+      <PaymentInner />
+    </Suspense>
+  );
+}
