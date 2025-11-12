@@ -2,15 +2,31 @@
 
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { FaBell, FaSearch } from 'react-icons/fa';
+import { FaBell, FaSearch, FaBars } from 'react-icons/fa';
 import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
+import AdminMobileMenu from '@/components/admin/MobileMenu';
 
 export function Header() {
   const { data: session } = useSession();
   const [searchTerm, setSearchTerm] = useState('');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 py-4 px-6 flex items-center justify-between">
+    <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 py-4 px-4 sm:px-6 flex items-center justify-between">
+      {/* Mobile hamburger */}
+      <div className="flex items-center gap-3">
+        <button
+          aria-label="Open menu"
+          onClick={() => setIsMenuOpen(true)}
+          className="inline-flex md:hidden p-2 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
+        >
+          <FaBars size={18} />
+        </button>
+        <div className="hidden md:block text-sm text-gray-600 dark:text-gray-300">
+          Admin Dashboard
+        </div>
+      </div>
+
       <div className="flex items-center w-full max-w-md">
         <div className="relative w-full">
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
@@ -50,6 +66,7 @@ export function Header() {
           </div>
         </div>
       </div>
+      <AdminMobileMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
     </header>
   );
 }

@@ -51,6 +51,7 @@ const Stage5_FinalPayment = ({ onBack, paymentData }: Stage5Props) => {
   };
 
   const onSubmit = async (data: FormData) => {
+    let transactionId: string | null = null;
     try {
       setLoading(true);
       // Create payment transaction with pending status
@@ -62,37 +63,41 @@ const Stage5_FinalPayment = ({ onBack, paymentData }: Stage5Props) => {
 
       if (!createRes.ok) throw new Error('Failed to create payment transaction');
 
-      const { transactionId } = await createRes.json();
+      const created = await createRes.json();
+      transactionId = created.transactionId;
+      if (!transactionId) throw new Error('Missing transaction ID');
 
       const file = data.proof[0];
-      const fileType = file.type;
+      const fileType = file?.type || 'image/png';
 
-      // 1. Get signed URL
-      const signedUrlRes = await fetch('/api/upload-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileType, transactionId }),
-      });
-      if (!signedUrlRes.ok) {
-        const errText = await signedUrlRes.text();
-        throw new Error(`Failed to get signed URL: ${errText}`);
-      }
-      const { signedUrl, key, useLocalFallback } = await signedUrlRes.json();
-
-      let proofUrl: string;
-      if (useLocalFallback || !signedUrl || !key) {
-        // No S3 configured: record a placeholder proof URL that always resolves
-        proofUrl = 'https://via.placeholder.com/200x200?text=No+Proof';
-      } else {
-        // 2. Upload file to S3
-        await fetch(signedUrl, {
-          method: 'PUT',
-          body: file,
-          headers: { 'Content-Type': fileType },
+      // 1. Try to get signed URL; if not available, fall back locally
+      let proofUrl = '';
+      try {
+        const signedUrlRes = await fetch('/api/upload-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileType, transactionId }),
         });
+        if (signedUrlRes.ok) {
+          const { signedUrl, key, useLocalFallback } = await signedUrlRes.json();
+          if (!useLocalFallback && signedUrl && key) {
+            // 2. Upload file to S3
+            await fetch(signedUrl, {
+              method: 'PUT',
+              body: file,
+              headers: { 'Content-Type': fileType },
+            });
+            const awsRegion = process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'ap-south-1';
+            proofUrl = `https://${process.env.NEXT_PUBLIC_AWS_S3_BUCKET}.s3.${awsRegion}.amazonaws.com/${key}`;
+          }
+        }
+      } catch (e) {
+        // Ignore and use fallback proof URL
+      }
 
-        const awsRegion = process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'ap-south-1';
-        proofUrl = `https://${process.env.NEXT_PUBLIC_AWS_S3_BUCKET}.s3.${awsRegion}.amazonaws.com/${key}`;
+      if (!proofUrl) {
+        // No S3 configured or upload failed: record a placeholder proof URL that always resolves
+        proofUrl = 'https://via.placeholder.com/200x200?text=No+Proof';
       }
 
       // 3. Update payment with proof and txId
@@ -112,7 +117,18 @@ const Stage5_FinalPayment = ({ onBack, paymentData }: Stage5Props) => {
     } catch (error) {
       console.error(error);
       alert('Payment submission failed.');
-      // Optionally, update payment status to 'failed'
+      // Mark the transaction as failed when possible
+      try {
+        if (transactionId) {
+          await fetch(`/api/payments/${transactionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'failed' }),
+          });
+        }
+      } catch (e) {
+        // Swallow error to avoid breaking UX
+      }
     } finally {
       setLoading(false);
     }

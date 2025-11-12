@@ -36,11 +36,26 @@ const ApprovedPaymentsPage = () => {
   const fetchApproved = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/payments?status=approved&renewal=false`);
+      const res = await fetch(`/api/admin/payments/pending`);
       if (!res.ok) throw new Error("Failed to load payments");
       const data = await res.json();
-      const rows: Payment[] = data.payments ?? [];
-      setPayments(rows);
+      const items = Array.isArray(data) ? data : (data.transactions ?? []);
+      const normalized: Payment[] = items.map((t: any) => ({
+        id: t.id,
+        userId: t.user_id,
+        email: t.user?.email ?? '',
+        txId: t.transaction_id,
+        plan: t.plan_level || t.plan,
+        platform: t.platform,
+        terms: t.terms_accepted ? 'Accepted' : '—',
+        strategyId: t.strategy_id,
+        payable: t.amount,
+        method: t.payment_method,
+        createdAt: t.created_at,
+        approvedAt: t.status === 'completed' ? (t.updated_at || t.created_at) : undefined,
+        verifiedBy: t.admin_id || undefined,
+      }));
+      setPayments(normalized.filter(p => p.txId && p.payable && p.method && p.createdAt && items.find((i: any) => i.id === p.id)?.status === 'completed'));
       setError(null);
     } catch (e: any) {
       setError(e.message ?? "Unknown error");

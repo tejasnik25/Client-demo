@@ -430,4 +430,5 @@ const PendingPaymentsPage = () => {
   );
 };
 
-export default PendingPaymentsPage;
+// Replace legacy component with the admin-hydrated version above
+export default PaymentsPendingPage;
