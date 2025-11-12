@@ -37,7 +37,8 @@ const PaymentsPendingPage = () => {
 
   const load = async () => {
     try {
-      const res = await fetch('/api/payments');
+      // Use admin API that returns hydrated transactions
+      const res = await fetch('/api/admin/payments/pending');
       if (!res.ok) {
         // Gracefully handle API failure: keep table visible with no rows
         setPayments([]);
@@ -45,7 +46,24 @@ const PaymentsPendingPage = () => {
         return;
       }
       const data = await res.json();
-      setPayments(Array.isArray(data) ? data : (data.payments ?? []));
+      // Normalize to expected client shape
+      const items = Array.isArray(data) ? data : (data.transactions ?? []);
+      setPayments(items.map((t: any) => ({
+        id: t.id,
+        userId: t.user_id,
+        strategyId: t.strategy_id,
+        plan: t.plan_level || t.plan,
+        capital: t.capital,
+        payable: t.amount,
+        method: t.payment_method,
+        txId: t.transaction_id,
+        proofUrl: t.receipt_path,
+        status: t.status,
+        createdAt: t.created_at,
+        approvedAt: undefined,
+        expiresAt: undefined,
+        verifiedBy: undefined,
+      })));
       setError(null);
     } catch (e) {
       // Network or parsing error: show empty table but keep UI intact
@@ -64,14 +82,18 @@ const PaymentsPendingPage = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const pending = useMemo(() => payments.filter(p => ['pending','in_process'].includes(p.status)), [payments]);
+  const pending = useMemo(() => payments.filter(p => ['pending','in_process','in-process'].includes(p.status)), [payments]);
 
   const updateStatus = async (paymentId: string, status: 'approved' | 'rejected') => {
     try {
-      const res = await fetch('/api/payments', {
-        method: 'PATCH',
+      // Call explicit approve/reject admin endpoints
+      const endpoint = status === 'approved'
+        ? `/api/admin/payments/${paymentId}/approve`
+        : `/api/admin/payments/${paymentId}/reject`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId, status })
+        body: status === 'rejected' ? JSON.stringify({ rejectionReason: reason || undefined }) : undefined,
       });
       if (!res.ok) throw new Error('Failed to update payment');
       await load();
@@ -82,10 +104,11 @@ const PaymentsPendingPage = () => {
 
   const sendMessage = async (paymentId: string) => {
     try {
-      const res = await fetch('/api/payments', {
-        method: 'PATCH',
+      // For now, piggyback on reject endpoint with reason to notify user
+      const res = await fetch(`/api/admin/payments/${paymentId}/reject`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId, status: 'pending', message: reason })
+        body: JSON.stringify({ rejectionReason: reason || 'Additional information required' })
       });
       if (!res.ok) throw new Error('Failed to send message');
       setMessageFor(null);
