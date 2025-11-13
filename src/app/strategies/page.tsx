@@ -26,8 +26,8 @@ const StrategiesPage: React.FC = () => {
   const [topTab, setTopTab] = useState<'explore' | 'deployed'>('explore');
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
-  const [txs, setTxs] = useState<any[]>([]);
-  const [loadingTxs, setLoadingTxs] = useState(true);
+  const [running, setRunning] = useState<any[]>([]);
+  const [loadingRunning, setLoadingRunning] = useState(true);
 
   useEffect(() => {
     const fetchStrategies = async () => {
@@ -47,21 +47,21 @@ const StrategiesPage: React.FC = () => {
     fetchStrategies();
   }, []);
 
-  // Fetch user transactions for deployed strategies view
+  // Fetch running strategies for deployed view
   useEffect(() => {
-    const fetchTxs = async () => {
+    const fetchRunning = async () => {
       try {
-        setLoadingTxs(true);
-        const res = await fetch('/api/wallet/transactions');
+        setLoadingRunning(true);
+        const res = await fetch('/api/strategies/running');
         const data = await res.json();
-        setTxs(data?.transactions || []);
+        setRunning(data?.strategies || []);
       } catch {
-        setTxs([]);
+        setRunning([]);
       } finally {
-        setLoadingTxs(false);
+        setLoadingRunning(false);
       }
     };
-    fetchTxs();
+    fetchRunning();
   }, []);
 
   const stratById = useMemo(() => {
@@ -70,10 +70,10 @@ const StrategiesPage: React.FC = () => {
     return map;
   }, [strategies]);
 
-  const approvedMine = useMemo(() => {
+  const deployed = useMemo(() => {
     if (!user) return [] as any[];
-    return txs.filter((t: any) => t.user_id === user.id && t.status === 'completed' && t.strategy_id);
-  }, [txs, user]);
+    return running;
+  }, [running, user]);
 
   const handleViewInfo = (s: Strategy) => {
     if (!session || (session.user as any)?.role !== 'USER') {
@@ -146,6 +146,15 @@ const StrategiesPage: React.FC = () => {
     }
   };
 
+  const handleRenewal = (s: Strategy) => {
+    if (!session || (session.user as any)?.role !== 'USER') {
+      return router.push('/login?redirect=/strategies');
+    }
+    setSelectedStrategy(s);
+    setInfoDialogOpen(false);
+    setPlanDialogOpen(true);
+  };
+
   const filtered = activeTab === 'all'
     ? strategies
     : strategies.filter(s => s.category?.toLowerCase() === activeTab);
@@ -202,9 +211,9 @@ const StrategiesPage: React.FC = () => {
       {/* Strategy Cards - Full Width */}
       <div className="px-6 pb-10 space-y-4">
         {topTab === 'deployed' ? (
-          loadingTxs ? (
+          loadingRunning ? (
             <div className="text-gray-400">Loading...</div>
-          ) : approvedMine.length === 0 ? (
+          ) : deployed.length === 0 ? (
             <div className="text-center py-16 text-gray-400 bg-[#1a1f2e] rounded-2xl border border-[#283046]">
               <div className="flex items-center justify-center mb-4">
                 <Image src="/file.svg" alt="No Data" width={64} height={64} />
@@ -213,11 +222,11 @@ const StrategiesPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {approvedMine.map((tx: any) => {
-                const s = tx.strategy_id ? stratById.get(tx.strategy_id) : undefined;
+              {deployed.map((r: any) => {
+                const s = stratById.get(r.id) || strategies.find(ss => ss.name === r.name);
                 if (!s) return null;
                 return (
-                  <div key={tx.id} className="group fx-3d-card bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046]">
+                  <div key={r.id} className="group fx-3d-card bg-gradient-to-r from-[#1a1f2e] to-[#161d31] rounded-2xl p-6 border border-[#283046]">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                       <div className="flex items-start gap-4 flex-1">
                         <div className="w-14 h-14 bg-gradient-to-br from-[#7c3aed] to-[#a855f7] rounded-xl flex items-center justify-center p-2">
@@ -226,7 +235,7 @@ const StrategiesPage: React.FC = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <h4 className="text-lg font-semibold">{s.name}</h4>
-                            <span className="text-xs text-gray-500">Plan: {tx.plan_level ?? '—'}</span>
+                            <span className="text-xs text-gray-500">Status: in-process</span>
                           </div>
                           <div className="flex gap-2 mt-2">
                             {s.tag && (
@@ -288,6 +297,15 @@ const StrategiesPage: React.FC = () => {
                             <div className="font-bold text-white">{s.winStreak}</div>
                           </div>
                         )}
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 w-full md:w-auto md:flex md:gap-3">
+                        <Button
+                          size="sm"
+                          className="h-11 w-full md:w-auto bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]"
+                          onClick={() => handleRenewal(s)}
+                        >
+                          Renewal
+                        </Button>
                       </div>
                     </div>
                   </div>

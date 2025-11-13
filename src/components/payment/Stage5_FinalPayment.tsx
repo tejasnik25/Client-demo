@@ -24,9 +24,10 @@ type FormData = z.infer<typeof schema>;
 interface Stage5Props {
   onBack: () => void;
   paymentData: any;
+  onSuccess?: () => void;
 }
 
-const Stage5_FinalPayment = ({ onBack, paymentData }: Stage5Props) => {
+const Stage5_FinalPayment = ({ onBack, paymentData, onSuccess }: Stage5Props) => {
   const router = useRouter();
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -114,6 +115,7 @@ const Stage5_FinalPayment = ({ onBack, paymentData }: Stage5Props) => {
       }
 
       setSuccessTxId(transactionId);
+      if (onSuccess) onSuccess();
     } catch (error) {
       console.error(error);
       alert('Payment submission failed.');
@@ -136,7 +138,7 @@ const Stage5_FinalPayment = ({ onBack, paymentData }: Stage5Props) => {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="flex flex-col items-center">
+      <div className={`flex flex-col items-center ${successTxId ? 'opacity-30 pointer-events-none select-none blur-[1px]' : ''}`}>
         <Image src={getQR()} alt={`${paymentData.method} QR Code`} width={200} height={200} />
         <p className="mt-2"><strong>Amount:</strong> ${paymentData.payable?.toFixed(2)}</p>
         <p className=""><strong>Exchange Rate:</strong> ₹{inrRate.toFixed(2)} per $1</p>

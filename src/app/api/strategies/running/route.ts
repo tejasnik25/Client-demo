@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getAllTransactions, getAllStrategies } from '@/db/dbService';
+import { getRunningStrategiesForUser, getAllStrategies } from '@/db/dbService';
 
 /**
  * GET /api/strategies/running
@@ -19,10 +19,8 @@ export async function GET() {
       return NextResponse.json({ strategies: [] });
     }
 
-    const [txs, strategies] = await Promise.all([
-      getAllTransactions(),
-      getAllStrategies(),
-    ]);
+    const strategies = await getAllStrategies();
+    const runningRows = await getRunningStrategiesForUser(userId);
 
     // Only consider enabled strategies
     const enabledMap = new Map<string, any>();
@@ -31,22 +29,14 @@ export async function GET() {
       .forEach((s: any) => enabledMap.set(s.id, s));
 
     // Approved transactions for this user that reference a strategy
-    const approved = txs.filter(
-      (t: any) => t.user_id === userId && t.status === 'completed' && !!t.strategy_id
-    );
-
-    // Shape response to match Dashboard expectations
-    const running = approved
-      .map((t: any) => {
-        const s = enabledMap.get(t.strategy_id as string);
-        if (!s) return null;
-        return {
-          id: s.id,
-          name: s.name,
-          // Dashboard currently expects these fields for display
-          orders: [],
-          profit: 0,
-        };
+    const running = runningRows
+      .map((r: any) => {
+        // Join to enabled strategy for display
+        const s = Array.isArray(strategies) ? strategies.find((st: any) => st.name === r.strategyName) : null;
+        const id = s?.id;
+        const name = r.strategyName || s?.name;
+        if (!name) return null;
+        return { id: id || r.id, name, orders: [], profit: 0 };
       })
       .filter(Boolean);
 

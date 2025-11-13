@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
-import { getAllTransactions, getUserById } from '@/db/dbService';
+import { getPendingOrInProcessTransactions, getUserById } from '@/db/dbService';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get all transactions (not just pending) for admin review
-    const allTransactions = await getAllTransactions();
+    // Get only pending or in-process transactions for admin review
+    const allTransactions = await getPendingOrInProcessTransactions();
 
     // Hydrate with user info and include MT details
     const transactions = await Promise.all(

@@ -28,7 +28,7 @@ interface Transaction {
   mt_account_id?: string;
   mt_account_password?: string;
   terms_accepted?: boolean;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'in-process' | 'completed' | 'failed';
   created_at: string;
   updated_at?: string;
   admin_id?: string;
@@ -291,6 +291,8 @@ export default function PaymentVerification({ onSendEmail }: PaymentVerification
                       <TableCell>
                         {transaction.status === 'pending' ? (
                           <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">Pending</Badge>
+                        ) : transaction.status === 'in-process' ? (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">In Process</Badge>
                         ) : transaction.status === 'completed' ? (
                           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Completed</Badge>
                         ) : (

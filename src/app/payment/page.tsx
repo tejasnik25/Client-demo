@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 const PaymentContent = () => {
   const [stage, setStage] = useState(1);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
+  const [completed, setCompleted] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -91,7 +92,7 @@ const PaymentContent = () => {
       case 4:
         return <Stage4_Review onNext={handleNext} onBack={handleBack} paymentData={paymentData} onEditStage={handleEditStage} />;
       case 5:
-        return <Stage5_FinalPayment onBack={handleBack} paymentData={paymentData} />;
+        return <Stage5_FinalPayment onBack={handleBack} paymentData={paymentData} onSuccess={() => setCompleted(true)} />;
       default:
         return null;
     }
@@ -110,11 +111,13 @@ const PaymentContent = () => {
 
         {renderStage()}
 
-        <div className="mt-8 text-center">
-          <button onClick={handleCancel} className="text-gray-400 hover:text-white transition-colors">
-            Cancel Payment
-          </button>
-        </div>
+        {!completed && (
+          <div className="mt-8 text-center">
+            <button onClick={handleCancel} className="text-gray-400 hover:text-white transition-colors">
+              Cancel Payment
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

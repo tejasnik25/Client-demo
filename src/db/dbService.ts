@@ -166,7 +166,7 @@ type WalletTransaction = {
   crypto_network?: 'ERC20' | 'TRC20';
   crypto_wallet_address?: string;
   wallet_app_deeplink?: string;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'in-process' | 'completed' | 'failed';
   admin_id?: string;
   rejection_reason?: string;
   created_at: string;
@@ -244,7 +244,7 @@ const initializeDatabase = async () => {
         terms_accepted BOOLEAN DEFAULT FALSE,
         strategy_id VARCHAR(255),
         plan_level ENUM('Premium','Expert','Pro'),
-        status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
+        status ENUM('pending', 'in-process', 'completed', 'failed') DEFAULT 'pending',
         admin_id VARCHAR(255),
         rejection_reason TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -301,6 +301,23 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions MODIFY COLUMN status ENUM('pending','in-process','completed','failed') DEFAULT 'pending'"); } catch (e) {}
+    // Ensure running_strategies exists
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS running_strategies (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        strategy_id VARCHAR(255) NOT NULL,
+        plan ENUM('Pro','Expert','Premium'),
+        capital DECIMAL(14,2),
+        status ENUM('in-process','active','stopped') DEFAULT 'in-process',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE,
+        UNIQUE KEY uniq_user_strategy (user_id, strategy_id)
+      )
+    `);
   // Add strategy columns if missing
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_type VARCHAR(16)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_url VARCHAR(500)"); } catch (e) {}
@@ -349,7 +366,7 @@ const initializeDefaultData = async () => {
     }
 
     // Check if test user exists
-    const [userRows] = await pool.execute('SELECT id FROM users WHERE email = ?', ['user@example.com']);
+    const [userRows] = await pool.execute('SELECT id FROM users WHERE id = ? OR email = ?', ['user123', 'user@example.com']);
     
     if ((userRows as any[]).length === 0) {
       const hashedPassword = await hashPassword('userpass123');
@@ -1473,7 +1490,26 @@ export const updateTransactionProof = async (
       'UPDATE wallet_transactions SET transaction_id = ?, receipt_path = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [txId, proofUrl, nextStatus, transactionId]
     );
-    return await getTransactionById(transactionId);
+    const updated = await getTransactionById(transactionId);
+    if (updated && updated.status === 'in-process' && updated.strategy_id && updated.user_id) {
+      try {
+        const runningId = `run_${Date.now()}`;
+        const [existing] = await pool.execute(
+          'SELECT id FROM running_strategies WHERE user_id = ? AND strategy_id = ?',
+          [updated.user_id, updated.strategy_id]
+        );
+        if (!(Array.isArray(existing) && (existing as any[]).length > 0)) {
+          await pool.execute(
+            `INSERT INTO running_strategies (id, user_id, strategy_id, plan, capital, status)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [runningId, updated.user_id, updated.strategy_id, updated.plan_level ?? null, updated.amount ?? 0, 'in-process']
+          );
+        }
+      } catch (e) {
+        console.error('Failed to create running strategy from transaction:', e);
+      }
+    }
+    return updated;
   } catch (error) {
     console.error('MySQL updateTransactionProof failed, falling back to JSON:', error);
     try {
@@ -1485,11 +1521,52 @@ export const updateTransactionProof = async (
       arr[idx].receipt_path = proofUrl;
       arr[idx].status = nextStatus;
       arr[idx].updated_at = new Date().toISOString();
+      if (nextStatus === 'in-process' && arr[idx].strategy_id && arr[idx].user_id) {
+        const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+        const exists = runs.find((r: any) => r.user_id === arr[idx].user_id && r.strategy_id === arr[idx].strategy_id);
+        if (!exists) {
+          runs.push({
+            id: `run_${Date.now()}`,
+            user_id: arr[idx].user_id,
+            strategy_id: arr[idx].strategy_id,
+            plan: arr[idx].plan_level,
+            capital: arr[idx].amount,
+            status: 'in-process',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+          db.running_strategies = runs;
+        }
+      }
       writeDatabase({ ...db, wallet_transactions: arr });
       return arr[idx] as WalletTransaction;
     } catch (jsonError) {
       console.error('JSON fallback updateTransactionProof failed:', jsonError);
       return null;
+    }
+  }
+};
+
+// Fetch pending or in-process transactions for admin
+export const getPendingOrInProcessTransactions = async (): Promise<WalletTransaction[]> => {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT * FROM wallet_transactions WHERE status IN ('pending','in-process') ORDER BY created_at DESC"
+    );
+    return (rows as any[]).map(row => ({
+      ...row,
+      amount: parseFloat(row.amount),
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at ? row.updated_at.toISOString() : undefined
+    }));
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const arr: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      return arr.filter(t => t.status === 'pending' || t.status === 'in-process');
+    } catch (jsonError) {
+      console.error('Failed to load pending/in-process transactions:', jsonError);
+      return [];
     }
   }
 };
