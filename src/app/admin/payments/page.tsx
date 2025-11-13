@@ -37,28 +37,19 @@ const PaymentsPage = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchPayments = async () => {
+    const fetchAll = async () => {
       try {
-        // Use admin API that returns hydrated transactions
-        const res = await fetch('/api/admin/payments/pending');
-        if (!res.ok) throw new Error('Failed to load payments');
-        const data = await res.json();
-        const items = Array.isArray(data) ? data : (data.transactions ?? []);
-        // Normalize to the dashboard's payment shape
-        const normalized: Payment[] = items.map((t: any) => ({
-          id: t.id,
-          userId: t.user_id,
-          strategyId: t.strategy_id,
-          plan: (t.plan_level || t.plan || 'Pro') as 'Pro' | 'Expert' | 'Premium',
-          capital: t.capital || 0,
-          payable: t.amount,
-          method: t.payment_method,
-          txId: t.transaction_id,
-          proofUrl: t.receipt_path,
-          status: t.status,
-          createdAt: t.created_at,
-        }));
-        setPayments(normalized);
+        const [walletRes, renewalRes] = await Promise.all([
+          fetch('/api/payments?renewal=false'),
+          fetch('/api/payments?renewal=true'),
+        ]);
+        const walletData = await walletRes.json();
+        const renewalData = await renewalRes.json();
+        if (!walletRes.ok) throw new Error(walletData.error || 'Failed to load wallet');
+        if (!renewalRes.ok) throw new Error(renewalData.error || 'Failed to load renewals');
+        const wallet: Payment[] = (walletData.payments ?? []) as Payment[];
+        const renewals: Payment[] = (renewalData.payments ?? []) as Payment[];
+        setPayments([...wallet, ...renewals]);
         setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Unknown error');
@@ -67,16 +58,16 @@ const PaymentsPage = () => {
         setLoading(false);
       }
     };
-    fetchPayments();
+    fetchAll();
   }, []);
 
   const stats = useMemo(() => {
     const totalLocal = payments.length;
-    const pendingLocal = payments.filter(p => p.status === 'pending').length;
-    const approvedLocal = payments.filter(p => p.status === 'completed').length;
-    const renewalsLocal = payments.filter((p: any) => (p as any).transaction_type === 'charge').length;
+    const approvedLocal = payments.filter(p => p.status === 'completed' || p.status === 'approved' || p.status === 'renewal_approved').length;
+    const pendingLocal = payments.filter(p => p.status === 'pending' || p.status === 'in-process' || p.status === 'in_process' || p.status === 'renewal_pending').length;
+    const renewalsLocal = payments.filter(p => p.status?.startsWith('renewal_')).length;
     const amountCollectedLocal = payments
-      .filter(p => p.status === 'completed')
+      .filter(p => p.status === 'completed' || p.status === 'approved' || p.status === 'renewal_approved')
       .reduce((sum, p) => sum + (p.payable || 0), 0);
     return { total: totalLocal, pending: pendingLocal, approved: approvedLocal, renewals: renewalsLocal, totalAmountCollected: amountCollectedLocal };
   }, [payments]);
@@ -137,11 +128,11 @@ const PaymentsPage = () => {
       <h1 className="text-3xl font-bold">Payments Dashboard</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Transactions</p><p className="text-2xl font-bold">{stats.total}</p></div>
-        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Approved</p><p className="text-2xl font-bold">{stats.approved}</p></div>
-        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Pending</p><p className="text-2xl font-bold">{stats.pending}</p></div>
-        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Renewals</p><p className="text-2xl font-bold">{stats.renewals}</p></div>
-        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow"><p className="text-sm">Total Amount Collected</p><p className="text-2xl font-bold">${stats.totalAmountCollected.toFixed(2)}</p></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow flex items-center gap-3"><FaMoneyBillWave className="text-blue-500 text-2xl" /><div><p className="text-sm">Total Transactions</p><p className="text-2xl font-bold">{stats.total}</p></div></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow flex items-center gap-3"><span className="text-green-500 text-2xl">✔</span><div><p className="text-sm">Total Approved</p><p className="text-2xl font-bold">{stats.approved}</p></div></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow flex items-center gap-3"><span className="text-yellow-500 text-2xl">⏳</span><div><p className="text-sm">Total Pending</p><p className="text-2xl font-bold">{stats.pending}</p></div></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow flex items-center gap-3"><span className="text-purple-500 text-2xl">↻</span><div><p className="text-sm">Total Renewals</p><p className="text-2xl font-bold">{stats.renewals}</p></div></div>
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow flex items-center gap-3"><span className="text-green-600 text-2xl">$</span><div><p className="text-sm">Total Revenue</p><p className="text-2xl font-bold">${stats.totalAmountCollected.toFixed(2)}</p></div></div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -161,7 +152,7 @@ const PaymentsPage = () => {
           </div>
         </div>
         <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
-          <h2 className="text-lg font-semibold mb-3">Payment Method Breakdown</h2>
+          <h2 className="text-lg font-semibold mb-3">Payment Method Breakdown (3D Pie)</h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -216,7 +207,7 @@ const PaymentsPage = () => {
               </tr>
             </thead>
             <tbody>
-              {payments.slice(0, 10).map(p => (
+              {payments.slice(0, 15).map(p => (
                 <tr key={p.id} className="border-b">
                   <td className="p-2">{p.userId}</td>
                   <td className="p-2">{p.txId}</td>

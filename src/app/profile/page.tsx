@@ -16,6 +16,7 @@ function ProfilePageContent() {
     walletBalance: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [notifications, setNotifications] = useState<Array<{ id: string; message: string; createdAt?: string }>>([]);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -40,6 +41,34 @@ function ProfilePageContent() {
     if (session) {
       fetchUserData();
     }
+  }, [session]);
+
+  useEffect(() => {
+    const loadNotifications = async () => {
+      if (!session?.user?.id) return;
+      try {
+        const [walletRes, renewalRes] = await Promise.all([
+          fetch('/api/payments?renewal=false'),
+          fetch('/api/payments?renewal=true'),
+        ]);
+        const walletData = await walletRes.json();
+        const renewalData = await renewalRes.json();
+        const wallet = (walletData.payments ?? []).filter((p: any) => p.userId === session.user.id);
+        const renewals = (renewalData.payments ?? []).filter((p: any) => p.userId === session.user.id);
+        const combined = [...wallet, ...renewals]
+          .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+          .slice(0, 10)
+          .map((p: any) => ({
+            id: p.id,
+            message: `Payment/Plan update: ${p.status} • ${p.strategyId || ''} ${p.plan || ''}`,
+            createdAt: p.createdAt,
+          }));
+        setNotifications(combined);
+      } catch (e) {
+        setNotifications([]);
+      }
+    };
+    loadNotifications();
   }, [session]);
 
   if (isLoading) {
@@ -131,6 +160,22 @@ function ProfilePageContent() {
               </Button>
             </Link>
           </div>
+        </div>
+
+        <div className="bg-[#161d31] rounded-lg p-6 fx-3d-card mt-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Notifications</h3>
+          {notifications.length === 0 ? (
+            <p className="text-gray-400">No recent updates</p>
+          ) : (
+            <ul className="space-y-2">
+              {notifications.map(n => (
+                <li key={n.id} className="flex items-center justify-between bg-[#283046] p-3 rounded-md">
+                  <span className="text-white text-sm">{n.message}</span>
+                  <span className="text-gray-400 text-xs">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

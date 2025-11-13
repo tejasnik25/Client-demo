@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 import { getAllUsers, getAllTransactions, getAllStrategies } from '@/db/dbService';
+import { db } from '@/db';
 
 export async function GET() {
   try {
@@ -30,6 +31,13 @@ export async function GET() {
 
     const strategiesTotal = strategies.length;
 
+    // Renewal payments from payments table
+    let totalRenewals = 0;
+    try {
+      const [pr] = await db.query('SELECT COUNT(*) AS cnt FROM payments WHERE status IN ("renewal_pending","renewal_approved")');
+      totalRenewals = Number((pr as any[])[0]?.cnt || 0);
+    } catch {}
+
     return NextResponse.json({
       users: {
         total: usersTotal,
@@ -43,6 +51,7 @@ export async function GET() {
         pending: paymentsPending,
         approved: paymentsApproved,
         rejected: paymentsRejected,
+        renewals: totalRenewals,
       },
       revenue: {
         total: revenueTotal,

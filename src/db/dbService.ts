@@ -158,6 +158,7 @@ type WalletTransaction = {
   platform?: 'MT4' | 'MT5';
   mt_account_id?: string;
   mt_account_password?: string; // Stored as plain text per requirement
+  mt_account_server?: string;
   terms_accepted?: boolean;
   strategy_id?: string;
   plan_level?: 'Premium' | 'Expert' | 'Pro';
@@ -297,14 +298,15 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch (e) {}
     // Add INR/USDT columns for new payment flows
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN inr_amount DECIMAL(12,2)"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN inr_to_usd_rate DECIMAL(12,6)"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_network ENUM('ERC20','TRC20')"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN capital DECIMAL(12,2)"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
-    try { await pool.execute("ALTER TABLE wallet_transactions MODIFY COLUMN status ENUM('pending','in-process','completed','failed') DEFAULT 'pending'"); } catch (e) {}
-    // Ensure running_strategies exists
+  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN inr_to_usd_rate DECIMAL(12,6)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_network ENUM('ERC20','TRC20')"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_server VARCHAR(255)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN capital DECIMAL(12,2)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE wallet_transactions MODIFY COLUMN status ENUM('pending','in-process','completed','failed') DEFAULT 'pending'"); } catch (e) {}
+  // Ensure running_strategies exists
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS running_strategies (
         id VARCHAR(255) PRIMARY KEY,
@@ -313,6 +315,7 @@ const initializeDatabase = async () => {
         plan ENUM('Pro','Expert','Premium'),
         capital DECIMAL(14,2),
         status ENUM('in-process','active','stopped') DEFAULT 'in-process',
+        admin_status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running') DEFAULT 'in-process',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -320,6 +323,7 @@ const initializeDatabase = async () => {
         UNIQUE KEY uniq_user_strategy (user_id, strategy_id)
       )
     `);
+  try { await pool.execute("ALTER TABLE running_strategies ADD COLUMN admin_status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running') DEFAULT 'in-process'"); } catch (e) {}
   // Add strategy columns if missing
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_type VARCHAR(16)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_url VARCHAR(500)"); } catch (e) {}
@@ -1063,6 +1067,7 @@ export const createWalletTransaction = async (transactionData: {
   platform?: 'MT4' | 'MT5';
   mt_account_id?: string;
   mt_account_password?: string; // Stored as plain text per requirement
+  mt_account_server?: string;
   terms_accepted?: boolean;
   strategy_id?: string;
   plan_level?: 'Premium' | 'Expert' | 'Pro';
@@ -1080,8 +1085,8 @@ export const createWalletTransaction = async (transactionData: {
     await ensureUserExistsInMySQL(transactionData.user_id, transactionData.user_name, transactionData.user_email);
     
     await pool.execute(
-      `INSERT INTO wallet_transactions (id, user_id, amount, capital, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, terms_accepted, strategy_id, plan_level, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO wallet_transactions (id, user_id, amount, capital, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, mt_account_server, terms_accepted, strategy_id, plan_level, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         transactionData.user_id,
@@ -1094,6 +1099,7 @@ export const createWalletTransaction = async (transactionData: {
         transactionData.platform || null,
         transactionData.mt_account_id || null,
         transactionData.mt_account_password || null,
+        transactionData.mt_account_server || null,
         transactionData.terms_accepted ?? false,
         transactionData.strategy_id || null,
         transactionData.plan_level || null,
@@ -1126,6 +1132,7 @@ export const createWalletTransaction = async (transactionData: {
         platform: transactionData.platform,
         mt_account_id: transactionData.mt_account_id,
         mt_account_password: transactionData.mt_account_password,
+        mt_account_server: transactionData.mt_account_server,
         terms_accepted: transactionData.terms_accepted ?? false,
         strategy_id: transactionData.strategy_id,
         plan_level: transactionData.plan_level,
@@ -1692,17 +1699,29 @@ export const getRunningStrategiesAdmin = async (): Promise<
     plan: 'Pro' | 'Expert' | 'Premium';
     capital: number;
     status: 'in-process' | 'active' | 'stopped';
+    adminStatus: 'in-process' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' | 'running';
+    platform?: 'MT4' | 'MT5' | null;
+    mtAccountId?: string | null;
+    mtAccountPassword?: string | null;
+    mtAccountServer?: string | null;
     createdAt: string;
   }>
 > => {
   try {
     const [rows] = await pool.execute(
       `SELECT rs.id, rs.user_id AS userId, u.name AS userName, u.email AS userEmail,
-              rs.strategy_id AS strategyId, s.name AS strategyName, rs.plan, rs.capital, rs.status,
+              rs.strategy_id AS strategyId, s.name AS strategyName, rs.plan, rs.capital, rs.status, rs.admin_status AS adminStatus,
+              wt.platform AS platform, wt.mt_account_id AS mtAccountId, wt.mt_account_password AS mtAccountPassword, wt.mt_account_server AS mtAccountServer,
               DATE_FORMAT(rs.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
        FROM running_strategies rs
        JOIN users u ON u.id = rs.user_id
        JOIN strategies s ON s.id = rs.strategy_id
+       LEFT JOIN wallet_transactions wt
+         ON wt.user_id = rs.user_id AND wt.strategy_id = rs.strategy_id
+         AND wt.created_at = (
+           SELECT MAX(created_at) FROM wallet_transactions w2
+           WHERE w2.user_id = rs.user_id AND w2.strategy_id = rs.strategy_id
+         )
        WHERE rs.status IN ('in-process','active')
        ORDER BY rs.created_at DESC`
     );
@@ -1717,10 +1736,39 @@ export const getRunningStrategiesAdmin = async (): Promise<
       plan: r.plan,
       capital: Number(r.capital),
       status: r.status,
+      adminStatus: r.adminStatus,
+      platform: r.platform ?? null,
+      mtAccountId: r.mtAccountId ?? null,
+      mtAccountPassword: r.mtAccountPassword ?? null,
+      mtAccountServer: r.mtAccountServer ?? null,
       createdAt: r.createdAt,
     }));
   } catch (error) {
     console.error('getRunningStrategiesAdmin failed:', error);
     return [];
+  }
+};
+
+export const updateRunningStrategyAdminStatus = async (
+  id: string,
+  status: 'in-process' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' | 'running'
+) => {
+  try {
+    await pool.execute('UPDATE running_strategies SET admin_status = ? WHERE id = ?', [status, id]);
+    return { success: true };
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const idx = runs.findIndex((r: any) => r.id === id);
+      if (idx !== -1) {
+        runs[idx].admin_status = status;
+        writeDatabase({ ...db, running_strategies: runs });
+        return { success: true };
+      }
+      return { success: false };
+    } catch (e) {
+      return { success: false };
+    }
   }
 };
