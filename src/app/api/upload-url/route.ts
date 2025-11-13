@@ -12,7 +12,7 @@ const hasS3Config = Boolean(
   process.env.AWS_REGION &&
   process.env.AWS_ACCESS_KEY_ID &&
   process.env.AWS_SECRET_ACCESS_KEY &&
-  process.env.NEXT_PUBLIC_AWS_S3_BUCKET
+  (process.env.NEXT_PUBLIC_AWS_S3_BUCKET || process.env.AWS_S3_BUCKET)
 );
 
 const s3Client = hasS3Config
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     const publicRead = process.env.S3_PUBLIC_READ === 'true';
 
     const command = new PutObjectCommand({
-      Bucket: process.env.NEXT_PUBLIC_AWS_S3_BUCKET as string,
+      Bucket: (process.env.NEXT_PUBLIC_AWS_S3_BUCKET || process.env.AWS_S3_BUCKET) as string,
       Key: key,
       ContentType: fileType,
       ...(publicRead ? { ACL: 'public-read' as const } : {}),

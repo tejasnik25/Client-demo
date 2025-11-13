@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
-import { getPendingOrInProcessTransactions, getUserById } from '@/db/dbService';
+import { getPendingOrInProcessTransactions, getUserById, getStrategyById } from '@/db/dbService';
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,10 +18,11 @@ export async function GET(request: NextRequest) {
     // Get only pending or in-process transactions for admin review
     const allTransactions = await getPendingOrInProcessTransactions();
 
-    // Hydrate with user info and include MT details
+    // Hydrate with user and strategy info and include MT details
     const transactions = await Promise.all(
       allTransactions.map(async (transaction) => {
         const user = transaction.user_id ? await getUserById(transaction.user_id) : null;
+        const strategy = transaction.strategy_id ? await getStrategyById(transaction.strategy_id) : null;
         return {
           id: transaction.id,
           user_id: transaction.user_id,
@@ -34,10 +35,14 @@ export async function GET(request: NextRequest) {
           mt_account_id: transaction.mt_account_id,
           mt_account_password: transaction.mt_account_password,
           terms_accepted: transaction.terms_accepted,
+          strategy_id: transaction.strategy_id,
+          plan_level: transaction.plan_level,
+          capital: (transaction as any).capital ?? transaction.amount,
           status: transaction.status,
           created_at: transaction.created_at,
           updated_at: transaction.updated_at,
           user: user ? { name: user.name, email: user.email } : undefined,
+          strategy: strategy ? { id: strategy.id, name: strategy.name } : undefined,
         };
       })
     );

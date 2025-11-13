@@ -14,7 +14,9 @@ import '../../../../styles/themes.css';
 type Payment = {
   id: string;
   userId: string;
+  userName?: string;
   strategyId: string;
+  strategyName?: string;
   plan: string;
   capital: number;
   payable: number;
@@ -51,9 +53,11 @@ const PaymentsPendingPage = () => {
       setPayments(items.map((t: any) => ({
         id: t.id,
         userId: t.user_id,
+        userName: t.user?.name,
         strategyId: t.strategy_id,
+        strategyName: t.strategy?.name,
         plan: t.plan_level || t.plan,
-        capital: t.capital,
+        capital: t.capital ?? t.amount ?? 0,
         payable: t.amount,
         method: t.payment_method,
         txId: t.transaction_id,
@@ -142,23 +146,20 @@ const PaymentsPendingPage = () => {
               <th className="p-2">Paid Amount</th>
               <th className="p-2">Payment Method</th>
               <th className="p-2">Proof</th>
-              <th className="p-2">Approved On</th>
-              <th className="p-2">Expiry Date</th>
-              <th className="p-2">Verified By</th>
               <th className="p-2">Actions</th>
             </tr>
           </thead>
           <tbody>
             {pending.length === 0 ? (
               <tr>
-                <td colSpan={13} className="p-4 text-center text-gray-500">No pending payments</td>
+                <td colSpan={10} className="p-4 text-center text-gray-500">No pending payments</td>
               </tr>
             ) : pending.map(p => (
               <tr key={p.id} className="border-b">
                 <td className="p-2">{p.userId}</td>
                 <td className="p-2">{p.txId}</td>
-                <td className="p-2">{/* Name if available elsewhere */}-</td>
-                <td className="p-2">{p.strategyId}</td>
+                <td className="p-2">{p.userName ?? '-'}</td>
+                <td className="p-2">{p.strategyName ?? '-'}</td>
                 <td className="p-2">{p.plan}</td>
                 <td className="p-2">{p.capital}</td>
                 <td className="p-2">{p.payable}</td>
@@ -168,9 +169,6 @@ const PaymentsPendingPage = () => {
                     <a href={p.proofUrl} target="_blank" rel="noreferrer" className="text-blue-600">View</a>
                   ) : '-'}
                 </td>
-                <td className="p-2">{p.approvedAt ? new Date(p.approvedAt).toLocaleString() : '-'}</td>
-                <td className="p-2">{p.expiresAt ? new Date(p.expiresAt).toLocaleDateString() : '-'}</td>
-                <td className="p-2">{p.verifiedBy ?? '-'}</td>
                 <td className="p-2 space-x-2">
                   <button onClick={() => updateStatus(p.id, 'approved')} className="px-3 py-1 rounded bg-green-600 text-white">Approve</button>
                   <button onClick={() => updateStatus(p.id, 'rejected')} className="px-3 py-1 rounded bg-red-600 text-white">Reject</button>

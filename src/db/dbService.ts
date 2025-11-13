@@ -150,6 +150,7 @@ type WalletTransaction = {
   id: string;
   user_id: string;
   amount: number;
+  capital?: number;
   transaction_type: 'deposit' | 'charge';
   payment_method?: string;
   transaction_id?: string;
@@ -299,6 +300,7 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN inr_to_usd_rate DECIMAL(12,6)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_network ENUM('ERC20','TRC20')"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN capital DECIMAL(12,2)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions MODIFY COLUMN status ENUM('pending','in-process','completed','failed') DEFAULT 'pending'"); } catch (e) {}
@@ -1053,6 +1055,7 @@ export const createWalletTransaction = async (transactionData: {
   user_name?: string;
   user_email?: string;
   amount: number;
+  capital?: number;
   transaction_type: 'deposit' | 'charge';
   payment_method?: string;
   transaction_id?: string;
@@ -1077,12 +1080,13 @@ export const createWalletTransaction = async (transactionData: {
     await ensureUserExistsInMySQL(transactionData.user_id, transactionData.user_name, transactionData.user_email);
     
     await pool.execute(
-      `INSERT INTO wallet_transactions (id, user_id, amount, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, terms_accepted, strategy_id, plan_level, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO wallet_transactions (id, user_id, amount, capital, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, terms_accepted, strategy_id, plan_level, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         transactionData.user_id,
         transactionData.amount,
+        transactionData.capital ?? null,
         transactionData.transaction_type,
         transactionData.payment_method || null,
         transactionData.transaction_id || null,
@@ -1114,6 +1118,7 @@ export const createWalletTransaction = async (transactionData: {
         id,
         user_id: transactionData.user_id,
         amount: transactionData.amount,
+        capital: transactionData.capital ?? undefined as any,
         transaction_type: transactionData.transaction_type,
         payment_method: transactionData.payment_method,
         transaction_id: transactionData.transaction_id,

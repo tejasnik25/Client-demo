@@ -11,7 +11,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { strategyId, plan, payable, method, mt4mt5, usdToInrRate } = body;
+    const { strategyId, plan, payable, method, mt4mt5, usdToInrRate, capital } = body;
 
     const { createWalletTransaction } = await import('@/db/dbService');
 
@@ -36,6 +36,8 @@ export async function POST(req: Request) {
       user_name: session.user.name ?? undefined,
       user_email: session.user.email ?? undefined,
       amount: payable,
+      // store entered account capital when available
+      capital: typeof capital === 'number' ? capital : undefined,
       transaction_type: 'deposit',
       payment_method: method,
       platform: mt4mt5?.type,
