@@ -8,10 +8,14 @@ import Image from 'next/image';
 import Button from '@/components/ui/Button';
 import Tabs, { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { FiSettings } from 'react-icons/fi';
 import UserLayout from '@/components/UserLayout';
 import { FiInfo, FiPlay, FiX } from 'react-icons/fi';
 import { Strategy } from "@/types/strategy";
 import { useAuth } from '@/hooks/use-auth';
+import Badge from '@/components/ui/Badge';
+import { useSearchParams } from 'next/navigation';
+import { Label } from '@/components/ui/label';
 
 const StrategiesPage: React.FC = () => {
   const { data: session } = useSession();
@@ -23,17 +27,26 @@ const StrategiesPage: React.FC = () => {
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'Premium' | 'Expert' | 'Pro' | null>(null);
   const [activeTab, setActiveTab] = useState('all');
-  const [topTab, setTopTab] = useState<'explore' | 'deployed'>('explore');
+  const searchParams = useSearchParams();
+  const initialTop = (searchParams.get('view') === 'deployed') ? 'deployed' : 'explore';
+  const [topTab, setTopTab] = useState<'explore' | 'deployed'>(initialTop);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<any[]>([]);
   const [loadingRunning, setLoadingRunning] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsItem, setSettingsItem] = useState<any | null>(null);
+  const [mtType, setMtType] = useState<'MT4' | 'MT5' | ''>('');
+  const [mtId, setMtId] = useState('');
+  const [mtPwd, setMtPwd] = useState('');
+  const [mtServer, setMtServer] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const fetchStrategies = async () => {
       try {
         setLoading(true);
-        const res = await fetch('/api/strategies');
+        const res = await fetch('/api/strategies', { cache: 'no-store' });
         if (!res.ok) throw new Error();
         const data = await res.json();
         const enabled = (data.strategies || []).filter((s: Strategy) => s.enabled !== false);
@@ -52,7 +65,7 @@ const StrategiesPage: React.FC = () => {
     const fetchRunning = async () => {
       try {
         setLoadingRunning(true);
-        const res = await fetch('/api/strategies/running');
+        const res = await fetch('/api/strategies/running', { cache: 'no-store' });
         const data = await res.json();
         setRunning(data?.strategies || []);
       } catch {
@@ -74,6 +87,55 @@ const StrategiesPage: React.FC = () => {
     if (!user) return [] as any[];
     return running;
   }, [running, user]);
+
+  const renderAdminStatusBadge = (s: string) => {
+    const k = (s || '').toLowerCase();
+    if (k === 'running') return <Badge variant="success">Running</Badge>;
+    if (k === 'in-process') return <Badge variant="warning">In-Process</Badge>;
+    if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
+    if (k === 'wrong-account-id') return <Badge variant="destructive">Wrong-Account Id</Badge>;
+    if (k === 'wrong-account-server-name') return <Badge variant="destructive">Wrong-Account Server Name</Badge>;
+    return <Badge variant="outline">{s || 'in-process'}</Badge>;
+  };
+
+  const openSettings = (r: any) => {
+    setSettingsItem(r);
+    setMtType((r.platform as any) || '');
+    setMtId((r.mtAccountId as any) || '');
+    setMtPwd((r.mtAccountPassword as any) || '');
+    setMtServer((r.mtAccountServer as any) || '');
+    setSettingsOpen(true);
+  };
+
+  const submitSettings = async () => {
+    if (!settingsItem) return;
+    try {
+      setSaving(true);
+      const body: any = {};
+      const adminStatus = (settingsItem.adminStatus || settingsItem.status || '').toLowerCase();
+      if (adminStatus === 'running') {
+        body.mt_account_password = mtPwd;
+      } else {
+        body.platform = mtType || undefined;
+        body.mt_account_id = mtId || undefined;
+        body.mt_account_password = mtPwd || undefined;
+        body.mt_account_server = mtServer || undefined;
+      }
+      const res = await fetch(`/api/running-strategies/${(settingsItem as any).rsId || settingsItem.id}/modification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('Failed to submit update');
+      setSettingsOpen(false);
+      const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
+      const runData = await runRes.json();
+      setRunning(runData?.strategies || []);
+    } catch (e) {
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleViewInfo = (s: Strategy) => {
     if (!session || (session.user as any)?.role !== 'USER') {
@@ -235,7 +297,10 @@ const StrategiesPage: React.FC = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <h4 className="text-lg font-semibold">{s.name}</h4>
-                            <span className="text-xs text-gray-500">Status: in-process</span>
+                            {renderAdminStatusBadge(((r as any).adminStatus || (r as any).status || 'in-process') as string)}
+                            <button className="ml-auto text-gray-400 hover:text-white" title="Settings" onClick={() => openSettings(r)}>
+                              <FiSettings />
+                            </button>
                           </div>
                           <div className="flex gap-2 mt-2">
                             {s.tag && (
@@ -258,45 +323,11 @@ const StrategiesPage: React.FC = () => {
                           <p className="mt-2 text-sm text-gray-400">{s.description}</p>
                         </div>
                       </div>
-                      <div className="flex gap-8 text-sm">
-                        {/* Display new metrics if available, otherwise fallback to deprecated ones */}
-                        {s.minCapital !== undefined ? (
-                          <div>
-                            <div className="text-gray-500">Min Capital</div>
-                            <div className="font-bold text-white">₹{s.minCapital.toLocaleString()}</div>
-                          </div>
-                        ) : s.performance !== undefined ? (
-                          <div>
-                            <div className="text-gray-500">Performance</div>
-                            <div className="font-bold text-white">{s.performance}%</div>
-                          </div>
-                        ) : null}
-                        
-                        {s.avgDrawdown !== undefined ? (
-                          <div>
-                            <div className="text-gray-500">Avg Drawdown</div>
-                            <div className="font-bold text-white">{s.avgDrawdown}%</div>
-                          </div>
-                        ) : s.riskLevel ? (
-                          <div>
-                            <div className="text-gray-500">Risk Level</div>
-                            <div className="font-bold text-white">{s.riskLevel}</div>
-                          </div>
-                        ) : null}
-                        
-                        {s.riskReward !== undefined && (
-                          <div>
-                            <div className="text-gray-500">Risk Reward</div>
-                            <div className="font-bold text-white">{s.riskReward}</div>
-                          </div>
-                        )}
-                        
-                        {s.winStreak !== undefined && (
-                          <div>
-                            <div className="text-gray-500">Win Streak</div>
-                            <div className="font-bold text-white">{s.winStreak}</div>
-                          </div>
-                        )}
+                      <div className="flex gap-8 text-sm justify-center items-center w-full md:w-auto">
+                        <div>
+                          <div className="text-gray-500 text-center">Status</div>
+                          <div className="mt-2 flex justify-center">{renderAdminStatusBadge(((r as any).adminStatus || (r as any).status || 'in-process') as string)}</div>
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 gap-3 w-full md:w-auto md:flex md:gap-3">
                         <Button
@@ -552,6 +583,70 @@ const StrategiesPage: React.FC = () => {
               </button>
             </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* Settings Dialog for Deployed Strategies */}
+      <Dialog open={settingsOpen} onOpenChange={(o) => setSettingsOpen(o)}>
+        <DialogContent className="max-w-lg bg-[#161d31] text-white border-[#283046]">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Strategy Settings</DialogTitle>
+            <DialogDescription className="text-gray-400">Update your MT4/MT5 account details</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="mtType">MT Type</Label>
+                <select
+                  id="mtType"
+                  className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
+                  value={mtType}
+                  onChange={(e) => setMtType(e.target.value as any)}
+                  disabled={(settingsItem?.adminStatus || settingsItem?.status || '').toLowerCase() === 'running'}
+                >
+                  <option value="">Select Platform</option>
+                  <option value="MT4">MT4</option>
+                  <option value="MT5">MT5</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mtId">Account ID</Label>
+                <input
+                  id="mtId"
+                  className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
+                  placeholder="Account ID"
+                  value={mtId}
+                  onChange={(e) => setMtId(e.target.value)}
+                  disabled={(settingsItem?.adminStatus || settingsItem?.status || '').toLowerCase() === 'running'}
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mtPwd">Account Password</Label>
+              <input
+                id="mtPwd"
+                className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
+                placeholder="Account Password"
+                value={mtPwd}
+                onChange={(e) => setMtPwd(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mtServer">Server Name</Label>
+              <input
+                id="mtServer"
+                className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
+                placeholder="Server Name"
+                value={mtServer}
+                onChange={(e) => setMtServer(e.target.value)}
+                disabled={(settingsItem?.adminStatus || settingsItem?.status || '').toLowerCase() === 'running'}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={submitSettings} disabled={saving} className="bg-[#7367f0] hover:bg-[#5e50ee]">
+              {saving ? 'Saving...' : 'Submit' }
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

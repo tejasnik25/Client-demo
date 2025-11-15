@@ -13,7 +13,7 @@ import  Button  from '@/components/ui/Button';
 import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
 import MobileBottomNav from '@/components/ui/MobileBottomNav';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { FiHome, FiTrendingUp, FiDollarSign, FiUser, FiLogOut, FiCreditCard, FiActivity, FiGrid, FiSettings, FiShare2, FiPieChart, FiMenu, FiArrowLeft } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiDollarSign, FiUser, FiLogOut, FiCreditCard, FiActivity, FiGrid, FiSettings, FiShare2, FiPieChart, FiMenu, FiArrowLeft, FiBell } from 'react-icons/fi';
 import MobileHamburgerMenu from '@/components/ui/MobileHamburgerMenu';
 
 interface UserLayoutProps {
@@ -27,6 +27,9 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
   const isMobile = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifCount, setNotifCount] = useState(0);
+  const [notifList, setNotifList] = useState<Array<{ id: string; message: string; createdAt?: string }>>([]);
 
   // ── Auth redirect ─────────────────────────────────────
   useEffect(() => {
@@ -64,7 +67,49 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
     }
   }, [session?.user?.id, status, router]);
 
-  // ── Loading ───────────────────────────────────────────
+  useEffect(() => {
+    let timer: any;
+    const loadUserNotifications = async () => {
+      if (!session?.user?.id) return;
+      try {
+        const [txRes, runRes] = await Promise.all([
+          fetch('/api/wallet/transactions', { cache: 'no-store' }),
+          fetch('/api/strategies/running', { cache: 'no-store' }),
+        ]);
+        const txData = await txRes.json().catch(() => ({}));
+        const runData = await runRes.json().catch(() => ({}));
+        const txList: any[] = txData?.transactions || [];
+        const myTx = txList.filter(t => t.user_id === session.user.id);
+        const txMessages = myTx
+          .filter(t => typeof t.admin_message === 'string' && t.admin_message.trim().length > 0)
+          .map(m => ({ id: `tx-${m.id}`, message: `${m.admin_message} ${m.admin_message_status ? `(${m.admin_message_status})` : ''}`, createdAt: m.updated_at || m.created_at }));
+
+        const runList: any[] = runData?.strategies || [];
+        const runMessages = runList
+          .filter(r => typeof (r as any).adminStatus === 'string' && (r as any).adminStatus.trim().length > 0)
+          .map(r => {
+            const s = ((r as any).adminStatus as string).toLowerCase();
+            const label = s === 'running' ? 'Marked running' : s === 'in-process' ? 'Processing started' : s.startsWith('wrong-account') ? 'Wrong account details' : s;
+            return { id: `run-${(r as any).id}`, message: `Strategy ${(r as any).name}: ${label}`, createdAt: (r as any).updatedAt };
+          });
+
+        const all = [...txMessages, ...runMessages]
+          .filter(m => m.message && m.message.trim().length > 0)
+          .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+          .slice(0, 10);
+
+        setNotifCount(all.length);
+        setNotifList(all);
+      } catch {
+        setNotifCount(0);
+        setNotifList([]);
+      }
+    };
+    loadUserNotifications();
+    timer = setInterval(loadUserNotifications, 10000);
+    return () => timer && clearInterval(timer);
+  }, [session?.user?.id]);
+
   if (status === 'loading' || status === 'unauthenticated') {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -83,6 +128,7 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
       router.push('/');
     }
   };
+
 
   const navigationItems = [
     { id: 'dashboard', icon: <FiHome className="h-5 w-5" />, label: 'Dashboard', path: '/dashboard' },
@@ -181,6 +227,38 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
                 <span className="fx-3d-icon"><FiArrowLeft className="h-4 w-4" /></span>
               </Button>
             )}
+
+            {/* Notifications */}
+            <div className="relative">
+              <button
+                className="fx-3d-card px-2 py-1 h-8 w-8 flex items-center justify-center border border-[#1b2e4b]"
+                aria-label="Notifications"
+                title="Notifications"
+                onClick={() => setNotifOpen(v => !v)}
+              >
+                <span className="fx-3d-icon"><FiBell className="h-4 w-4" /></span>
+                {notifCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">
+                    {notifCount > 9 ? '9+' : notifCount}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <div className="fixed right-4 top-12 md:top-14 w-80 bg-[#161d31] border border-[#283046] rounded-xl shadow-lg z-[9999]">
+                  <div className="p-3 border-b border-[#283046] text-sm font-semibold">Notifications</div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {notifList.length === 0 ? (
+                      <div className="p-3 text-xs text-gray-400">No new notifications</div>
+                    ) : notifList.map(n => (
+                      <div key={n.id} className="p-3 text-xs border-b border-[#283046]">
+                        <div className="text-gray-300">{n.message}</div>
+                        <div className="text-[10px] text-gray-500 mt-1">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {isMobile && (
               <Button

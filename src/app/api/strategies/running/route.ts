@@ -31,12 +31,24 @@ export async function GET() {
     // Approved transactions for this user that reference a strategy
     const running = runningRows
       .map((r: any) => {
-        // Join to enabled strategy for display
         const s = Array.isArray(strategies) ? strategies.find((st: any) => st.name === r.strategyName) : null;
         const id = s?.id;
         const name = r.strategyName || s?.name;
         if (!name) return null;
-        return { id: id || r.id, name, orders: [], profit: 0 };
+        return {
+          id: id || r.id,
+          rsId: r.id,
+          name,
+          orders: [],
+          profit: 0,
+          adminStatus: r.adminStatus,
+          status: r.status,
+          updatedAt: r.updatedAt,
+          platform: r.platform ?? null,
+          mtAccountId: r.mtAccountId ?? null,
+          mtAccountPassword: r.mtAccountPassword ?? null,
+          mtAccountServer: r.mtAccountServer ?? null,
+        };
       })
       .filter(Boolean);
 

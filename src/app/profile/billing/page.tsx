@@ -12,11 +12,13 @@ type Tx = {
   transaction_type: 'deposit' | 'charge';
   payment_method?: string;
   transaction_id?: string;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'in-process' | 'in_process' | 'completed' | 'failed';
   inr_amount?: number;
   plan_level?: 'Premium' | 'Expert' | 'Pro';
   strategy_id?: string;
   rejection_reason?: string;
+  admin_message?: string;
+  admin_message_status?: 'pending' | 'sent' | 'resolved';
   created_at: string;
 };
 
@@ -30,7 +32,7 @@ const BillingPage: React.FC = () => {
     const load = async () => {
       try {
         setLoading(true);
-        const res = await fetch('/api/wallet/transactions');
+        const res = await fetch('/api/wallet/transactions', { cache: 'no-store' });
         const data = await res.json();
         const list: Tx[] = data?.transactions || [];
         setTxs(list);
@@ -51,7 +53,7 @@ const BillingPage: React.FC = () => {
       case 'rejected':
         return mine.filter(t => t.status === 'failed');
       case 'pending':
-        return mine.filter(t => t.status === 'pending');
+        return mine.filter(t => t.status === 'pending' || t.status === 'in-process' || t.status === 'in_process');
       default:
         return mine;
     }
@@ -108,9 +110,12 @@ const BillingPage: React.FC = () => {
                 <div>
                   {tx.status === 'completed' && <span className="text-[#28c76f]">Successful</span>}
                   {tx.status === 'failed' && <span className="text-red-400">Rejected</span>}
-                  {tx.status === 'pending' && <span className="text-yellow-300">Pending</span>}
-                  {tx.status === 'failed' && tx.rejection_reason && (
+                  {(tx.status === 'pending' || tx.status === 'in-process' || tx.status === 'in_process') && <span className="text-yellow-300">Pending</span>}
+                  {tx.rejection_reason && (
                     <div className="text-xs text-gray-400 mt-1">Reason: {tx.rejection_reason}</div>
+                  )}
+                  {tx.admin_message && (
+                    <div className="text-xs text-gray-400 mt-1">Message: {tx.admin_message} {tx.admin_message_status ? `(${tx.admin_message_status})` : ''}</div>
                   )}
                 </div>
                 <div className="capitalize">{tx.transaction_type}</div>
@@ -125,6 +130,12 @@ const BillingPage: React.FC = () => {
                       Retry Payment
                     </Link>
                   )}
+                  <Link
+                    href={`/contact?tx=${encodeURIComponent(tx.id)}`}
+                    className="px-3 py-1.5 rounded-lg border border-[#283046] bg-[#1a1f2e] hover:bg-[#1f243a]"
+                  >
+                    Contact Us
+                  </Link>
                 </div>
               </div>
             ))

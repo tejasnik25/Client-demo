@@ -47,22 +47,25 @@ function ProfilePageContent() {
     const loadNotifications = async () => {
       if (!session?.user?.id) return;
       try {
-        const [walletRes, renewalRes] = await Promise.all([
-          fetch('/api/payments?renewal=false'),
-          fetch('/api/payments?renewal=true'),
-        ]);
+        // Wallet transactions for admin messages
+        const walletRes = await fetch('/api/wallet/transactions', { cache: 'no-store' });
         const walletData = await walletRes.json();
+        const wallet = (walletData.transactions ?? []).filter((t: any) => t.user_id === session.user.id);
+        const adminMsgs = wallet
+          .filter((t: any) => typeof t.admin_message === 'string' && t.admin_message.trim().length > 0)
+          .map((t: any) => ({ id: t.id, message: `Admin: ${t.admin_message} ${t.admin_message_status ? `(${t.admin_message_status})` : ''}`, createdAt: t.updated_at || t.created_at }));
+
+        // Renewal info from payments table (legacy)
+        const [renewalRes] = await Promise.all([
+          fetch('/api/payments?renewal=true')
+        ]);
         const renewalData = await renewalRes.json();
-        const wallet = (walletData.payments ?? []).filter((p: any) => p.userId === session.user.id);
-        const renewals = (renewalData.payments ?? []).filter((p: any) => p.userId === session.user.id);
-        const combined = [...wallet, ...renewals]
+        const renewals = (renewalData.payments ?? []).filter((p: any) => p.userId === session.user.id)
+          .map((p: any) => ({ id: p.id, message: `Renewal: ${p.status} • ${p.plan || ''}`, createdAt: p.createdAt }));
+
+        const combined = [...adminMsgs, ...renewals]
           .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-          .slice(0, 10)
-          .map((p: any) => ({
-            id: p.id,
-            message: `Payment/Plan update: ${p.status} • ${p.strategyId || ''} ${p.plan || ''}`,
-            createdAt: p.createdAt,
-          }));
+          .slice(0, 10);
         setNotifications(combined);
       } catch (e) {
         setNotifications([]);

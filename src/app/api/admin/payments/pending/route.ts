@@ -41,6 +41,8 @@ export async function GET(request: NextRequest) {
           status: transaction.status,
           created_at: transaction.created_at,
           updated_at: transaction.updated_at,
+          admin_message: (transaction as any).admin_message,
+          admin_message_status: (transaction as any).admin_message_status,
           user: user ? { name: user.name, email: user.email } : undefined,
           strategy: strategy ? { id: strategy.id, name: strategy.name } : undefined,
         };

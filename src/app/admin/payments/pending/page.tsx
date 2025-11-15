@@ -28,6 +28,8 @@ type Payment = {
   approvedAt?: string;
   expiresAt?: string;
   verifiedBy?: string;
+  admin_message?: string;
+  admin_message_status?: 'pending' | 'sent' | 'resolved';
 };
 
 const PaymentsPendingPage = () => {
@@ -40,7 +42,7 @@ const PaymentsPendingPage = () => {
   const load = async () => {
     try {
       // Use admin API that returns hydrated transactions
-      const res = await fetch('/api/admin/payments/pending');
+      const res = await fetch('/api/admin/payments/pending', { cache: 'no-store', credentials: 'include' });
       if (!res.ok) {
         // Gracefully handle API failure: keep table visible with no rows
         setPayments([]);
@@ -67,6 +69,8 @@ const PaymentsPendingPage = () => {
         approvedAt: undefined,
         expiresAt: undefined,
         verifiedBy: undefined,
+        admin_message: t.admin_message,
+        admin_message_status: t.admin_message_status,
       })));
       setError(null);
     } catch (e) {
@@ -97,6 +101,8 @@ const PaymentsPendingPage = () => {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
         body: status === 'rejected' ? JSON.stringify({ rejectionReason: reason || undefined }) : undefined,
       });
       if (!res.ok) throw new Error('Failed to update payment');
@@ -108,11 +114,12 @@ const PaymentsPendingPage = () => {
 
   const sendMessage = async (paymentId: string) => {
     try {
-      // For now, piggyback on reject endpoint with reason to notify user
-      const res = await fetch(`/api/admin/payments/${paymentId}/reject`, {
+      const res = await fetch(`/api/admin/payments/${paymentId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rejectionReason: reason || 'Additional information required' })
+        credentials: 'include',
+        cache: 'no-store',
+        body: JSON.stringify({ message: reason || 'Additional information required' })
       });
       if (!res.ok) throw new Error('Failed to send message');
       setMessageFor(null);
@@ -146,6 +153,7 @@ const PaymentsPendingPage = () => {
               <th className="p-2">Paid Amount</th>
               <th className="p-2">Payment Method</th>
               <th className="p-2">Proof</th>
+              <th className="p-2">Admin Message</th>
               <th className="p-2">Actions</th>
             </tr>
           </thead>
@@ -168,6 +176,16 @@ const PaymentsPendingPage = () => {
                   {p.proofUrl ? (
                     <a href={p.proofUrl} target="_blank" rel="noreferrer" className="text-blue-600">View</a>
                   ) : '-'}
+                </td>
+                <td className="p-2">
+                  { (p as any).admin_message ? (
+                    <span title={(p as any).admin_message} className="text-gray-700 dark:text-gray-300">
+                      {((p as any).admin_message as string).length > 28 ? ((p as any).admin_message as string).slice(0, 28) + '…' : (p as any).admin_message}
+                      { (p as any).admin_message_status ? ` (${(p as any).admin_message_status})` : ''}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
                 </td>
                 <td className="p-2 space-x-2">
                   <button onClick={() => updateStatus(p.id, 'approved')} className="px-3 py-1 rounded bg-green-600 text-white">Approve</button>
@@ -243,19 +261,18 @@ const PendingPaymentsPage = () => {
   const handleModalSubmit = async () => {
     const { action, paymentId, message } = modalConfig;
     try {
-      const response = await fetch('/api/payments', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          paymentId,
-          status: action === 'approve' ? 'approved' : action === 'reject' ? 'failed' : 'pending',
-          message: action === 'message' || action === 'reject' ? message : undefined,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error('Failed to update payment status');
+      let response: Response | null = null;
+      if (action === 'approve') {
+        response = await fetch(`/api/admin/payments/${paymentId}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      } else if (action === 'reject') {
+        response = await fetch(`/api/admin/payments/${paymentId}/reject`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rejectionReason: message }) });
+      } else if (action === 'message') {
+        response = await fetch(`/api/admin/payments/${paymentId}/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) });
       }
-      fetchPayments();
+      if (!response || !response.ok) {
+        throw new Error('Failed to update payment');
+      }
+      await fetchPayments();
     } catch (error) {
       console.error(error);
     } finally {

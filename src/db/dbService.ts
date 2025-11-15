@@ -168,6 +168,8 @@ type WalletTransaction = {
   crypto_network?: 'ERC20' | 'TRC20';
   crypto_wallet_address?: string;
   wallet_app_deeplink?: string;
+  admin_message?: string;
+  admin_message_status?: 'pending' | 'sent' | 'resolved';
   status: 'pending' | 'in-process' | 'completed' | 'failed';
   admin_id?: string;
   rejection_reason?: string;
@@ -246,6 +248,8 @@ const initializeDatabase = async () => {
         terms_accepted BOOLEAN DEFAULT FALSE,
         strategy_id VARCHAR(255),
         plan_level ENUM('Premium','Expert','Pro'),
+        admin_message TEXT,
+        admin_message_status ENUM('pending','sent','resolved') DEFAULT 'pending',
         status ENUM('pending', 'in-process', 'completed', 'failed') DEFAULT 'pending',
         admin_id VARCHAR(255),
         rejection_reason TEXT,
@@ -303,9 +307,11 @@ const initializeDatabase = async () => {
   try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN crypto_wallet_address VARCHAR(128)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_server VARCHAR(255)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN capital DECIMAL(12,2)"); } catch (e) {}
-  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
-  try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
-  try { await pool.execute("ALTER TABLE wallet_transactions MODIFY COLUMN status ENUM('pending','in-process','completed','failed') DEFAULT 'pending'"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN wallet_app_deeplink VARCHAR(255)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN rejection_reason TEXT"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions MODIFY COLUMN status ENUM('pending','in-process','completed','failed') DEFAULT 'pending'"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN admin_message TEXT"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN admin_message_status ENUM('pending','sent','resolved') DEFAULT 'pending'"); } catch (e) {}
   // Ensure running_strategies exists
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS running_strategies (
@@ -321,6 +327,22 @@ const initializeDatabase = async () => {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE,
         UNIQUE KEY uniq_user_strategy (user_id, strategy_id)
+      )
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS running_strategy_modifications (
+        id VARCHAR(255) PRIMARY KEY,
+        running_strategy_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        platform ENUM('MT4','MT5'),
+        mt_account_id VARCHAR(255),
+        mt_account_password VARCHAR(255),
+        mt_account_server VARCHAR(255),
+        status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running') DEFAULT 'in-process',
+        new_update_json JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
   try { await pool.execute("ALTER TABLE running_strategies ADD COLUMN admin_status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running') DEFAULT 'in-process'"); } catch (e) {}
@@ -1085,8 +1107,8 @@ export const createWalletTransaction = async (transactionData: {
     await ensureUserExistsInMySQL(transactionData.user_id, transactionData.user_name, transactionData.user_email);
     
     await pool.execute(
-      `INSERT INTO wallet_transactions (id, user_id, amount, capital, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, mt_account_server, terms_accepted, strategy_id, plan_level, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO wallet_transactions (id, user_id, amount, capital, transaction_type, payment_method, transaction_id, receipt_path, platform, mt_account_id, mt_account_password, mt_account_server, terms_accepted, strategy_id, plan_level, inr_amount, inr_to_usd_rate, crypto_network, crypto_wallet_address, wallet_app_deeplink, admin_message, admin_message_status, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         transactionData.user_id,
@@ -1108,6 +1130,8 @@ export const createWalletTransaction = async (transactionData: {
         transactionData.crypto_network || null,
         transactionData.crypto_wallet_address || null,
         transactionData.wallet_app_deeplink || null,
+        null,
+        'pending',
         'pending'
       ]
     );
@@ -1141,6 +1165,8 @@ export const createWalletTransaction = async (transactionData: {
         crypto_network: transactionData.crypto_network as any,
         crypto_wallet_address: transactionData.crypto_wallet_address,
         wallet_app_deeplink: transactionData.wallet_app_deeplink,
+        admin_message: undefined,
+        admin_message_status: 'pending',
         status: 'pending',
         created_at: now,
         updated_at: undefined,
@@ -1214,13 +1240,32 @@ export const getPendingTransactions = async (): Promise<WalletTransaction[]> => 
 export const getAllTransactions = async (): Promise<WalletTransaction[]> => {
   try {
     const [rows] = await pool.execute('SELECT * FROM wallet_transactions ORDER BY created_at DESC');
-    
-    return (rows as any[]).map(row => ({
-      ...row,
-      amount: parseFloat(row.amount),
-      created_at: row.created_at.toISOString(),
-      updated_at: row.updated_at ? row.updated_at.toISOString() : undefined
-    }));
+
+    // Overlay JSON fallback store in case some fields exist only there (e.g., admin_message)
+    let jsonMap: Map<string, any> | null = null;
+    try {
+      const db: any = readDatabase();
+      const arr: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      jsonMap = new Map(arr.map(t => [t.id, t]));
+    } catch {}
+
+    return (rows as any[]).map(row => {
+      const merged = { ...row };
+      if (jsonMap && jsonMap.has(row.id)) {
+        const j = jsonMap.get(row.id);
+        if (typeof j.admin_message !== 'undefined') merged.admin_message = j.admin_message;
+        if (typeof j.admin_message_status !== 'undefined') merged.admin_message_status = j.admin_message_status;
+        if (typeof j.rejection_reason !== 'undefined') merged.rejection_reason = j.rejection_reason;
+        if (typeof j.capital !== 'undefined') merged.capital = j.capital;
+        if (typeof j.mt_account_server !== 'undefined') merged.mt_account_server = j.mt_account_server;
+      }
+      return {
+        ...merged,
+        amount: parseFloat(merged.amount),
+        created_at: merged.created_at.toISOString(),
+        updated_at: merged.updated_at ? merged.updated_at.toISOString() : undefined
+      };
+    });
   } catch (error) {
     console.error('MySQL getAllTransactions failed, falling back to JSON:', error);
     try {
@@ -1563,7 +1608,7 @@ export const updateTransactionProof = async (
 export const getPendingOrInProcessTransactions = async (): Promise<WalletTransaction[]> => {
   try {
     const [rows] = await pool.execute(
-      "SELECT * FROM wallet_transactions WHERE status IN ('pending','in-process') ORDER BY created_at DESC"
+      "SELECT * FROM wallet_transactions WHERE status IN ('pending','in-process','in_process') ORDER BY created_at DESC"
     );
     return (rows as any[]).map(row => ({
       ...row,
@@ -1575,7 +1620,7 @@ export const getPendingOrInProcessTransactions = async (): Promise<WalletTransac
     try {
       const db: any = readDatabase();
       const arr: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
-      return arr.filter(t => t.status === 'pending' || t.status === 'in-process');
+      return arr.filter(t => t.status === 'pending' || t.status === 'in-process' || t.status === 'in_process');
     } catch (jsonError) {
       console.error('Failed to load pending/in-process transactions:', jsonError);
       return [];
@@ -1665,12 +1710,35 @@ export const deleteUserAdmin = async (id: string): Promise<{ success: boolean; e
 // Fetch running strategies for a user from MySQL
 export const getRunningStrategiesForUser = async (
   userId: string
-): Promise<{ id: string; strategyName: string; status: string }[]> => {
+): Promise<{
+  id: string;
+  strategyName: string;
+  status: string;
+  adminStatus: string;
+  updatedAt: string;
+  platform?: 'MT4' | 'MT5' | null;
+  mtAccountId?: string | null;
+  mtAccountPassword?: string | null;
+  mtAccountServer?: string | null;
+}[]> => {
   try {
     const [rows] = await pool.execute(
-      `SELECT rs.id, s.name AS strategyName, rs.status
+      `SELECT rs.id,
+              s.name AS strategyName,
+              rs.status,
+              rs.admin_status AS adminStatus,
+              rs.updated_at AS updatedAt,
+              wt.platform AS platform,
+              wt.mt_account_id AS mtAccountId,
+              wt.mt_account_password AS mtAccountPassword,
+              wt.mt_account_server AS mtAccountServer
        FROM running_strategies rs
        JOIN strategies s ON s.id = rs.strategy_id
+       LEFT JOIN wallet_transactions wt ON wt.id = (
+         SELECT id FROM wallet_transactions
+         WHERE user_id = rs.user_id AND strategy_id = rs.strategy_id
+         ORDER BY created_at DESC LIMIT 1
+       )
        WHERE rs.user_id = ? AND rs.status IN ('in-process','active')
        ORDER BY rs.created_at DESC`,
       [userId]
@@ -1680,6 +1748,12 @@ export const getRunningStrategiesForUser = async (
       id: r.id,
       strategyName: r.strategyName,
       status: r.status,
+      adminStatus: r.adminStatus,
+      updatedAt: r.updatedAt,
+      platform: r.platform ?? null,
+      mtAccountId: r.mtAccountId ?? null,
+      mtAccountPassword: r.mtAccountPassword ?? null,
+      mtAccountServer: r.mtAccountServer ?? null,
     }));
   } catch (error) {
     console.error('Error fetching running strategies:', error);
@@ -1768,6 +1842,165 @@ export const updateRunningStrategyAdminStatus = async (
       }
       return { success: false };
     } catch (e) {
+      return { success: false };
+    }
+  }
+};
+
+export const setTransactionAdminMessage = async (
+  transactionId: string,
+  adminId: string,
+  message: string,
+  messageStatus: 'pending' | 'sent' | 'resolved' = 'pending'
+): Promise<WalletTransaction | null> => {
+  try {
+    const existing = await getTransactionById(transactionId);
+    if (!existing) return null;
+    await pool.execute(
+      'UPDATE wallet_transactions SET admin_id = ?, admin_message = ?, admin_message_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [adminId, message, messageStatus, transactionId]
+    );
+    const updated = await getTransactionById(transactionId);
+    return updated;
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const arr: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      const idx = arr.findIndex(t => t.id === transactionId);
+      if (idx === -1) return null;
+      arr[idx].admin_id = adminId;
+      arr[idx].admin_message = message;
+      arr[idx].admin_message_status = messageStatus;
+      arr[idx].updated_at = new Date().toISOString();
+      writeDatabase({ ...db, wallet_transactions: arr });
+      return arr[idx] as WalletTransaction;
+    } catch (jsonError) {
+      return null;
+    }
+  }
+};
+
+export const deleteRunningStrategyForUserStrategy = async (
+  userId: string,
+  strategyId: string
+): Promise<{ success: boolean }> => {
+  try {
+    await pool.execute('DELETE FROM running_strategies WHERE user_id = ? AND strategy_id = ?', [userId, strategyId]);
+    return { success: true };
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const filtered = runs.filter((r: any) => !(r.user_id === userId && r.strategy_id === strategyId));
+      db.running_strategies = filtered;
+      writeDatabase(db);
+      return { success: true };
+    } catch (jsonError) {
+      return { success: false };
+    }
+  }
+};
+
+export const createRunningStrategyModification = async (
+  payload: {
+    id: string;
+    running_strategy_id: string;
+    user_id: string;
+    platform?: 'MT4' | 'MT5' | null;
+    mt_account_id?: string | null;
+    mt_account_password?: string | null;
+    mt_account_server?: string | null;
+    status: 'in-process' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' | 'running';
+    new_update_json?: any;
+  }
+) => {
+  try {
+    await pool.execute(
+      'INSERT INTO running_strategy_modifications (id, running_strategy_id, user_id, platform, mt_account_id, mt_account_password, mt_account_server, status, new_update_json) VALUES (?,?,?,?,?,?,?,?,?)',
+      [
+        payload.id,
+        payload.running_strategy_id,
+        payload.user_id,
+        payload.platform ?? null,
+        payload.mt_account_id ?? null,
+        payload.mt_account_password ?? null,
+        payload.mt_account_server ?? null,
+        payload.status,
+        JSON.stringify(payload.new_update_json ?? {}),
+      ]
+    );
+    return { success: true };
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      mods.push({ ...payload, new_update_json: payload.new_update_json, created_at: new Date().toISOString() });
+      writeDatabase({ ...db, running_strategy_modifications: mods });
+      return { success: true };
+    } catch (e) {
+      return { success: false };
+    }
+  }
+};
+
+export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM running_strategy_modifications ORDER BY created_at DESC');
+    return rows as any[];
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      return mods;
+    } catch (e) {
+      return [];
+    }
+  }
+};
+
+export const updateRunningStrategyMtDetails = async (
+  id: string,
+  updates: { platform?: 'MT4' | 'MT5'; mt_account_password?: string; mt_account_server?: string }
+): Promise<{ success: boolean }> => {
+  try {
+    const [rsRows] = await pool.execute('SELECT user_id, strategy_id FROM running_strategies WHERE id = ?', [id]);
+    const rsArr = rsRows as any[];
+    if (!rsArr.length) return { success: false };
+    const { user_id, strategy_id } = rsArr[0];
+    const [txRows] = await pool.execute(
+      'SELECT id FROM wallet_transactions WHERE user_id = ? AND strategy_id = ? ORDER BY created_at DESC LIMIT 1',
+      [user_id, strategy_id]
+    );
+    const txArr = txRows as any[];
+    if (!txArr.length) return { success: false };
+    const txId = txArr[0].id;
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (typeof updates.platform !== 'undefined') { fields.push('platform = ?'); values.push(updates.platform); }
+    if (typeof updates.mt_account_password !== 'undefined') { fields.push('mt_account_password = ?'); values.push(updates.mt_account_password); }
+    if (typeof updates.mt_account_server !== 'undefined') { fields.push('mt_account_server = ?'); values.push(updates.mt_account_server); }
+    if (fields.length === 0) return { success: true };
+    values.push(txId);
+    await pool.execute(`UPDATE wallet_transactions SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+    return { success: true };
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const rs = runs.find((r: any) => r.id === id);
+      if (!rs) return { success: false };
+      const txs: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      const latest = txs
+        .filter((t: any) => t.user_id === rs.user_id && t.strategy_id === rs.strategy_id)
+        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+      if (!latest) return { success: false };
+      if (typeof updates.platform !== 'undefined') latest.platform = updates.platform;
+      if (typeof updates.mt_account_password !== 'undefined') latest.mt_account_password = updates.mt_account_password;
+      if (typeof updates.mt_account_server !== 'undefined') latest.mt_account_server = updates.mt_account_server;
+      latest.updated_at = new Date().toISOString();
+      writeDatabase({ ...db, wallet_transactions: txs });
+      return { success: true };
+    } catch (jsonError) {
       return { success: false };
     }
   }

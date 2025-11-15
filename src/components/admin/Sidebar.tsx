@@ -40,6 +40,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [expandPayments, setExpandPayments] = useState(() => pathname.startsWith('/admin/payments'));
   const [expandRenewal, setExpandRenewal] = useState(() => pathname.startsWith('/admin/payments/renewal'));
+  const [expandPlanUsage, setExpandPlanUsage] = useState(() => pathname.startsWith('/admin/plan-usage'));
 
   const handleLogout = async () => {
     await signOut({ callbackUrl: '/login' });
@@ -101,12 +102,27 @@ export function Sidebar() {
             </div>
           )}
         </div>
-        <NavItem 
-          href="/admin/plan-usage" 
-          icon={<FaChartLine size={18} />} 
-          label="Plan Usage Report" 
-          active={pathname === '/admin/plan-usage'} 
-        />
+        <div className={`rounded-lg ${pathname.startsWith('/admin/plan-usage') ? 'bg-[#1b2e4b]/40' : ''}`}>
+          <div className={`flex items-center justify-between px-4 py-3 text-sm rounded-lg cursor-pointer ${pathname.startsWith('/admin/plan-usage') 
+            ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' 
+            : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}
+            onClick={() => setExpandPlanUsage(v => !v)}
+          >
+            <Link href="/admin/plan-usage" className="flex items-center">
+              <span className="mr-3"><FaChartLine size={18} /></span>
+              <span>Plan Usage</span>
+            </Link>
+            <button aria-label="Toggle Plan Usage" className="p-1 rounded hover:bg-black/10">
+              <FaChevronDown size={14} className={`transition-transform ${expandPlanUsage ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+          {expandPlanUsage && (
+            <div className="ml-8 mt-1 space-y-1">
+              <Link href="/admin/plan-usage" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Report</Link>
+              <Link href="/admin/plan-usage/modification" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/modification' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Modifications</Link>
+            </div>
+          )}
+        </div>
         <NavItem 
           href="/admin/referrals" 
           icon={<FaNetworkWired size={18} />} 
