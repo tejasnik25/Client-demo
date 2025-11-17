@@ -1,6 +1,6 @@
 // app/strategies/page.tsx
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -17,7 +17,7 @@ import Badge from '@/components/ui/Badge';
 import { useSearchParams } from 'next/navigation';
 import { Label } from '@/components/ui/label';
 
-const StrategiesPage: React.FC = () => {
+const StrategiesPageInner: React.FC = () => {
   const { data: session } = useSession();
   const { user } = useAuth();
   const router = useRouter();
@@ -654,6 +654,11 @@ const StrategiesPage: React.FC = () => {
   );
 };
 
+const StrategiesPage = () => (
+  <Suspense fallback={<div className="min-h-screen bg-[#0f1527] text-white p-6">Loading...</div>}>
+    <StrategiesPageInner />
+  </Suspense>
+);
 export default StrategiesPage;
 
 

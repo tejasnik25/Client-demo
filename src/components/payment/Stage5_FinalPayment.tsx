@@ -141,8 +141,12 @@ const Stage5_FinalPayment = ({ onBack, paymentData, onSuccess }: Stage5Props) =>
       <div className={`flex flex-col items-center ${successTxId ? 'opacity-30 pointer-events-none select-none blur-[1px]' : ''}`}>
         <Image src={getQR()} alt={`${paymentData.method} QR Code`} width={200} height={200} />
         <p className="mt-2"><strong>Amount:</strong> ${paymentData.payable?.toFixed(2)}</p>
-        <p className=""><strong>Exchange Rate:</strong> ₹{inrRate.toFixed(2)} per $1</p>
-        <p className=""><strong>Amount in INR:</strong> ₹{inrAmount.toFixed(2)}</p>
+        {!(paymentData.method && paymentData.method.startsWith('USDT')) && (
+          <>
+            <p className=""><strong>Exchange Rate:</strong> ₹{inrRate.toFixed(2)} per $1</p>
+            <p className=""><strong>Amount in INR:</strong> ₹{inrAmount.toFixed(2)}</p>
+          </>
+        )}
         <p><strong>Plan:</strong> {paymentData.plan}</p>
         {paymentData.method === 'USDT_ERC20' && USDT_ERC20_ADDRESS && (
           <p className="mt-2 text-xs text-gray-300">Address: {USDT_ERC20_ADDRESS}</p>
