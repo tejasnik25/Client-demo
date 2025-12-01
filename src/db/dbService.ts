@@ -2017,7 +2017,7 @@ export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => 
          JOIN running_strategies rs2 ON rs2.id = m2.running_strategy_id
          GROUP BY rs2.strategy_id, m2.user_id
        ) latest ON rs.strategy_id = latest.strategy_id AND m.user_id = latest.user_id AND m.created_at = latest.max_created
-       WHERE rs.admin_status IS NULL OR rs.admin_status NOT IN ('running','disconnected')
+       WHERE rs.admin_status IS NULL OR rs.admin_status NOT IN ('running')
        ORDER BY m.created_at DESC`
     );
     return rows as any[];
@@ -2025,7 +2025,7 @@ export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => 
     try {
       const db: any = readDatabase();
       const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
-      // Filter out modifications whose related run is already running or disconnected in JSON fallback
+      // Filter out modifications whose related run is already running in JSON fallback
       const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
       const runMap: Record<string, any> = {};
       runs.forEach(r => runMap[r.id] = r);
@@ -2048,7 +2048,7 @@ export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => 
         }
       });
       const deduped = Object.values(dedupMap);
-      return deduped.filter(m => { const rs = runMap[m.running_strategy_id]; return !rs || (rs.admin_status || rs.adminStatus) !== 'running' && (rs.admin_status || rs.adminStatus) !== 'disconnected'; });
+      return deduped.filter(m => { const rs = runMap[m.running_strategy_id]; return !rs || (rs.admin_status || rs.adminStatus) !== 'running'; });
     } catch (e) {
       return [];
     }

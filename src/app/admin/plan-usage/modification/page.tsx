@@ -93,8 +93,8 @@ export default function PlanUsageModificationPage() {
         const filteredList = list.filter((m: any) => {
           const run = mapLocal[m.running_strategy_id] || {};
           const cur = (run.adminStatus || m.status || '').toLowerCase();
-          // Exclude modifications that correspond to runs that are already finalized
-          return cur !== 'running' && cur !== 'disconnected';
+          // Exclude modifications that correspond to runs that are already running
+          return cur !== 'running';
         });
         setRows(filteredList);
         setRunMap(mapLocal);

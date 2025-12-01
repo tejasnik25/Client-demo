@@ -378,16 +378,15 @@ const StrategiesPageInner: React.FC = () => {
                         {(() => {
                           const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
                           const isPending = pendingIds.includes((r as any)?.rsId || r.id);
-                          const label = cur === 'disconnected' ? 'Connect' : 'Disconnect';
-                          const btnClass = cur === 'disconnected' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700';
+                          const btnClass = cur === 'disconnected' ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700';
                           return (
                             <Button
                               size="sm"
                               className={`h-11 w-full md:w-auto ${btnClass} text-white`}
-                              onClick={() => toggleDisconnect(r)}
-                              disabled={isPending || cur === 'in-process'}
+                              onClick={() => { if (cur !== 'disconnected') toggleDisconnect(r); }}
+                              disabled={isPending || cur === 'in-process' || cur === 'disconnected'}
                             >
-                              {isPending || cur === 'in-process' ? 'Requested' : label}
+                              {cur === 'disconnected' ? 'Disconnected' : (isPending || cur === 'in-process' ? 'Requested' : 'Disconnect')}
                             </Button>
                           );
                         })()}
