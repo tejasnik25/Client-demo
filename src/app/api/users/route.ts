@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
     // Get the user ID from the URL if provided
     const url = new URL(request.url);
     const userId = url.searchParams.get('id');
+    const userEmail = url.searchParams.get('email');
     
     // Use dynamic import to avoid client-side import issues
     const { getAllUsers, getUserById, readDatabase } = await import('../../../db/dbService');
@@ -29,6 +30,17 @@ export async function GET(request: NextRequest) {
         (user as any).enabled = (user as any).enabled ?? true;
       }
       return NextResponse.json({ user });
+    }
+    if (userEmail) {
+      // Attempt to retrieve user by email
+      try {
+        const allUsers = await getAllUsers();
+        const user = allUsers.find((u: any) => (u.email || '').toLowerCase() === userEmail.toLowerCase());
+        if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        return NextResponse.json({ user });
+      } catch (err) {
+        return NextResponse.json({ error: 'Failed to fetch user' }, { status: 500 });
+      }
     }
     
     // Get all users

@@ -56,7 +56,20 @@ export default function AdminMobileMenu({ isOpen, onClose }: AdminMobileMenuProp
           <MobileLink href="/admin/payments/renewal/pending" label="Pending" active={pathname === "/admin/payments/renewal/pending"} onClick={onClose} />
           <MobileLink href="/admin/payments/renewal/approved" label="Approved" active={pathname === "/admin/payments/renewal/approved"} onClick={onClose} />
           <MobileLink href="/admin/payments/renewal/rejected" label="Rejected" active={pathname === "/admin/payments/renewal/rejected"} onClick={onClose} />
-          <MobileLink href="/admin/plan-usage" label="Plan Usage Report" active={pathname === "/admin/plan-usage"} onClick={onClose} />
+          <SectionTitle title="Plan Usage" />
+          <MobileLink href="/admin/plan-usage" label="Report" active={pathname === "/admin/plan-usage"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/total-running-strategy" label="Total Running Strategy" active={pathname === "/admin/plan-usage/total-running-strategy"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/total-disconnected-strategy" label="Total Disconnected Strategy" active={pathname === "/admin/plan-usage/total-disconnected-strategy"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/new-strategy" label="New Strategy" active={pathname === "/admin/plan-usage/new-strategy" && !pathname.includes('/pending-new-strategy') && !pathname.includes('/approved-new-strategy')} onClick={onClose} />
+          <SectionTitle title="New Strategy" subtle />
+          <MobileLink href="/admin/plan-usage/new-strategy/pending-new-strategy" label="Pending" active={pathname === "/admin/plan-usage/new-strategy/pending-new-strategy"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/new-strategy/approved-new-strategy" label="Approved" active={pathname === "/admin/plan-usage/new-strategy/approved-new-strategy"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/renewal-strategy" label="Renewal Strategy" active={pathname === "/admin/plan-usage/renewal-strategy" && !pathname.includes('/pending-renewal-strategy') && !pathname.includes('/approved-renewal-strategy')} onClick={onClose} />
+          <SectionTitle title="Renewal Strategy" subtle />
+          <MobileLink href="/admin/plan-usage/renewal-strategy/pending-renewal-strategy" label="Pending" active={pathname === "/admin/plan-usage/renewal-strategy/pending-renewal-strategy"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/renewal-strategy/approved-renewal-strategy" label="Approved" active={pathname === "/admin/plan-usage/renewal-strategy/approved-renewal-strategy"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/modification-strategy" label="Modification Strategy" active={pathname === "/admin/plan-usage/modification-strategy"} onClick={onClose} />
+          <MobileLink href="/admin/plan-usage/modification" label="Modifications" active={pathname === "/admin/plan-usage/modification"} onClick={onClose} />
           <MobileLink href="/admin/referrals" label="Referrals" active={pathname === "/admin/referrals"} onClick={onClose} />
           <MobileLink href="/admin/database" label="Database" active={pathname === "/admin/database"} onClick={onClose} />
           <MobileLink href="/admin/settings" label="Settings" active={pathname === "/admin/settings"} onClick={onClose} />

@@ -63,6 +63,21 @@ function LoginFormInner() {
       setErrors(prev => ({ ...prev, general: '' }));
       setIsLoading(true);
       
+      // Pre-check if account is disabled
+      try {
+        const userRes = await fetch(`/api/users?email=${encodeURIComponent(formData.email)}`);
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          if (userData.user && userData.user.enabled === false) {
+            setErrors(prev => ({ ...prev, general: 'Your account access has been disabled, please contact admin@gmail.com to enable your account.' }));
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        // ignore — proceed to signIn; any server error won't block login check
+      }
+
       const result = await signIn('credentials', {
         email: formData.email,
         password: formData.password,
@@ -71,7 +86,7 @@ function LoginFormInner() {
       });
       
       if (result?.error) {
-        setErrors(prev => ({ ...prev, general: 'Invalid email or password. Please check your credentials and try again.' }));
+        setErrors(prev => ({ ...prev, general: result.error === 'Account disabled' ? 'Your account access has been disabled, please contact admin@gmail.com to enable your account.' : 'Invalid email or password. Please check your credentials and try again.' }));
       } else {
         // Clear admin session indicator if it exists
         if (typeof window !== 'undefined') {

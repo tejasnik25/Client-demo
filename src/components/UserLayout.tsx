@@ -120,9 +120,10 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/signout', { method: 'POST', credentials: 'include' });
       sessionStorage.clear();
       localStorage.clear();
+      // Use NextAuth's signOut function which properly handles the session
+      await signOut({ redirect: false });
       router.push('/');
     } catch {
       router.push('/');

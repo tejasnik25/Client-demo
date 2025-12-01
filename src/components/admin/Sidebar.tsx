@@ -41,6 +41,8 @@ export function Sidebar() {
   const [expandPayments, setExpandPayments] = useState(() => pathname.startsWith('/admin/payments'));
   const [expandRenewal, setExpandRenewal] = useState(() => pathname.startsWith('/admin/payments/renewal'));
   const [expandPlanUsage, setExpandPlanUsage] = useState(() => pathname.startsWith('/admin/plan-usage'));
+  const [expandNewStrategy, setExpandNewStrategy] = useState(() => pathname.startsWith('/admin/plan-usage/new-strategy'));
+  const [expandRenewalStrategy, setExpandRenewalStrategy] = useState(() => pathname.startsWith('/admin/plan-usage/renewal-strategy'));
 
   const handleLogout = async () => {
     await signOut({ callbackUrl: '/login' });
@@ -119,6 +121,37 @@ export function Sidebar() {
           {expandPlanUsage && (
             <div className="ml-8 mt-1 space-y-1">
               <Link href="/admin/plan-usage" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Report</Link>
+              <Link href="/admin/plan-usage/total-running-strategy" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/total-running-strategy' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Total Running Strategy</Link>
+              <Link href="/admin/plan-usage/total-disconnected-strategy" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/total-disconnected-strategy' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Total Disconnected Strategy</Link>
+              <div className="mt-1">
+                <div className="flex items-center justify-between px-3 py-2 text-sm rounded-lg">
+                  <Link href="/admin/plan-usage/new-strategy" className="text-gray-300">New Strategy</Link>
+                  <button aria-label="Toggle New Strategy" onClick={() => setExpandNewStrategy(v => !v)} className="p-1 rounded hover:bg-black/10 text-gray-300">
+                    <FaChevronDown size={12} className={`transition-transform ${expandNewStrategy ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+                {expandNewStrategy && (
+                  <div className="ml-6 space-y-1">
+                    <Link href="/admin/plan-usage/new-strategy/pending-new-strategy" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/new-strategy/pending-new-strategy' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Pending</Link>
+                    <Link href="/admin/plan-usage/new-strategy/approved-new-strategy" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/new-strategy/approved-new-strategy' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Approved</Link>
+                  </div>
+                )}
+              </div>
+              <div className="mt-1">
+                <div className="flex items-center justify-between px-3 py-2 text-sm rounded-lg">
+                  <Link href="/admin/plan-usage/renewal-strategy" className="text-gray-300">Renewal Strategy</Link>
+                  <button aria-label="Toggle Renewal Strategy" onClick={() => setExpandRenewalStrategy(v => !v)} className="p-1 rounded hover:bg-black/10 text-gray-300">
+                    <FaChevronDown size={12} className={`transition-transform ${expandRenewalStrategy ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+                {expandRenewalStrategy && (
+                  <div className="ml-6 space-y-1">
+                    <Link href="/admin/plan-usage/renewal-strategy/pending-renewal-strategy" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/renewal-strategy/pending-renewal-strategy' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Pending</Link>
+                    <Link href="/admin/plan-usage/renewal-strategy/approved-renewal-strategy" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/renewal-strategy/approved-renewal-strategy' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Approved</Link>
+                  </div>
+                )}
+              </div>
+              <Link href="/admin/plan-usage/modification-strategy" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/modification-strategy' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Modification Strategy</Link>
               <Link href="/admin/plan-usage/modification" className={`block px-3 py-2 text-sm rounded-lg ${pathname === '/admin/plan-usage/modification' ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white' : 'text-gray-300 hover:bg-[#1b2e4b]/40'}`}>Modifications</Link>
             </div>
           )}

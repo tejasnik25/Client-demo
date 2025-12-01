@@ -36,6 +36,7 @@ const StrategiesPageInner: React.FC = () => {
   const [loadingRunning, setLoadingRunning] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsItem, setSettingsItem] = useState<any | null>(null);
+  const [pendingIds, setPendingIds] = useState<string[]>([]);
   const [mtType, setMtType] = useState<'MT4' | 'MT5' | ''>('');
   const [mtId, setMtId] = useState('');
   const [mtPwd, setMtPwd] = useState('');
@@ -92,10 +93,46 @@ const StrategiesPageInner: React.FC = () => {
     const k = (s || '').toLowerCase();
     if (k === 'running') return <Badge variant="success">Running</Badge>;
     if (k === 'in-process') return <Badge variant="warning">In-Process</Badge>;
+    if (k === 'disconnected') return <Badge variant="destructive">Disconnected</Badge>;
     if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
     if (k === 'wrong-account-id') return <Badge variant="destructive">Wrong-Account Id</Badge>;
     if (k === 'wrong-account-server-name') return <Badge variant="destructive">Wrong-Account Server Name</Badge>;
     return <Badge variant="outline">{s || 'in-process'}</Badge>;
+  };
+
+  const toggleDisconnect = async (r: any) => {
+    const rsId = (r as any)?.rsId || r?.id;
+    const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
+    const action = cur === 'disconnected' ? 'connect' : 'disconnect';
+    if (!confirm(`Are you sure you want to ${action} this strategy?`)) return;
+    // optimistic disable for this card
+    setPendingIds((prev) => [...prev, rsId]);
+    try {
+      const res = await fetch(`/api/running-strategies/${rsId}/modification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) throw new Error('Failed to request change');
+      // Optimistically set local running item to in-process
+      setRunning((prev: any[]) => prev.map(p => {
+        if (((p as any).id || (p as any).rsId) === rsId) {
+          return { ...p, adminStatus: 'in-process' };
+        }
+        return p;
+      }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      // re-fetch to ensure server state is consistent
+      try {
+        const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
+        const runData = await runRes.json();
+        setRunning(runData?.strategies || []);
+      } catch (e) {
+      }
+      setPendingIds((prev) => prev.filter(id => id !== rsId));
+    }
   };
 
   const openSettings = (r: any) => {
@@ -297,7 +334,7 @@ const StrategiesPageInner: React.FC = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <h4 className="text-lg font-semibold">{s.name}</h4>
-                            {renderAdminStatusBadge(((r as any).adminStatus || (r as any).status || 'in-process') as string)}
+                            {renderAdminStatusBadge((((r as any).adminStatus || (r as any).status || 'in-process') as string).toLowerCase())}
                             <button className="ml-auto text-gray-400 hover:text-white" title="Settings" onClick={() => openSettings(r)}>
                               <FiSettings />
                             </button>
@@ -337,6 +374,23 @@ const StrategiesPageInner: React.FC = () => {
                         >
                           Renewal
                         </Button>
+                        {/* Disconnect/Connect Toggle */}
+                        {(() => {
+                          const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
+                          const isPending = pendingIds.includes((r as any)?.rsId || r.id);
+                          const label = cur === 'disconnected' ? 'Connect' : 'Disconnect';
+                          const btnClass = cur === 'disconnected' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700';
+                          return (
+                            <Button
+                              size="sm"
+                              className={`h-11 w-full md:w-auto ${btnClass} text-white`}
+                              onClick={() => toggleDisconnect(r)}
+                              disabled={isPending || cur === 'in-process'}
+                            >
+                              {isPending || cur === 'in-process' ? 'Requested' : label}
+                            </Button>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>

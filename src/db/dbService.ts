@@ -321,7 +321,7 @@ const initializeDatabase = async () => {
         plan ENUM('Pro','Expert','Premium'),
         capital DECIMAL(14,2),
         status ENUM('in-process','active','stopped') DEFAULT 'in-process',
-        admin_status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running') DEFAULT 'in-process',
+        admin_status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running','disconnected') DEFAULT 'in-process',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -338,14 +338,15 @@ const initializeDatabase = async () => {
         mt_account_id VARCHAR(255),
         mt_account_password VARCHAR(255),
         mt_account_server VARCHAR(255),
-        status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running') DEFAULT 'in-process',
+        status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running','disconnected') DEFAULT 'in-process',
         new_update_json JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
-  try { await pool.execute("ALTER TABLE running_strategies ADD COLUMN admin_status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running') DEFAULT 'in-process'"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE running_strategies ADD COLUMN admin_status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running','disconnected') DEFAULT 'in-process'"); } catch (e) {}
+  try { await pool.execute("ALTER TABLE running_strategy_modifications MODIFY COLUMN status ENUM('in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running','disconnected') DEFAULT 'in-process'"); } catch (e) {}
   // Add strategy columns if missing
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_type VARCHAR(16)"); } catch (e) {}
   try { await pool.execute("ALTER TABLE strategies ADD COLUMN content_url VARCHAR(500)"); } catch (e) {}
@@ -914,6 +915,21 @@ export const loginUser = async (
   email: string,
   password: string
 ): Promise<{ success: boolean; user?: User; error?: string }> => {
+  // Helper function to validate password (handles both plain text and bcrypt hashes)
+  const validatePassword = async (storedPassword: string, providedPassword: string): Promise<boolean> => {
+    try {
+      // Check if password is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
+      if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
+        return await bcrypt.compare(providedPassword, storedPassword);
+      }
+      // Fallback to plain text comparison for legacy users
+      return storedPassword === providedPassword;
+    } catch (error) {
+      console.error('Error validating password:', error);
+      return false;
+    }
+  };
+
   // First, attempt MySQL-based login
   try {
     const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
@@ -921,7 +937,11 @@ export const loginUser = async (
 
     if (users.length > 0) {
       const user = users[0];
-      const isValidPassword = await bcrypt.compare(password, user.password);
+      // If user is disabled, block login
+      if (typeof user.enabled !== 'undefined' && user.enabled === false) {
+        return { success: false, error: 'Account disabled' };
+      }
+      const isValidPassword = await validatePassword(user.password, password);
 
       if (!isValidPassword) {
         return { success: false, error: 'Invalid password' };
@@ -945,7 +965,12 @@ export const loginUser = async (
       return { success: false, error: 'User not found' };
     }
 
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    // If user is disabled in JSON DB, block login
+    if (typeof user.enabled !== 'undefined' && user.enabled === false) {
+      return { success: false, error: 'Account disabled' };
+    }
+
+    const isValidPassword = await validatePassword(user.password, password);
     if (!isValidPassword) {
       return { success: false, error: 'Invalid password' };
     }
@@ -1748,7 +1773,7 @@ export const getRunningStrategiesForUser = async (
       id: r.id,
       strategyName: r.strategyName,
       status: r.status,
-      adminStatus: r.adminStatus,
+      adminStatus: (r.adminStatus || r.admin_status || '').toLowerCase(),
       updatedAt: r.updatedAt,
       platform: r.platform ?? null,
       mtAccountId: r.mtAccountId ?? null,
@@ -1810,7 +1835,7 @@ export const getRunningStrategiesAdmin = async (): Promise<
       plan: r.plan,
       capital: Number(r.capital),
       status: r.status,
-      adminStatus: r.adminStatus,
+      adminStatus: (r.adminStatus || r.admin_status || '').toLowerCase(),
       platform: r.platform ?? null,
       mtAccountId: r.mtAccountId ?? null,
       mtAccountPassword: r.mtAccountPassword ?? null,
@@ -1825,19 +1850,43 @@ export const getRunningStrategiesAdmin = async (): Promise<
 
 export const updateRunningStrategyAdminStatus = async (
   id: string,
-  status: 'in-process' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' | 'running'
+  status: 'in-process' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' | 'running' | 'disconnected'
 ) => {
   try {
     await pool.execute('UPDATE running_strategies SET admin_status = ? WHERE id = ?', [status, id]);
+    // If admin approves and sets status to running, remove modification records that were in-process
+    if (status === 'running' || status === 'disconnected') {
+      // When finalized, remove all modifications for any run belonging to the same strategy
+      const [rsRows] = await pool.execute('SELECT strategy_id FROM running_strategies WHERE id = ?', [id]);
+      const rsArr = rsRows as any[];
+      if ((rsArr || []).length > 0) {
+        const strategyId = rsArr[0].strategy_id;
+        await pool.execute('DELETE FROM running_strategy_modifications WHERE running_strategy_id IN (SELECT id FROM running_strategies WHERE strategy_id = ?)', [strategyId]);
+      } else {
+        await pool.execute('DELETE FROM running_strategy_modifications WHERE running_strategy_id = ?', [id]);
+      }
+    } else {
+      // Otherwise, update in-process modification records to new status
+      await pool.execute('UPDATE running_strategy_modifications SET status = ? WHERE running_strategy_id = ? AND status = ?', [status, id, 'in-process']);
+    }
     return { success: true };
   } catch (error) {
     try {
       const db: any = readDatabase();
       const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
       const idx = runs.findIndex((r: any) => r.id === id);
       if (idx !== -1) {
         runs[idx].admin_status = status;
-        writeDatabase({ ...db, running_strategies: runs });
+        // update or remove in-process modifications for this run depending on status
+        let updatedMods = mods;
+        if (status === 'running' || status === 'disconnected') {
+          const strategyId = runs[idx].strategy_id;
+          updatedMods = mods.filter((m: any) => !( (runs.find(r => r.id === m.running_strategy_id)?.strategy_id || null) === strategyId ));
+        } else {
+          updatedMods = mods.map((m: any) => (m.running_strategy_id === id && m.status === 'in-process' ? { ...m, status } : m));
+        }
+        writeDatabase({ ...db, running_strategies: runs, running_strategy_modifications: updatedMods });
         return { success: true };
       }
       return { success: false };
@@ -1915,6 +1964,16 @@ export const createRunningStrategyModification = async (
   }
 ) => {
   try {
+    // Find the strategy id for the run so we can delete any previous modifications from the same user for the same strategy (keep only latest)
+    const [runRows] = await pool.execute('SELECT strategy_id FROM running_strategies WHERE id = ?', [payload.running_strategy_id]);
+    const runArr = runRows as any[];
+    if ((runArr || []).length > 0) {
+      const strategyId = runArr[0].strategy_id;
+      // delete all existing modifications from this user for any runs belonging to this strategy
+      await pool.execute('DELETE FROM running_strategy_modifications WHERE running_strategy_id IN (SELECT id FROM running_strategies WHERE strategy_id = ?) AND user_id = ?', [strategyId, payload.user_id]);
+    } else {
+      await pool.execute('DELETE FROM running_strategy_modifications WHERE running_strategy_id = ? AND user_id = ?', [payload.running_strategy_id, payload.user_id]);
+    }
     await pool.execute(
       'INSERT INTO running_strategy_modifications (id, running_strategy_id, user_id, platform, mt_account_id, mt_account_password, mt_account_server, status, new_update_json) VALUES (?,?,?,?,?,?,?,?,?)',
       [
@@ -1934,8 +1993,12 @@ export const createRunningStrategyModification = async (
     try {
       const db: any = readDatabase();
       const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
-      mods.push({ ...payload, new_update_json: payload.new_update_json, created_at: new Date().toISOString() });
-      writeDatabase({ ...db, running_strategy_modifications: mods });
+      // Remove previous in-process mods for the same run + user when inserting new one
+      // Filter out previous mods for same user + strategy
+      const runsForStrategy = (db.running_strategies || []).filter((r: any) => r.strategy_id === ((db.running_strategies || []).find((rt: any) => rt.id === payload.running_strategy_id) || {}).strategy_id).map(r => r.id);
+      const filtered = mods.filter(m => !(runsForStrategy.includes(m.running_strategy_id) && m.user_id === payload.user_id));
+      filtered.push({ ...payload, new_update_json: payload.new_update_json, created_at: new Date().toISOString() });
+      writeDatabase({ ...db, running_strategy_modifications: filtered });
       return { success: true };
     } catch (e) {
       return { success: false };
@@ -1945,13 +2008,47 @@ export const createRunningStrategyModification = async (
 
 export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM running_strategy_modifications ORDER BY created_at DESC');
+    const [rows] = await pool.execute(
+      `SELECT m.* FROM running_strategy_modifications m
+       LEFT JOIN running_strategies rs ON rs.id = m.running_strategy_id
+       JOIN (
+         SELECT rs2.strategy_id, m2.user_id, MAX(m2.created_at) AS max_created
+         FROM running_strategy_modifications m2
+         JOIN running_strategies rs2 ON rs2.id = m2.running_strategy_id
+         GROUP BY rs2.strategy_id, m2.user_id
+       ) latest ON rs.strategy_id = latest.strategy_id AND m.user_id = latest.user_id AND m.created_at = latest.max_created
+       WHERE rs.admin_status IS NULL OR rs.admin_status NOT IN ('running','disconnected')
+       ORDER BY m.created_at DESC`
+    );
     return rows as any[];
   } catch (error) {
     try {
       const db: any = readDatabase();
       const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
-      return mods;
+      // Filter out modifications whose related run is already running or disconnected in JSON fallback
+      const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const runMap: Record<string, any> = {};
+      runs.forEach(r => runMap[r.id] = r);
+      // Deduplicate modifications: keep only latest per strategy + user
+      const dedupMap: Record<string, any> = {};
+      mods.forEach(m => {
+        const run = runMap[m.running_strategy_id] || {};
+        const strategyId = run.strategy_id;
+        const k = `${strategyId}::${m.user_id}`;
+        if (!strategyId) {
+          // Fallback to running_strategy_id if we cannot find strategy
+          const altKey = `${m.running_strategy_id}::${m.user_id}`;
+          if (!dedupMap[altKey] || new Date(m.created_at).getTime() > new Date(dedupMap[altKey].created_at).getTime()) {
+            dedupMap[altKey] = m;
+          }
+        } else {
+          if (!dedupMap[k] || new Date(m.created_at).getTime() > new Date(dedupMap[k].created_at).getTime()) {
+            dedupMap[k] = m;
+          }
+        }
+      });
+      const deduped = Object.values(dedupMap);
+      return deduped.filter(m => { const rs = runMap[m.running_strategy_id]; return !rs || (rs.admin_status || rs.adminStatus) !== 'running' && (rs.admin_status || rs.adminStatus) !== 'disconnected'; });
     } catch (e) {
       return [];
     }
@@ -2001,6 +2098,24 @@ export const updateRunningStrategyMtDetails = async (
       writeDatabase({ ...db, wallet_transactions: txs });
       return { success: true };
     } catch (jsonError) {
+      return { success: false };
+    }
+  }
+};
+
+export const deleteRunningStrategyModification = async (id: string) => {
+  try {
+    await pool.execute('DELETE FROM running_strategy_modifications WHERE id = ?', [id]);
+    return { success: true };
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      const filtered = mods.filter((m: any) => m.id !== id);
+      writeDatabase({ ...db, running_strategy_modifications: filtered });
+      return { success: true };
+    } catch (e) {
+      console.error('deleteRunningStrategyModification fallback failed', e);
       return { success: false };
     }
   }

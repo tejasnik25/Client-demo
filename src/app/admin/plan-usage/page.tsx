@@ -1,49 +1,70 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import Badge from '@/components/ui/Badge';
+import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
+import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
-type Item = {
+type StrategyItem = {
   id: string;
   userId: string;
   userName: string;
   strategyName: string;
   plan: 'Pro' | 'Expert' | 'Premium';
   capital: number;
-  platform?: 'MT4' | 'MT5' | null;
-  mtAccountPassword?: string | null;
-  mtAccountServer?: string | null;
   adminStatus: 'in-process' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' | 'running';
 };
 
+type Payment = {
+  id: string;
+  status: string;
+  strategyId: string;
+};
+
+const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
+
 const PlanUsagePage = () => {
-  const [rows, setRows] = useState<Item[]>([]);
+  const [strategies, setStrategies] = useState<StrategyItem[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [modifications, setModifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showSub, setShowSub] = useState(false);
 
   const load = async () => {
     try {
-      const res = await fetch('/api/admin/running-strategies');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load');
-      const items = (data.strategies || []).map((r: any) => ({
+      const [strategiesRes, paymentsRes, modsRes] = await Promise.all([
+        fetch('/api/admin/running-strategies', { cache: 'no-store' }),
+        fetch('/api/payments'),
+        fetch('/api/admin/running-strategies/modifications').catch(() => ({ ok: false, json: () => ({ modifications: [] }) }))
+      ]);
+      
+      const strategiesData = await strategiesRes.json();
+      const paymentsData = await paymentsRes.json();
+      const modsData = await modsRes.json();
+      
+      if (!strategiesRes.ok) throw new Error(strategiesData.error || 'Failed to load strategies');
+      
+      const items = (strategiesData.strategies || []).map((r: any) => ({
         id: r.id,
         userId: r.userId,
         userName: r.userName,
         strategyName: r.strategyName,
         plan: r.plan,
         capital: r.capital,
-        platform: r.platform ?? null,
-        mtAccountPassword: r.mtAccountPassword ?? null,
-        mtAccountServer: r.mtAccountServer ?? null,
         adminStatus: r.adminStatus || 'in-process',
       }));
-      setRows(items);
+      setStrategies(items);
+      
+      const allPayments = Array.isArray(paymentsData.payments) ? paymentsData.payments : [];
+      setPayments(allPayments);
+      
+      const allMods = modsData.modifications || [];
+      setModifications(allMods);
       setError(null);
     } catch (e: any) {
       setError(e.message || 'Unknown error');
-      setRows([]);
+      setStrategies([]);
+      setPayments([]);
+      setModifications([]);
     } finally {
       setLoading(false);
     }
@@ -53,131 +74,232 @@ const PlanUsagePage = () => {
     load();
   }, []);
 
+  const stats = useMemo(() => {
+    const running = strategies.filter(s => s.adminStatus === 'running').length;
+    const disconnected = strategies.filter(s => s.adminStatus !== 'running').length;
+    
+    const newPending = payments.filter(p => !p.status?.includes('renewal') && ['pending', 'in_process', 'in-process'].includes(p.status)).length;
+    const newApproved = payments.filter(p => !p.status?.includes('renewal') && ['approved', 'completed'].includes(p.status)).length;
+    const newRejected = payments.filter(p => !p.status?.includes('renewal') && p.status === 'rejected').length;
+    
+    const renewalPending = payments.filter(p => p.status === 'renewal_pending').length;
+    const renewalApproved = payments.filter(p => p.status === 'renewal_approved').length;
+    const renewalRejected = payments.filter(p => p.status === 'renewal_rejected' || (p.status?.includes('renewal') && p.status === 'rejected')).length;
+    
+    const modificationPending = modifications.filter(m => m.status === 'pending' || m.status === 'in-process').length;
+    const modificationApproved = modifications.filter(m => m.status === 'approved' || m.status === 'running').length;
+    
+    return {
+      running,
+      disconnected,
+      newPending,
+      newApproved,
+      newRejected,
+      renewalPending,
+      renewalApproved,
+      renewalRejected,
+      modificationPending,
+      modificationApproved
+    };
+  }, [strategies, payments, modifications]);
+
   if (loading) {
-    return <div>Loading...</div>;
+    return <div className="p-6">Loading...</div>;
   }
 
   if (error) {
-    return <div>Error: {error}</div>;
+    return <div className="p-6 text-red-500">Error: {error}</div>;
   }
 
-  const updateStatus = async (id: string, status: Item['adminStatus']) => {
-    try {
-      const res = await fetch(`/api/admin/running-strategies/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      if (!res.ok) throw new Error('Failed to update');
-      setRows(prev => prev.map(r => r.id === id ? { ...r, adminStatus: status } : r));
-    } catch {}
-  };
+  const runningStatusData = [
+    { name: 'Running', value: stats.running },
+    { name: 'Disconnected', value: stats.disconnected }
+  ];
 
-  const renderStatusBadge = (s: Item['adminStatus']) => {
-    const k = (s || '').toLowerCase();
-    if (k === 'running') return <Badge variant="success">Running</Badge>;
-    if (k === 'in-process') return <Badge variant="warning">In-Process</Badge>;
-    if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
-    if (k === 'wrong-account-id') return <Badge variant="destructive">Wrong-Account Id</Badge>;
-    if (k === 'wrong-account-server-name') return <Badge variant="destructive">Wrong-Account Server Name</Badge>;
-    return <Badge variant="outline">{s}</Badge>;
-  };
+  const newStrategyData = [
+    { name: 'Pending', value: stats.newPending },
+    { name: 'Approved', value: stats.newApproved },
+    { name: 'Rejected', value: stats.newRejected }
+  ];
 
-  const updateDetails = async (id: string, payload: Partial<{ platform: 'MT4' | 'MT5'; mt_account_password: string; mt_account_server: string }>) => {
-    try {
-      const res = await fetch(`/api/admin/running-strategies/${id}/details`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error('Failed to update details');
-      await load();
-    } catch {}
-  };
+  const renewalStrategyData = [
+    { name: 'Pending', value: stats.renewalPending },
+    { name: 'Approved', value: stats.renewalApproved },
+    { name: 'Rejected', value: stats.renewalRejected }
+  ];
+
+  const modificationStrategyData = [
+    { name: 'Pending', value: stats.modificationPending },
+    { name: 'Approved', value: stats.modificationApproved }
+  ];
+
+  const overviewData = [
+    { category: 'Total Running', count: stats.running },
+    { category: 'Total Disconnected', count: stats.disconnected },
+    { category: 'New Strategies', count: stats.newPending + stats.newApproved + stats.newRejected },
+    { category: 'Renewal Strategies', count: stats.renewalPending + stats.renewalApproved + stats.renewalRejected },
+    { category: 'Modifications', count: stats.modificationPending + stats.modificationApproved }
+  ];
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Plan Usage</h1>
-        <button onClick={() => setShowSub(v => !v)} className="text-sm px-3 py-2 rounded bg-[#1a1f2e] border border-[#283046] text-gray-300">
-          {showSub ? 'Hide' : 'Show'} Modifications
-        </button>
+    <div className="container mx-auto px-4 py-8 space-y-6">
+      <h1 className="text-3xl font-bold">Plan Usage Analytics</h1>
+
+      {/* Overview Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <Link href="/admin/plan-usage/total-running-strategy" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="text-sm text-gray-500 mb-1">Total Running Strategy</h3>
+          <p className="text-2xl font-bold text-green-600">{stats.running}</p>
+        </Link>
+        <Link href="/admin/plan-usage/total-disconnected-strategy" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="text-sm text-gray-500 mb-1">Total Disconnected Strategy</h3>
+          <p className="text-2xl font-bold text-red-600">{stats.disconnected}</p>
+        </Link>
+        <Link href="/admin/plan-usage/new-strategy" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="text-sm text-gray-500 mb-1">New Strategy</h3>
+          <p className="text-2xl font-bold text-blue-600">{stats.newPending + stats.newApproved + stats.newRejected}</p>
+        </Link>
+        <Link href="/admin/plan-usage/renewal-strategy" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="text-sm text-gray-500 mb-1">Renewal Strategy</h3>
+          <p className="text-2xl font-bold text-purple-600">{stats.renewalPending + stats.renewalApproved + stats.renewalRejected}</p>
+        </Link>
+        <Link href="/admin/plan-usage/modification-strategy" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="text-sm text-gray-500 mb-1">Modification Strategy</h3>
+          <p className="text-2xl font-bold text-orange-600">{stats.modificationPending + stats.modificationApproved}</p>
+        </Link>
       </div>
-      {showSub && (
-        <div className="mb-4">
-          <a href="/admin/plan-usage/modification" className="inline-flex items-center px-3 py-2 rounded bg-[#283046] text-white">
-            Open Modifications
-          </a>
+
+      {/* Charts Row 1 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
+          <h2 className="text-lg font-semibold mb-3">Running vs Disconnected</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={runningStatusData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(0)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {runningStatusData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
-      )}
-      <div className="overflow-x-auto">
-        <table className="min-w-full bg-white dark:bg-gray-800">
-          <thead>
-            <tr>
-              <th className="py-2 px-4 border-b">User ID</th>
-              <th className="py-2 px-4 border-b">User Name</th>
-              <th className="py-2 px-4 border-b">Strategy</th>
-              <th className="py-2 px-4 border-b">Plan</th>
-              <th className="py-2 px-4 border-b">Account Capital</th>
-              <th className="py-2 px-4 border-b">MT Type</th>
-              <th className="py-2 px-4 border-b">MT Password</th>
-              <th className="py-2 px-4 border-b">MT Server</th>
-              <th className="py-2 px-4 border-b">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td className="py-2 px-4 border-b">{r.userId}</td>
-                <td className="py-2 px-4 border-b">{r.userName}</td>
-                <td className="py-2 px-4 border-b">{r.strategyName}</td>
-                <td className="py-2 px-4 border-b">{r.plan}</td>
-                <td className="py-2 px-4 border-b">{r.capital}</td>
-                <td className="py-2 px-4 border-b">
-                  <select
-                    value={r.platform || ''}
-                    onChange={(e) => updateDetails(r.id, { platform: (e.target.value || undefined) as any })}
-                    className="bg-gray-700 text-white border border-gray-600 rounded px-2 py-1"
-                  >
-                    <option value="">-</option>
-                    <option value="MT4">MT4</option>
-                    <option value="MT5">MT5</option>
-                  </select>
-                </td>
-                <td className="py-2 px-4 border-b">
-                  <input
-                    defaultValue={r.mtAccountPassword || ''}
-                    placeholder="Password"
-                    className="bg-gray-700 text-white border border-gray-600 rounded px-2 py-1"
-                    onBlur={(e) => updateDetails(r.id, { mt_account_password: e.target.value })}
-                  />
-                </td>
-                <td className="py-2 px-4 border-b">
-                  <input
-                    defaultValue={r.mtAccountServer || ''}
-                    placeholder="Server"
-                    className="bg-gray-700 text-white border border-gray-600 rounded px-2 py-1"
-                    onBlur={(e) => updateDetails(r.id, { mt_account_server: e.target.value })}
-                  />
-                </td>
-                <td className="py-2 px-4 border-b space-y-2">
-                  {renderStatusBadge(r.adminStatus)}
-                  <select
-                    value={r.adminStatus}
-                    onChange={(e) => updateStatus(r.id, e.target.value as Item['adminStatus'])}
-                    className="bg-gray-700 text-white border border-gray-600 rounded px-2 py-1"
-                  >
-                    <option value="in-process">In-Process</option>
-                    <option value="wrong-account-password">Wrong-Account Password</option>
-                    <option value="wrong-account-id">Wrong-Account Id</option>
-                    <option value="wrong-account-server-name">Wrong-Account Server-Name</option>
-                    <option value="running">Running</option>
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
+          <h2 className="text-lg font-semibold mb-3">New Strategy Status</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={newStrategyData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {newStrategyData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Charts Row 2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
+          <h2 className="text-lg font-semibold mb-3">Renewal Strategy Status</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={renewalStrategyData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {renewalStrategyData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
+          <h2 className="text-lg font-semibold mb-3">Modification Strategy Status</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={modificationStrategyData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {modificationStrategyData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Overview Bar Chart */}
+      <div className="p-4 rounded-lg bg-white dark:bg-gray-800 shadow">
+        <h2 className="text-lg font-semibold mb-3">System Overview</h2>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={overviewData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="category" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="count" fill="#3b82f6" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Quick Links */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link href="/admin/plan-usage/total-running-strategy" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="font-semibold mb-2">Total Running Strategy</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">View all running strategies</p>
+        </Link>
+        <Link href="/admin/plan-usage/total-disconnected-strategy" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="font-semibold mb-2">Total Disconnected Strategy</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">View all disconnected strategies</p>
+        </Link>
+        <Link href="/admin/plan-usage/modification" className="block p-4 rounded-lg bg-white dark:bg-gray-800 shadow hover:shadow-lg transition-shadow">
+          <h3 className="font-semibold mb-2">Modifications</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Manage strategy modifications</p>
+        </Link>
       </div>
     </div>
   );
