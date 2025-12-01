@@ -16,6 +16,7 @@ type Item = {
   mtAccountPassword?: string | null;
   mtAccountServer?: string | null;
   adminStatus: string;
+  status?: string;
   createdAt?: string;
 };
 
@@ -47,6 +48,7 @@ const TotalDisconnectedStrategyPage = () => {
         mtAccountPassword: r.mtAccountPassword ?? null,
         mtAccountServer: r.mtAccountServer ?? null,
         adminStatus: (r.adminStatus || r.admin_status || 'in-process')?.toLowerCase(),
+        status: (r.status || '')?.toLowerCase(),
         createdAt: r.createdAt,
       }));
       // build payments map for expiry calculation
@@ -66,7 +68,11 @@ const TotalDisconnectedStrategyPage = () => {
 
       // Filter only disconnected strategies (not running)
       // Show only actual disconnected strategies
-      const disconnectedStrategies = items.filter((item: Item) => (item.adminStatus || '').toLowerCase() === 'disconnected');
+      const disconnectedStrategies = items.filter((item: Item) => {
+        const a = (item.adminStatus || '').toLowerCase();
+        const s = (item.status || '').toLowerCase();
+        return a === 'disconnected' || s === 'stopped';
+      });
       setRows(disconnectedStrategies);
       setError(null);
     } catch (e: any) {
@@ -101,7 +107,7 @@ const TotalDisconnectedStrategyPage = () => {
     if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
     if (k === 'wrong-account-id') return <Badge variant="destructive">Wrong-Account Id</Badge>;
     if (k === 'wrong-account-server-name') return <Badge variant="destructive">Wrong-Account Server Name</Badge>;
-    if (k === 'disconnected') return <Badge variant="destructive">Disconnected</Badge>;
+    if (k === 'disconnected' || k === 'stopped') return <Badge variant="destructive">Disconnected</Badge>;
     return <Badge variant="outline">{status}</Badge>;
   };
 

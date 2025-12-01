@@ -95,9 +95,10 @@ const PendingNewStrategyPage = () => {
         }
       });
 
-      // Filter for pending strategies (adminStatus != 'running') 
+      // Filter for pending strategies (exclude finalized states)
       let pendingStrategies = allStrategies.filter((s: RunningStrategy) => {
-        return s.adminStatus !== 'running';
+        const k = (s.adminStatus || '').toLowerCase();
+        return k !== 'running' && k !== 'disconnected';
       });
       
       // Filter out strategies that have matching renewal payments (only show new strategy ones)
@@ -194,7 +195,7 @@ const PendingNewStrategyPage = () => {
     }
   };
 
-  const updateDetails = async (id: string, payload: Partial<{ platform: 'MT4' | 'MT5'; mt_account_password: string; mt_account_server: string }>) => {
+  const updateDetails = async (id: string, payload: Partial<{ platform: 'MT4' | 'MT5'; mt_account_id: string; mt_account_password: string; mt_account_server: string }>) => {
     try {
       const res = await fetch(`/api/admin/running-strategies/${id}/details`, {
         method: 'PATCH',
@@ -220,7 +221,7 @@ const PendingNewStrategyPage = () => {
   };
 
   const plans = Array.from(new Set(strategies.map((s) => s.plan).filter(Boolean)));
-  const platforms = Array.from(new Set(strategies.map((s) => s.platform).filter(Boolean)));
+  const platforms = Array.from(new Set(strategies.map((s) => s.platform).filter(Boolean))).map((p) => String(p));
   const statuses = Array.from(new Set(strategies.map((s) => s.adminStatus).filter(Boolean)));
 
   return (
@@ -265,7 +266,7 @@ const PendingNewStrategyPage = () => {
           <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="toolbar-select">
             <option value="">All Platforms</option>
             {platforms.map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={String(p)} value={String(p)}>{String(p)}</option>
             ))}
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="toolbar-select">
@@ -278,20 +279,21 @@ const PendingNewStrategyPage = () => {
 
         <div className="overflow-x-auto">
           <table className="w-full payments-table table-sticky">
-            <thead>
-              <tr>
-                <th>User ID</th>
-                <th>User Name</th>
-                <th>Strategy</th>
-                <th>Plan</th>
-                <th>Account Capital</th>
-                <th>MT Type</th>
-                <th>MT Password</th>
-                <th>MT Server</th>
-                <th>Status</th>
-                <th>Expiry Date</th>
-              </tr>
-            </thead>
+          <thead>
+            <tr>
+              <th>User ID</th>
+              <th>User Name</th>
+              <th>Strategy</th>
+              <th>Plan</th>
+              <th>Account Capital</th>
+              <th>MT Type</th>
+              <th>MT Account ID</th>
+              <th>MT Password</th>
+              <th>MT Server</th>
+              <th>Status</th>
+              <th>Expiry Date</th>
+            </tr>
+          </thead>
             <tbody>
               {loading ? (
                 <tr>
@@ -307,14 +309,22 @@ const PendingNewStrategyPage = () => {
                     <td>${s.capital}</td>
                     <td>
                       <select
-                        value={s.platform || ''}
+                        value={String(s.platform ?? '')}
                         onChange={(e) => updateDetails(s.id, { platform: (e.target.value || undefined) as any })}
                         className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
                       >
-                        <option value="">-</option>
+                        <option value="-">-</option>
                         <option value="MT4">MT4</option>
                         <option value="MT5">MT5</option>
                       </select>
+                    </td>
+                    <td>
+                      <input
+                        defaultValue={s.mtAccountId || ''}
+                        placeholder="Account ID"
+                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
+                        onBlur={(e) => updateDetails(s.id, { mt_account_id: e.target.value })}
+                      />
                     </td>
                     <td>
                       <input

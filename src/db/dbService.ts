@@ -1764,7 +1764,7 @@ export const getRunningStrategiesForUser = async (
          WHERE user_id = rs.user_id AND strategy_id = rs.strategy_id
          ORDER BY created_at DESC LIMIT 1
        )
-       WHERE rs.user_id = ? AND rs.status IN ('in-process','active')
+       WHERE rs.user_id = ? AND rs.status IN ('in-process','active','stopped')
        ORDER BY rs.created_at DESC`,
       [userId]
     );
@@ -1773,7 +1773,7 @@ export const getRunningStrategiesForUser = async (
       id: r.id,
       strategyName: r.strategyName,
       status: r.status,
-      adminStatus: (r.adminStatus || r.admin_status || '').toLowerCase(),
+      adminStatus: (r.adminStatus || r.admin_status || (r.status === 'stopped' ? 'disconnected' : '')).toLowerCase(),
       updatedAt: r.updatedAt,
       platform: r.platform ?? null,
       mtAccountId: r.mtAccountId ?? null,
@@ -1821,7 +1821,7 @@ export const getRunningStrategiesAdmin = async (): Promise<
            SELECT MAX(created_at) FROM wallet_transactions w2
            WHERE w2.user_id = rs.user_id AND w2.strategy_id = rs.strategy_id
          )
-       WHERE rs.status IN ('in-process','active')
+       WHERE rs.status IN ('in-process','active','stopped')
        ORDER BY rs.created_at DESC`
     );
 
@@ -1835,7 +1835,7 @@ export const getRunningStrategiesAdmin = async (): Promise<
       plan: r.plan,
       capital: Number(r.capital),
       status: r.status,
-      adminStatus: (r.adminStatus || r.admin_status || '').toLowerCase(),
+      adminStatus: (r.adminStatus || r.admin_status || (r.status === 'stopped' ? 'disconnected' : '')).toLowerCase(),
       platform: r.platform ?? null,
       mtAccountId: r.mtAccountId ?? null,
       mtAccountPassword: r.mtAccountPassword ?? null,
@@ -1854,6 +1854,12 @@ export const updateRunningStrategyAdminStatus = async (
 ) => {
   try {
     await pool.execute('UPDATE running_strategies SET admin_status = ? WHERE id = ?', [status, id]);
+    if (status === 'running') {
+      try { await pool.execute('UPDATE running_strategies SET status = ? WHERE id = ?', ['active', id]); } catch (e) {}
+    }
+    if (status === 'disconnected') {
+      try { await pool.execute('UPDATE running_strategies SET status = ? WHERE id = ?', ['stopped', id]); } catch (e) {}
+    }
     // If admin approves and sets status to running, remove modification records that were in-process
     if (status === 'running' || status === 'disconnected') {
       // When finalized, remove all modifications for any run belonging to the same strategy
@@ -1878,11 +1884,13 @@ export const updateRunningStrategyAdminStatus = async (
       const idx = runs.findIndex((r: any) => r.id === id);
       if (idx !== -1) {
         runs[idx].admin_status = status;
+        if (status === 'running') runs[idx].status = 'active';
+        if (status === 'disconnected') runs[idx].status = 'stopped';
         // update or remove in-process modifications for this run depending on status
         let updatedMods = mods;
         if (status === 'running' || status === 'disconnected') {
           const strategyId = runs[idx].strategy_id;
-          updatedMods = mods.filter((m: any) => !( (runs.find(r => r.id === m.running_strategy_id)?.strategy_id || null) === strategyId ));
+          updatedMods = mods.filter((m: any) => !( (runs.find((r: any) => r.id === m.running_strategy_id)?.strategy_id || null) === strategyId ));
         } else {
           updatedMods = mods.map((m: any) => (m.running_strategy_id === id && m.status === 'in-process' ? { ...m, status } : m));
         }
@@ -1995,7 +2003,9 @@ export const createRunningStrategyModification = async (
       const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
       // Remove previous in-process mods for the same run + user when inserting new one
       // Filter out previous mods for same user + strategy
-      const runsForStrategy = (db.running_strategies || []).filter((r: any) => r.strategy_id === ((db.running_strategies || []).find((rt: any) => rt.id === payload.running_strategy_id) || {}).strategy_id).map(r => r.id);
+      const runsForStrategy = (db.running_strategies || [])
+        .filter((r: any) => r.strategy_id === ((db.running_strategies || []).find((rt: any) => rt.id === payload.running_strategy_id) || {}).strategy_id)
+        .map((r: any) => r.id);
       const filtered = mods.filter(m => !(runsForStrategy.includes(m.running_strategy_id) && m.user_id === payload.user_id));
       filtered.push({ ...payload, new_update_json: payload.new_update_json, created_at: new Date().toISOString() });
       writeDatabase({ ...db, running_strategy_modifications: filtered });
@@ -2057,7 +2067,7 @@ export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => 
 
 export const updateRunningStrategyMtDetails = async (
   id: string,
-  updates: { platform?: 'MT4' | 'MT5'; mt_account_password?: string; mt_account_server?: string }
+  updates: { platform?: 'MT4' | 'MT5'; mt_account_id?: string; mt_account_password?: string; mt_account_server?: string }
 ): Promise<{ success: boolean }> => {
   try {
     const [rsRows] = await pool.execute('SELECT user_id, strategy_id FROM running_strategies WHERE id = ?', [id]);
@@ -2074,6 +2084,7 @@ export const updateRunningStrategyMtDetails = async (
     const fields: string[] = [];
     const values: any[] = [];
     if (typeof updates.platform !== 'undefined') { fields.push('platform = ?'); values.push(updates.platform); }
+    if (typeof updates.mt_account_id !== 'undefined') { fields.push('mt_account_id = ?'); values.push(updates.mt_account_id); }
     if (typeof updates.mt_account_password !== 'undefined') { fields.push('mt_account_password = ?'); values.push(updates.mt_account_password); }
     if (typeof updates.mt_account_server !== 'undefined') { fields.push('mt_account_server = ?'); values.push(updates.mt_account_server); }
     if (fields.length === 0) return { success: true };
@@ -2092,6 +2103,7 @@ export const updateRunningStrategyMtDetails = async (
         .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
       if (!latest) return { success: false };
       if (typeof updates.platform !== 'undefined') latest.platform = updates.platform;
+      if (typeof updates.mt_account_id !== 'undefined') latest.mt_account_id = updates.mt_account_id;
       if (typeof updates.mt_account_password !== 'undefined') latest.mt_account_password = updates.mt_account_password;
       if (typeof updates.mt_account_server !== 'undefined') latest.mt_account_server = updates.mt_account_server;
       latest.updated_at = new Date().toISOString();

@@ -12,16 +12,18 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const body = await req.json().catch(() => ({}))
-  const { platform, mt_account_password, mt_account_server } = body as {
+  const { platform, mt_account_id, mt_account_password, mt_account_server } = body as {
     platform?: 'MT4' | 'MT5'
+    mt_account_id?: string
     mt_account_password?: string
     mt_account_server?: string
   }
-  if (!platform && !mt_account_password && !mt_account_server) {
+  if (!platform && !mt_account_id && !mt_account_password && !mt_account_server) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
   }
   const result = await updateRunningStrategyMtDetails(params.id, {
     platform,
+    mt_account_id,
     mt_account_password,
     mt_account_server,
   })

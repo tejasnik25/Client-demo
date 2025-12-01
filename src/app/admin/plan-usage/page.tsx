@@ -76,7 +76,7 @@ const PlanUsagePage = () => {
 
   const stats = useMemo(() => {
     const running = strategies.filter(s => s.adminStatus === 'running').length;
-    const disconnected = strategies.filter(s => s.adminStatus !== 'running').length;
+    const disconnected = strategies.filter(s => (s.adminStatus || '').toLowerCase() === 'disconnected').length;
     
     const newPending = payments.filter(p => !p.status?.includes('renewal') && ['pending', 'in_process', 'in-process'].includes(p.status)).length;
     const newApproved = payments.filter(p => !p.status?.includes('renewal') && ['approved', 'completed'].includes(p.status)).length;
@@ -204,7 +204,7 @@ const PlanUsagePage = () => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(0)}%`}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
@@ -231,7 +231,7 @@ const PlanUsagePage = () => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(0)}%`}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
@@ -255,7 +255,7 @@ const PlanUsagePage = () => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => `${name} ${((percent as number) * 100).toFixed(0)}%`}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"

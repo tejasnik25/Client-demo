@@ -72,7 +72,7 @@ const RunningStrategiesPage: React.FC = () => {
     const k = (s || '').toLowerCase();
     if (k === 'running') return <Badge variant="success">Running</Badge>;
     if (k === 'in-process') return <Badge variant="warning">In-Process</Badge>;
-    if (k === 'disconnected') return <Badge variant="destructive">Disconnected</Badge>;
+    if (k === 'disconnected' || k === 'stopped') return <Badge variant="destructive">Disconnected</Badge>;
     if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
     if (k === 'wrong-account-id') return <Badge variant="destructive">Wrong-Account Id</Badge>;
     if (k === 'wrong-account-server-name') return <Badge variant="destructive">Wrong-Account Server Name</Badge>;
@@ -108,6 +108,37 @@ const RunningStrategiesPage: React.FC = () => {
         setRunning(runData?.strategies || []);
       } catch (e) {
       }
+      setPendingIds((prev) => prev.filter(id => id !== rsId));
+    }
+  };
+
+  const requestEnable = async (r: any) => {
+    const rsId = (r as any)?.rsId || r?.id;
+    const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
+    if (cur !== 'disconnected' && cur !== 'stopped') return;
+    if (!confirm('Connect this strategy again?')) return;
+    setPendingIds((prev) => [...prev, rsId]);
+    try {
+      const res = await fetch(`/api/running-strategies/${rsId}/modification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'enable' }),
+      });
+      if (!res.ok) throw new Error('Failed to request enable');
+      setRunning((prev: any[]) => prev.map(p => {
+        if (((p as any).id || (p as any).rsId) === rsId) {
+          return { ...p, adminStatus: 'in-process' };
+        }
+        return p;
+      }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      try {
+        const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
+        const runData = await runRes.json();
+        setRunning(runData?.strategies || []);
+      } catch {}
       setPendingIds((prev) => prev.filter(id => id !== rsId));
     }
   };
@@ -227,15 +258,27 @@ const RunningStrategiesPage: React.FC = () => {
                         {(() => {
                           const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
                           const isPending = pendingIds.includes((r as any)?.rsId || r.id);
-                          const btnClass = cur === 'disconnected' ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700';
+                          if (cur === 'disconnected' || cur === 'stopped') {
+                            return (
+                              <Button
+                                size="sm"
+                                className="h-11 w-full md:w-auto bg-green-600 hover:bg-green-700 text-white"
+                                onClick={() => requestEnable(r)}
+                                disabled={isPending}
+                              >
+                                {isPending ? 'Requested' : 'Connect'}
+                              </Button>
+                            );
+                          }
+                          const btnClass = 'bg-red-600 hover:bg-red-700';
                           return (
                             <Button
                               size="sm"
                               className={`h-11 w-full md:w-auto ${btnClass} text-white`}
                               onClick={() => toggleDisconnect(r)}
-                              disabled={isPending || cur === 'in-process' || cur === 'disconnected'}
+                              disabled={isPending || cur === 'in-process'}
                             >
-                              {cur === 'disconnected' ? 'Disconnected' : (isPending || cur === 'in-process' ? 'Requested' : 'Disconnect')}
+                              {isPending || cur === 'in-process' ? 'Requested' : 'Disconnect'}
                             </Button>
                           );
                         })()}

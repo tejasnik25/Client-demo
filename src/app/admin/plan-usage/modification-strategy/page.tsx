@@ -41,6 +41,8 @@ const ModificationStrategyPage = () => {
     if (u.mt_account_password) parts.push('Request to change password');
     if (u.mt_account_id) parts.push(`Request to change account ID to ${u.mt_account_id}`);
     if (u.mt_account_server) parts.push(`Request to change server to ${u.mt_account_server}`);
+    if (u.action && String(u.action).toLowerCase() === 'enable') parts.push('Request to enable the strategy');
+    if (u.action && String(u.action).toLowerCase() === 'disconnect') parts.push('Request to disconnect strategy');
     Object.keys(u).forEach(k => {
       if (['platform','mt_account_password','mt_account_id','mt_account_server'].includes(k)) return;
       parts.push(`Request to change ${k} to ${u[k]}`);
