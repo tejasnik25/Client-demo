@@ -1,4 +1,4 @@
-import NextAuth, { type NextAuthOptions } from 'next-auth';
+import { type NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { loginUser } from '@/db/dbService';
 import bcrypt from 'bcryptjs';
@@ -20,6 +20,12 @@ export const authOptions: NextAuthOptions = {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
         isAdminLogin: { label: 'Is Admin Login', type: 'checkbox', optional: true },
+        powSalt: { label: 'PoW Salt', type: 'text', optional: true },
+        powIssuedAt: { label: 'PoW IssuedAt', type: 'text', optional: true },
+        powDifficulty: { label: 'PoW Difficulty', type: 'text', optional: true },
+        powNonce: { label: 'PoW Nonce', type: 'text', optional: true },
+        powSignature: { label: 'PoW Signature', type: 'text', optional: true },
+        powAction: { label: 'PoW Action', type: 'text', optional: true },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
@@ -28,6 +34,54 @@ export const authOptions: NextAuthOptions = {
         }
 
         console.log(`Login attempt with email: ${credentials.email}`);
+
+        const secret = process.env.NEXTAUTH_SECRET || 'your-secret-key';
+        type Creds = {
+          email: string;
+          password: string;
+          isAdminLogin?: string | boolean;
+          powSalt?: string;
+          powIssuedAt?: string | number;
+          powDifficulty?: string | number;
+          powNonce?: string | number;
+          powSignature?: string;
+          powAction?: string;
+        };
+        const cred = credentials as Creds;
+        const powSalt = cred.powSalt;
+        const powIssuedAt = cred.powIssuedAt;
+        const powDifficulty = cred.powDifficulty;
+        const powNonce = cred.powNonce;
+        const powSignature = cred.powSignature;
+        const powAction = cred.powAction || 'login';
+        if (!powSalt || !powIssuedAt || !powDifficulty || !powNonce || !powSignature) {
+          console.log('Login blocked: Missing PoW');
+          return null;
+        }
+        const issuedMs = typeof powIssuedAt === 'string' ? parseInt(powIssuedAt, 10) : Number(powIssuedAt);
+        const diff = typeof powDifficulty === 'string' ? parseInt(powDifficulty, 10) : Number(powDifficulty);
+        const now = Date.now();
+        if (!Number.isFinite(issuedMs) || !Number.isFinite(diff)) {
+          return null;
+        }
+        if (now - issuedMs > 2 * 60 * 1000) {
+          console.log('Login blocked: PoW expired');
+          return null;
+        }
+        const sigBase = `${powSalt}:${issuedMs}:${diff}:${powAction}`;
+        const sig = (await import('crypto')).createHmac('sha256', secret).update(sigBase).digest('hex');
+        if (sig !== powSignature) {
+          console.log('Login blocked: PoW signature invalid');
+          return null;
+        }
+        const hash = (await import('crypto')).createHash('sha256').update(`${powSalt}:${powAction}:${credentials.email}:${powNonce}`).digest('hex');
+        const prefix = '0'.repeat(diff);
+        if (!hash.startsWith(prefix)) {
+          console.log('Login blocked: PoW insufficient');
+          return null;
+        }
+
+        // credentials are validated above
 
         // Admin login - prioritize this check
         if (credentials.email === adminUser.email) {
@@ -77,12 +131,12 @@ export const authOptions: NextAuthOptions = {
         try {
           const { readDatabase } = await import('@/db/dbService');
           const db = readDatabase();
-          const jsonUser = db.users.find((u: any) => u.id === result.user!.id || u.email === result.user!.email);
+          const jsonUser = db.users.find((u: { id?: string; email?: string; enabled?: boolean }) => u.id === result.user!.id || u.email === result.user!.email);
           if (jsonUser && jsonUser.enabled === false) {
             console.log('Login blocked: user is disabled');
             return null;
           }
-        } catch (e) {
+        } catch {
           console.warn('Could not verify enabled status, proceeding by default');
         }
 
@@ -99,17 +153,24 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        (token as any).id = (user as any).id;
-        (token as any).role = (user as any).role;
-        (token as any).name = (user as any).name;
+        type AppUser = { id: string; role?: string; name?: string };
+        const u = user as AppUser;
+        return { ...token, id: u.id, role: u.role, name: u.name } as typeof token & {
+          id?: string;
+          role?: string;
+          name?: string;
+        };
       }
       return token;
     },
     async session({ session, token }) {
-      if (token && session.user) {
-        (session.user as any).id = (token as any).id as string;
-        (session.user as any).role = (token as any).role as string;
-        (session.user as any).name = (token as any).name as string;
+      const t = token as typeof token & { id?: string; role?: string; name?: string };
+      if (session.user) {
+        const u = session.user as typeof session.user & { id?: string; role?: string; name?: string };
+        u.id = t.id;
+        u.role = t.role;
+        u.name = t.name;
+        return { ...session, user: u };
       }
       return session;
     },

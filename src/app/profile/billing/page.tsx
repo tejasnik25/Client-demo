@@ -59,6 +59,14 @@ const BillingPage: React.FC = () => {
     }
   }, [mine, filter]);
 
+  const formatINR = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const totalSpent = useMemo(() => {
+    const successful = mine.filter(t => t.status === 'completed');
+    return successful.reduce((sum, t) => sum + (t.inr_amount ?? t.amount), 0);
+  }, [mine]);
+
+
   return (
     <UserLayout>
       <div className="min-h-screen bg-[#0f1527] text-white px-6 py-8">
@@ -70,17 +78,24 @@ const BillingPage: React.FC = () => {
           <Link href="/strategies" className="px-4 py-2 rounded-lg bg-[#1a1f2e] border border-[#283046] hover:bg-[#1f243a]">Back to Strategies</Link>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-[#161d31] border border-[#283046] rounded-2xl p-4">
+            <div className="text-xs text-gray-400 uppercase tracking-wider">Total Spent</div>
+            <div className="text-xl font-bold text-white mt-1">{formatINR(totalSpent)}</div>
+          </div>
+        </div>
+
         {/* Filters */}
         <div className="flex gap-3 mb-5">
-          {[
+          {([
             { k: 'all', label: 'All' },
             { k: 'successful', label: 'Successful' },
             { k: 'rejected', label: 'Rejected' },
             { k: 'pending', label: 'Pending' },
-          ].map(({ k, label }) => (
+          ] as Array<{ k: 'all' | 'successful' | 'rejected' | 'pending'; label: string }>).map(({ k, label }) => (
             <button
               key={k}
-              onClick={() => setFilter(k as any)}
+              onClick={() => setFilter(k)}
               className={`px-4 py-2 rounded-xl text-sm font-medium ${filter === k ? 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7]' : 'bg-[#1a1f2e] border border-[#283046] text-gray-300 hover:bg-[#1f243a]'}`}
             >
               {label}

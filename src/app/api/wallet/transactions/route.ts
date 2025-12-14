@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/lib/auth-options';
 
 export async function POST(request: NextRequest) {
   try {
@@ -91,8 +93,13 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const { getAllTransactions } = await import('@/db/dbService');
-    const rows = await getAllTransactions();
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { getTransactionsByUser } = await import('@/db/dbService');
+    const rows = await getTransactionsByUser(session.user.id);
     const transactions = rows.map((t: any) => ({
       id: t.id,
       user_id: t.user_id,

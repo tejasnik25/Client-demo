@@ -13,6 +13,26 @@ import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
 // Admin login page component
 export default function AdminLoginPage() {
   const router = useRouter();
+  const sha256Hex = async (input: string) => {
+    const enc = new TextEncoder();
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode(input));
+    const arr = Array.from(new Uint8Array(buf));
+    return arr.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+  const solvePow = async (action: string, email: string) => {
+    const res = await fetch(`/api/auth/pow?action=${encodeURIComponent(action)}`);
+    if (!res.ok) throw new Error('Failed to get PoW');
+    const { salt, issuedAt, difficulty, signature } = await res.json();
+    const prefix = '0'.repeat(difficulty as number);
+    let nonce = 0;
+    while (true) {
+      const h = await sha256Hex(`${salt}:${action}:${email}:${nonce}`);
+      if (h.startsWith(prefix)) {
+        return { salt, issuedAt, difficulty, nonce, signature, action };
+      }
+      nonce++;
+    }
+  };
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -84,10 +104,18 @@ export default function AdminLoginPage() {
       setIsLoading(true);
       
       // Add a flag to indicate this is an admin login attempt
+
+      const pow = await solvePow('admin_login', formData.email);
       const result = await signIn('credentials', {
         email: formData.email,
         password: formData.password,
         isAdminLogin: true,
+        powSalt: pow.salt,
+        powIssuedAt: pow.issuedAt,
+        powDifficulty: pow.difficulty,
+        powNonce: pow.nonce,
+        powSignature: pow.signature,
+        powAction: pow.action,
         redirect: false,
       });
       

@@ -13,6 +13,26 @@ import '@/styles/vuexy-theme.css';
 export default function SignupPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const sha256Hex = async (input: string) => {
+    const enc = new TextEncoder();
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode(input));
+    const arr = Array.from(new Uint8Array(buf));
+    return arr.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+  const solvePow = async (action: string, email: string) => {
+    const res = await fetch(`/api/auth/pow?action=${encodeURIComponent(action)}`);
+    if (!res.ok) throw new Error('Failed to get PoW');
+    const { salt, issuedAt, difficulty, signature } = await res.json();
+    const prefix = '0'.repeat(difficulty as number);
+    let nonce = 0;
+    while (true) {
+      const h = await sha256Hex(`${salt}:${action}:${email}:${nonce}`);
+      if (h.startsWith(prefix)) {
+        return { salt, issuedAt, difficulty, nonce, signature, action };
+      }
+      nonce++;
+    }
+  };
   
   const [formData, setFormData] = useState({
     name: '',
@@ -66,6 +86,7 @@ export default function SignupPage() {
       setErrors(prev => ({ ...prev, general: '' }));
       
       // Register user using our API
+      const powReg = await solvePow('signup', formData.email);
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: {
@@ -76,6 +97,12 @@ export default function SignupPage() {
           name: formData.name,
           email: formData.email,
           password: formData.password,
+          powSalt: powReg.salt,
+          powIssuedAt: powReg.issuedAt,
+          powDifficulty: powReg.difficulty,
+          powNonce: powReg.nonce,
+          powSignature: powReg.signature,
+          powAction: powReg.action,
         }),
       });
 
@@ -91,10 +118,17 @@ export default function SignupPage() {
         throw new Error(data.error || 'Failed to register user.');
       }
 
-      // Sign in the user after successful registration
+      // Sign in the user after successful registration (reuses the same page captcha if available)
+      const powLogin = await solvePow('login', formData.email);
       const result = await signIn('credentials', {
         email: formData.email,
         password: formData.password,
+        powSalt: powLogin.salt,
+        powIssuedAt: powLogin.issuedAt,
+        powDifficulty: powLogin.difficulty,
+        powNonce: powLogin.nonce,
+        powSignature: powLogin.signature,
+        powAction: powLogin.action,
         redirect: false,
       });
 
@@ -208,6 +242,7 @@ export default function SignupPage() {
               </label>
             </div>
             
+            {/* Invisible reCAPTCHA v3 executes on submit; no visible widget */}
             <Button
               type="submit"
               className="vuexy-btn vuexy-btn-primary vuexy-btn-block"

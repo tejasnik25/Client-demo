@@ -9,14 +9,15 @@ async function detectBucketRegion(client: S3Client): Promise<string | null> {
   try {
     await client.send(new HeadBucketCommand({ Bucket: bucket }));
     return region || null;
-  } catch (err: any) {
-    const headers = err?.$metadata?.httpHeaders || {};
+  } catch (err: unknown) {
+    const e = err as { $metadata?: { httpHeaders?: Record<string, string> }; Endpoint?: string };
+    const headers = e?.$metadata?.httpHeaders || {};
     const hinted = headers['x-amz-bucket-region'] || headers['X-Amz-Bucket-Region'];
     if (typeof hinted === 'string' && hinted.length > 0) {
       return hinted;
     }
     // Try parsing endpoint from error if available
-    const endpoint = err?.Endpoint as string | undefined;
+    const endpoint = e?.Endpoint as string | undefined;
     if (endpoint && endpoint.includes('.s3.')) {
       const parts = endpoint.split('.s3.')[1]?.split('.amazonaws');
       const epRegion = parts && parts[0] ? parts[0] : null;
@@ -37,14 +38,15 @@ export async function uploadToS3(
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
-    Body: body as any,
+    Body: body,
     ContentType: contentType,
   });
   try {
     await s3Client.send(command);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const e = err as { Code?: string; name?: string };
     // Handle region mismatch redirects by detecting bucket region and retrying once
-    const isPermanentRedirect = err?.Code === 'PermanentRedirect' || err?.name === 'PermanentRedirect';
+    const isPermanentRedirect = e?.Code === 'PermanentRedirect' || e?.name === 'PermanentRedirect';
     if (isPermanentRedirect) {
       const hintedRegion = await detectBucketRegion(s3Client);
       if (hintedRegion && hintedRegion !== region) {

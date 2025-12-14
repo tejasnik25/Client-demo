@@ -1304,6 +1304,48 @@ export const getAllTransactions = async (): Promise<WalletTransaction[]> => {
   }
 };
 
+export const getTransactionsByUser = async (userId: string): Promise<WalletTransaction[]> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC', [userId]);
+
+    // Overlay JSON fallback store in case some fields exist only there (e.g., admin_message)
+    let jsonMap: Map<string, any> | null = null;
+    try {
+      const db: any = readDatabase();
+      const arr: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      jsonMap = new Map(arr.map(t => [t.id, t]));
+    } catch {}
+
+    return (rows as any[]).map(row => {
+      const merged = { ...row };
+      if (jsonMap && jsonMap.has(row.id)) {
+        const j = jsonMap.get(row.id);
+        if (typeof j.admin_message !== 'undefined') merged.admin_message = j.admin_message;
+        if (typeof j.admin_message_status !== 'undefined') merged.admin_message_status = j.admin_message_status;
+        if (typeof j.rejection_reason !== 'undefined') merged.rejection_reason = j.rejection_reason;
+        if (typeof j.capital !== 'undefined') merged.capital = j.capital;
+        if (typeof j.mt_account_server !== 'undefined') merged.mt_account_server = j.mt_account_server;
+      }
+      return {
+        ...merged,
+        amount: parseFloat(merged.amount),
+        created_at: merged.created_at.toISOString(),
+        updated_at: merged.updated_at ? merged.updated_at.toISOString() : undefined
+      };
+    });
+  } catch (error) {
+    console.error('MySQL getTransactionsByUser failed, falling back to JSON:', error);
+    try {
+      const db: any = readDatabase();
+      const arr: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions.filter((t: any) => t.user_id === userId) : [];
+      return arr.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } catch (jsonError) {
+      console.error('JSON fallback getTransactionsByUser failed:', jsonError);
+      return [];
+    }
+  }
+};
+
 export const updateTransactionStatus = async (
   transactionId: string,
   status: 'completed' | 'failed',

@@ -14,7 +14,7 @@ type Tx = {
   transaction_type: 'deposit' | 'charge';
   payment_method?: string;
   transaction_id?: string;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'failed' | 'approved';
   inr_amount?: number;
   plan_level?: 'Premium' | 'Expert' | 'Pro';
   strategy_id?: string;
@@ -25,19 +25,28 @@ type Tx = {
 const BillingPage: React.FC = () => {
   const { user } = useAuth();
   const [txs, setTxs] = useState<Tx[]>([]);
+  const [strategies, setStrategies] = useState<{ id: string; name: string; enabled?: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'successful' | 'rejected' | 'pending'>('all');
+  const formatINR = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
-        const res = await fetch('/api/wallet/transactions');
-        const data = await res.json();
-        const list: Tx[] = data?.transactions || [];
+        const [txRes, stratRes] = await Promise.all([
+          fetch('/api/wallet/transactions'),
+          fetch('/api/strategies')
+        ]);
+        const txData = await txRes.json();
+        const stratData = await stratRes.json();
+        const list: Tx[] = txData?.transactions || [];
         setTxs(list);
+        const fetched = (stratData?.strategies || []).map((s: { id?: string | number; name?: string; enabled?: boolean }) => ({ id: String(s.id ?? ''), name: String(s.name ?? ''), enabled: s.enabled !== false }));
+        setStrategies(fetched.filter((s: { enabled?: boolean }) => s.enabled !== false));
       } catch {
         setTxs([]);
+        setStrategies([]);
       } finally {
         setLoading(false);
       }
@@ -45,14 +54,20 @@ const BillingPage: React.FC = () => {
     load();
   }, []);
 
-  const mine = useMemo(() => (user ? txs.filter(t => t.user_id === user.id) : []), [txs, user]);
+  const mine = useMemo(() => txs, [txs]);
+  
+  const strategyMap = useMemo(() => {
+    const map = new Map<string, string>();
+    strategies.forEach(s => map.set(s.id, s.name));
+    return map;
+  }, [strategies]);
   
   const exportToExcel = () => {
     const exportData = filtered.map(tx => ({
       'Transaction ID': tx.id,
       'Payment ID': tx.transaction_id || 'N/A',
-      'Status': tx.status === 'completed' ? 'Successful' : tx.status === 'failed' ? 'Failed' : 'Pending',
-      'Type': tx.transaction_type,
+      'Status': (tx.status === 'completed' || tx.status === 'approved') ? 'Successful' : tx.status === 'failed' ? 'Failed' : 'Pending',
+      'Strategy': strategyMap.get(tx.strategy_id || '') || 'N/A',
       'Amount (₹)': tx.inr_amount ?? tx.amount,
       'Plan': tx.plan_level || 'N/A',
       'Payment Method': tx.payment_method || 'N/A',
@@ -71,7 +86,7 @@ const BillingPage: React.FC = () => {
   const filtered = useMemo(() => {
     switch (filter) {
       case 'successful':
-        return mine.filter(t => t.status === 'completed');
+        return mine.filter(t => t.status === 'completed' || t.status === 'approved');
       case 'rejected':
         return mine.filter(t => t.status === 'failed');
       case 'pending':
@@ -83,12 +98,12 @@ const BillingPage: React.FC = () => {
 
   // Calculate stats
   const stats = useMemo(() => {
-    const successful = mine.filter(t => t.status === 'completed');
+    const successful = mine.filter(t => t.status === 'completed' || t.status === 'approved');
     const pending = mine.filter(t => t.status === 'pending');
     const failed = mine.filter(t => t.status === 'failed');
     
-    const totalSpent = successful.reduce((sum, t) => sum + (t.inr_amount ?? t.amount), 0);
-    const pendingAmount = pending.reduce((sum, t) => sum + (t.inr_amount ?? t.amount), 0);
+    const totalSpent = successful.reduce((sum, t) => sum + Number(t.inr_amount ?? t.amount), 0);
+    const pendingAmount = pending.reduce((sum, t) => sum + Number(t.inr_amount ?? t.amount), 0);
     
     return {
       totalTransactions: mine.length,
@@ -100,9 +115,11 @@ const BillingPage: React.FC = () => {
     };
   }, [mine]);
 
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
+      case 'approved':
         return <FiCheck className="h-4 w-4 text-[#00d09c]" />;
       case 'failed':
         return <FiX className="h-4 w-4 text-red-400" />;
@@ -116,6 +133,7 @@ const BillingPage: React.FC = () => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
+      case 'approved':
         return 'text-[#00d09c] bg-[#00d09c]/10';
       case 'failed':
         return 'text-red-400 bg-red-400/10';
@@ -153,7 +171,7 @@ const BillingPage: React.FC = () => {
               </div>
               <span className="text-xs text-gray-400 uppercase tracking-wider">Total Spent</span>
             </div>
-            <div className="text-2xl font-bold text-white">₹{stats.totalSpent.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-white">{formatINR(stats.totalSpent)}</div>
             <div className="text-sm text-gray-400 mt-1">{stats.successful} successful payments</div>
           </div>
 
@@ -164,7 +182,7 @@ const BillingPage: React.FC = () => {
               </div>
               <span className="text-xs text-gray-400 uppercase tracking-wider">Pending</span>
             </div>
-            <div className="text-2xl font-bold text-white">₹{stats.pendingAmount.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-white">{formatINR(stats.pendingAmount)}</div>
             <div className="text-sm text-gray-400 mt-1">{stats.pending} pending payments</div>
           </div>
 
@@ -193,15 +211,15 @@ const BillingPage: React.FC = () => {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-6">
-          {[
+          {([
             { k: 'all', label: 'All Transactions', count: stats.totalTransactions },
             { k: 'successful', label: 'Successful', count: stats.successful },
             { k: 'pending', label: 'Pending', count: stats.pending },
             { k: 'rejected', label: 'Failed', count: stats.failed },
-          ].map(({ k, label, count }) => (
+          ] as Array<{ k: 'all' | 'successful' | 'rejected' | 'pending'; label: string; count: number }>).map(({ k, label, count }) => (
             <button
               key={k}
-              onClick={() => setFilter(k as any)}
+              onClick={() => setFilter(k)}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 fx-3d-card ${
                 filter === k 
                   ? 'bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white shadow-lg' 
@@ -233,7 +251,7 @@ const BillingPage: React.FC = () => {
                 <FiCreditCard className="h-8 w-8 text-gray-400" />
               </div>
               <h3 className="text-lg font-medium text-white mb-2">No transactions found</h3>
-              <p className="text-gray-400 mb-6">You haven't made any {filter !== 'all' ? filter : ''} transactions yet.</p>
+              <p className="text-gray-400 mb-6">You haven&apos;t made any {filter !== 'all' ? filter : ''} transactions yet.</p>
               <Link
                 href="/strategies"
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-[#00d09c] to-[#7c3aed] text-white font-medium hover:shadow-lg transition-all duration-200 fx-3d-card"
@@ -261,18 +279,18 @@ const BillingPage: React.FC = () => {
                         </div>
                       </div>
                       <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(tx.status)}`}>
-                        {tx.status === 'completed' ? 'Successful' : tx.status === 'failed' ? 'Failed' : 'Pending'}
+                        {(tx.status === 'completed' || tx.status === 'approved') ? 'Successful' : tx.status === 'failed' ? 'Failed' : 'Pending'}
                       </div>
                     </div>
 
                     <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <div className="text-gray-400">Type</div>
-                        <div className="capitalize text-white">{tx.transaction_type}</div>
+                        <div className="text-gray-400">Strategy</div>
+                        <div className="text-white">{strategyMap.get(tx.strategy_id || '') || 'N/A'}</div>
                       </div>
                       <div>
                         <div className="text-gray-400">Amount</div>
-                        <div className="font-semibold text-white">₹{(tx.inr_amount ?? tx.amount).toLocaleString()}</div>
+                        <div className="font-semibold text-white">{formatINR(Number(tx.inr_amount ?? tx.amount))}</div>
                       </div>
                       <div>
                         <div className="text-gray-400">Plan</div>
@@ -320,7 +338,7 @@ const BillingPage: React.FC = () => {
                     <tr className="border-b border-[#2d4a6b]/30">
                       <th className="text-left p-4 text-sm font-medium text-gray-400 uppercase tracking-wider">Transaction</th>
                       <th className="text-left p-4 text-sm font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-400 uppercase tracking-wider">Type</th>
+                      <th className="text-left p-4 text-sm font-medium text-gray-400 uppercase tracking-wider">Strategy</th>
                       <th className="text-left p-4 text-sm font-medium text-gray-400 uppercase tracking-wider">Amount</th>
                       <th className="text-left p-4 text-sm font-medium text-gray-400 uppercase tracking-wider">Plan</th>
                       <th className="text-left p-4 text-sm font-medium text-gray-400 uppercase tracking-wider">Date</th>
@@ -347,7 +365,7 @@ const BillingPage: React.FC = () => {
                           <div className="flex items-center gap-2">
                             {getStatusIcon(tx.status)}
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(tx.status)}`}>
-                              {tx.status === 'completed' ? 'Successful' : tx.status === 'failed' ? 'Failed' : 'Pending'}
+                              {(tx.status === 'completed' || tx.status === 'approved') ? 'Successful' : tx.status === 'failed' ? 'Failed' : 'Pending'}
                             </span>
                           </div>
                           {tx.status === 'failed' && tx.rejection_reason && (
@@ -357,10 +375,10 @@ const BillingPage: React.FC = () => {
                           )}
                         </td>
                         <td className="p-4">
-                          <span className="capitalize text-gray-300">{tx.transaction_type}</span>
+                          <span className="text-gray-300">{strategyMap.get(tx.strategy_id || '') || 'N/A'}</span>
                         </td>
                         <td className="p-4">
-                          <div className="font-medium text-white">₹{(tx.inr_amount ?? tx.amount).toLocaleString()}</div>
+                          <div className="font-medium text-white">{formatINR(Number(tx.inr_amount ?? tx.amount))}</div>
                         </td>
                         <td className="p-4">
                           {tx.plan_level ? (
