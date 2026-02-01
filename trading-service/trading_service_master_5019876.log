@@ -1,0 +1,8 @@
+2026-02-01 12:10:14,641 - INFO - \u2705 Found Subscription File: subscriptions_v2.json
+2026-02-01 12:10:14,728 - INFO - \U0001f4c2 Loaded Subscriptions from subscriptions_v2.json
+2026-02-01 12:10:14,729 - INFO - \u2705 Parsed 1 subscriptions.
+2026-02-01 12:10:14,729 - INFO -    - Master: 5019876 -> Slave: uup
+2026-02-01 12:10:14,730 - INFO - \U0001f4c2 Loaded Subscriptions from subscriptions_v2.json
+2026-02-01 12:10:14,731 - INFO - \u2705 Parsed 1 subscriptions.
+2026-02-01 12:10:14,731 - INFO -    - Master: 5019876 -> Slave: uup
+2026-02-01 12:10:24,147 - INFO - \u2717 MT5 Init Failed. Retrying in 10s...

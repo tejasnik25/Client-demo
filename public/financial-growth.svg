@@ -1,0 +1,27 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="90" fill="url(#purpleGradient)" />
+  
+  <!-- Growth Arrow -->
+  <path d="M50,150 L150,50" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" />
+  
+  <!-- Arrow Head -->
+  <path d="M150,50 L130,50 L150,50 L150,70" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Dollar Sign -->
+  <path d="M100,80 L100,120" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" />
+  <path d="M90,85 C90,80 95,75 100,75 C105,75 110,80 110,85 C110,90 105,95 100,95 C95,95 90,100 90,105 C90,110 95,115 100,115 C105,115 110,110 110,105" 
+        stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" />
+  
+  <!-- Small Chart Lines -->
+  <path d="M60,130 L70,120 L80,125 L90,115 L100,120 L110,110 L120,115 L130,105 L140,110" 
+        stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Gradient Definitions -->
+  <defs>
+    <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#EC4899" />
+    </linearGradient>
+  </defs>
+</svg>

@@ -1,0 +1,79 @@
+<svg width="800" height="600" viewBox="0 0 800 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Grid -->
+  <rect width="800" height="600" fill="#F8FAFC" />
+  <g stroke="#E2E8F0" stroke-width="1">
+    <!-- Horizontal grid lines -->
+    <line x1="0" y1="100" x2="800" y2="100" />
+    <line x1="0" y1="200" x2="800" y2="200" />
+    <line x1="0" y1="300" x2="800" y2="300" />
+    <line x1="0" y1="400" x2="800" y2="400" />
+    <line x1="0" y1="500" x2="800" y2="500" />
+    
+    <!-- Vertical grid lines -->
+    <line x1="100" y1="0" x2="100" y2="600" />
+    <line x1="200" y1="0" x2="200" y2="600" />
+    <line x1="300" y1="0" x2="300" y2="600" />
+    <line x1="400" y1="0" x2="400" y2="600" />
+    <line x1="500" y1="0" x2="500" y2="600" />
+    <line x1="600" y1="0" x2="600" y2="600" />
+    <line x1="700" y1="0" x2="700" y2="600" />
+  </g>
+  
+  <!-- Stock Chart Line -->
+  <path d="M50,450 L100,400 L150,420 L200,380 L250,350 L300,370 L350,320 L400,280 L450,300 L500,250 L550,220 L600,240 L650,180 L700,150 L750,200" 
+        stroke="#3B82F6" stroke-width="3" fill="none" />
+  
+  <!-- Area under the line -->
+  <path d="M50,450 L100,400 L150,420 L200,380 L250,350 L300,370 L350,320 L400,280 L450,300 L500,250 L550,220 L600,240 L650,180 L700,150 L750,200 L750,550 L50,550 Z" 
+        fill="url(#blueGradient)" fill-opacity="0.2" />
+  
+  <!-- Candlestick Chart Elements -->
+  <g>
+    <!-- Candlestick 1 (Green/Up) -->
+    <line x1="100" y1="380" x2="100" y2="420" stroke="#10B981" stroke-width="2" />
+    <rect x="90" y="390" width="20" height="30" fill="#10B981" />
+    
+    <!-- Candlestick 2 (Red/Down) -->
+    <line x1="150" y1="400" x2="150" y2="440" stroke="#EF4444" stroke-width="2" />
+    <rect x="140" y="400" width="20" height="40" fill="#EF4444" />
+    
+    <!-- Candlestick 3 (Green/Up) -->
+    <line x1="200" y1="360" x2="200" y2="400" stroke="#10B981" stroke-width="2" />
+    <rect x="190" y="360" width="20" height="40" fill="#10B981" />
+    
+    <!-- Candlestick 4 (Green/Up) -->
+    <line x1="250" y1="330" x2="250" y2="370" stroke="#10B981" stroke-width="2" />
+    <rect x="240" y="330" width="20" height="40" fill="#10B981" />
+    
+    <!-- Candlestick 5 (Red/Down) -->
+    <line x1="300" y1="350" x2="300" y2="390" stroke="#EF4444" stroke-width="2" />
+    <rect x="290" y="350" width="20" height="40" fill="#EF4444" />
+  </g>
+  
+  <!-- Data Points -->
+  <g>
+    <circle cx="50" cy="450" r="5" fill="#3B82F6" />
+    <circle cx="100" cy="400" r="5" fill="#3B82F6" />
+    <circle cx="150" cy="420" r="5" fill="#3B82F6" />
+    <circle cx="200" cy="380" r="5" fill="#3B82F6" />
+    <circle cx="250" cy="350" r="5" fill="#3B82F6" />
+    <circle cx="300" cy="370" r="5" fill="#3B82F6" />
+    <circle cx="350" cy="320" r="5" fill="#3B82F6" />
+    <circle cx="400" cy="280" r="5" fill="#3B82F6" />
+    <circle cx="450" cy="300" r="5" fill="#3B82F6" />
+    <circle cx="500" cy="250" r="5" fill="#3B82F6" />
+    <circle cx="550" cy="220" r="5" fill="#3B82F6" />
+    <circle cx="600" cy="240" r="5" fill="#3B82F6" />
+    <circle cx="650" cy="180" r="5" fill="#3B82F6" />
+    <circle cx="700" cy="150" r="5" fill="#3B82F6" />
+    <circle cx="750" cy="200" r="5" fill="#3B82F6" />
+  </g>
+  
+  <!-- Gradient Definitions -->
+  <defs>
+    <linearGradient id="blueGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0.1" />
+    </linearGradient>
+  </defs>
+</svg>
