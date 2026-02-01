@@ -40,96 +40,94 @@ last_db_mtime = 0
 
 def get_subscriptions_from_db():
     """
-    Reads ../src/db/database.json directly and returns subscriptions.
-    Replaces the old sync-to-file mechanism.
+    Reads subscriptions from valid source.
+    Priority 1: subscriptions_v2.json (API Push Mode - Production)
+    Priority 2: database.json (Direct DB Mode - Local Dev)
     """
     global last_db_mtime
-    try:
-        db_path = os.path.join(BASE_DIR, "..", "src", "db", "database.json")
-        if not os.path.exists(db_path):
-            return []
-            
-        with open(db_path, 'r') as f:
-            data = json.load(f)
-            
-        strategies = {s['id']: s for s in data.get('strategies', [])}
-        transactions = data.get('wallet_transactions', [])
-        
-        subs = []
-        processed_keys = set()
-        
-        # Sort transactions by date (newest first) to get latest settings
-        transactions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-        
-        for tx in transactions:
-            # Filter for completed transactions only
-            if tx.get('status') != 'completed':
-                continue
-                
-            # Optional: Check transaction_type if needed
-            if tx.get('transaction_type') != 'deposit':
-                continue
-                
-            uid = tx.get('user_id')
-            sid = tx.get('strategy_id')
-            
-            if not uid or not sid:
-                continue
-                
-            key = f"{uid}_{sid}"
-            if key in processed_keys:
-                continue
-            processed_keys.add(key)
-            
-            # Match Strategy
-            strat = strategies.get(sid)
-            if not strat:
-                continue
-                
-            # 1. Master Credentials (From Strategy)
-            master_id = strat.get('masterAccountId')
-            master_pass = strat.get('masterAccountPassword')
-            master_server = strat.get('masterAccountServer')
-            
-            if not master_id or not master_pass or not master_server:
-                continue
+    
+    # 1. Try API Push File (Standard for Production/Vercel)
+    api_file = os.path.join(BASE_DIR, "subscriptions_v2.json")
+    if os.path.exists(api_file):
+        try:
+            with open(api_file, 'r') as f:
+                data = json.load(f)
+                return data
+        except:
+            pass # Malformed, continue to DB check
 
-            # 2. Slave Credentials (From Transaction)
-            slave_id = tx.get('mt_account_id')
-            slave_pass = tx.get('mt_account_password')
-            slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo')
+    # 2. Try Local Database (Local Development)
+    candidates = [
+        os.path.join(BASE_DIR, "..", "src", "db", "database.json"),
+        os.path.join(BASE_DIR, "database.json"),
+        os.path.join(os.getcwd(), "database.json"),
+        r"C:\Users\Administrator\Desktop\src\db\database.json",
+    ]
+    
+    db_path = None
+    for p in candidates:
+        if os.path.exists(p):
+            db_path = p
+            break
+    
+    if db_path:
+        try:
+            with open(db_path, 'r') as f:
+                data = json.load(f)
+                
+            # Convert DB format to Subscription format
+            strategies = {s['id']: s for s in data.get('strategies', [])}
+            transactions = data.get('wallet_transactions', [])
+            subs = []
+            transactions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            processed_keys = set()
             
-            if not slave_id or not slave_pass:
-                continue
+            for tx in transactions:
+                if tx.get('status') != 'completed': continue
+                uid = tx.get('userId')
+                sid = tx.get('strategyId')
+                key = f"{uid}_{sid}"
+                if key in processed_keys: continue
+                processed_keys.add(key)
+                
+                strat = strategies.get(sid)
+                if not strat: continue
+                
+                master_id = strat.get('masterAccountId')
+                master_pass = strat.get('masterAccountPassword')
+                master_server = strat.get('masterAccountServer')
+                
+                if not master_id or not master_pass or not master_server: continue
 
-            # 3. Construct Subscription
-            sub = {
-                "id": f"sub_{uid}_{sid}",
-                "externalId": tx.get('id'),
-                "master": {
-                    "id": str(master_id),
-                    "password": master_pass,
-                    "server": master_server,
-                    "platform": strat.get('masterPlatform', 'MT5')
-                },
-                "slave": {
-                    "id": str(slave_id),
-                    "password": slave_pass,
-                    "server": slave_server,
-                    "platform": tx.get('platform', 'MT5')
-                },
-                "settings": {
-                    "riskType": "balance_multiplier",
-                    "riskValue": 1.0
+                slave_id = tx.get('mt_account_id')
+                slave_pass = tx.get('mt_account_password')
+                slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo')
+                
+                if not slave_id or not slave_pass: continue
+
+                sub = {
+                    "id": f"sub_{uid}_{sid}",
+                    "externalId": tx.get('id'),
+                    "master": {
+                        "id": str(master_id),
+                        "password": master_pass,
+                        "server": master_server,
+                        "platform": strat.get('masterPlatform', 'MT5')
+                    },
+                    "slave": {
+                        "id": str(slave_id),
+                        "password": slave_pass,
+                        "server": slave_server,
+                        "platform": tx.get('platform', 'MT5')
+                    },
+                    "settings": {"riskType": "balance_multiplier", "riskValue": 1.0}
                 }
-            }
-            subs.append(sub)
-            
-        return subs
-            
-    except Exception as e:
-        print(f"⚠ DB Read Failed: {e}")
-        return []
+                subs.append(sub)
+            return subs
+        except Exception:
+            return []
+
+    return []
 
 def find_mt5_exe():
     """Finds the base terminal64.exe"""
