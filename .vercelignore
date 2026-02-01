@@ -1,0 +1,10 @@
+# MT5 terminals and instances
+MT5_Instances/
+trading-service/MT5_Instances/
+
+# Executables
+*.exe
+
+# MetaTrader generated files
+*.log
+*.dat
