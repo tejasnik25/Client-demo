@@ -124,32 +124,87 @@ def safe_order_send(request, expected_login_id):
     # 3. Send
     return mt5.order_send(request)
 
-def find_subscription_file():
+def get_subscriptions_from_db():
     """
-    Searches for the subscription file in likely locations.
-    Prioritizes 'subscriptions_v2.json' as requested by user.
+    Reads ../src/db/database.json directly and returns subscriptions.
     """
-    candidates = [
-        "subscriptions_v2.json",
-        "subscription2.json",
-        os.path.join(os.getcwd(), "subscriptions_v2.json"),
-        os.path.join(os.getcwd(), "subscription2.json"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "subscriptions_v2.json"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "subscription2.json"),
-        # Parent directory
-        os.path.join(os.path.dirname(os.getcwd()), "subscriptions_v2.json"),
-        os.path.join(os.path.dirname(os.getcwd()), "subscription2.json"),
-    ]
-    
-    for f in candidates:
-        if os.path.exists(f):
-            log_print(f"✅ Found Subscription File: {f}")
-            return f
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        db_path = os.path.join(base_dir, "..", "src", "db", "database.json")
+        
+        if not os.path.exists(db_path):
+            log_print(f"⚠ DB Path not found: {db_path}")
+            return []
             
-    log_print("❌ Critical: No subscription file found in any search path. Defaulting to subscriptions_v2.json")
-    return "subscriptions_v2.json"
+        with open(db_path, 'r') as f:
+            data = json.load(f)
+            
+        strategies = {s['id']: s for s in data.get('strategies', [])}
+        transactions = data.get('wallet_transactions', [])
+        
+        subs = []
+        # Sort transactions by date (newest first)
+        transactions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        processed_keys = set()
+        
+        for tx in transactions:
+            if tx.get('status') != 'completed':
+                continue
+                
+            uid = tx.get('userId')
+            sid = tx.get('strategyId')
+            
+            key = f"{uid}_{sid}"
+            if key in processed_keys:
+                continue
+            processed_keys.add(key)
+            
+            strat = strategies.get(sid)
+            if not strat:
+                continue
+                
+            master_id = strat.get('masterAccountId')
+            master_pass = strat.get('masterAccountPassword')
+            master_server = strat.get('masterAccountServer')
+            
+            if not master_id or not master_pass or not master_server:
+                continue
 
-PERSISTENCE_FILE = find_subscription_file()
+            slave_id = tx.get('mt_account_id')
+            slave_pass = tx.get('mt_account_password')
+            slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo')
+            
+            if not slave_id or not slave_pass:
+                continue
+
+            sub = {
+                "id": f"sub_{uid}_{sid}",
+                "externalId": tx.get('id'),
+                "master": {
+                    "id": str(master_id),
+                    "password": master_pass,
+                    "server": master_server,
+                    "platform": strat.get('masterPlatform', 'MT5')
+                },
+                "slave": {
+                    "id": str(slave_id),
+                    "password": slave_pass,
+                    "server": slave_server,
+                    "platform": tx.get('platform', 'MT5')
+                },
+                "settings": {
+                    "riskType": "balance_multiplier",
+                    "riskValue": 1.0
+                }
+            }
+            subs.append(sub)
+            
+        return subs
+            
+    except Exception as e:
+        log_print(f"⚠ DB Read Failed: {e}")
+        return []
 
 # MT4 BRIDGE STATE
 # ---------------------------------------------------------
@@ -162,71 +217,24 @@ mt4_lock = threading.Lock()
 
 def load_subscriptions():
     global active_subscriptions
-    file_path = PERSISTENCE_FILE
     
-    if not os.path.exists(file_path):
-        log_print(f"❌ Subscription file not found: {file_path}")
-        return
+    log_print("🔄 Loading Subscriptions from Database...")
+    subs = get_subscriptions_from_db()
     
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            
-            log_print(f"📂 Loaded Subscriptions from {file_path}")
-            
-            subs = []
-            if isinstance(data, list):
-                subs = data
-            elif isinstance(data, dict):
-                # Handle {"subscriptions": [...]} format
-                if "subscriptions" in data and isinstance(data["subscriptions"], list):
-                    subs = data["subscriptions"]
-                else:
-                    # Maybe it's a dict of id -> details?
-                    subs = list(data.values())
-            
-            with lock:
-                active_subscriptions = subs
-                
-            log_print(f"✅ Parsed {len(subs)} subscriptions.")
-            for s in subs:
-                 # Normalize Master Password
-                 m = s.get('master')
-                 if isinstance(m, dict):
-                     pwd = m.get('password')
-                     if pwd: m['password'] = str(pwd).strip()
-                     
-                     log_print(f"   - Master: {m.get('id')} -> Slave: {s.get('slave', {}).get('id')}")
-                 else:
-                     log_print(f"   - Subscription: {s.get('id')}")
-                     
-                 # Normalize Slave Password
-                 sl = s.get('slave')
-                 if isinstance(sl, dict):
-                     pwd = sl.get('password')
-                     if pwd: sl['password'] = str(pwd).strip()
-
-    except Exception as e:
-        log_print(f"❌ Error loading subscriptions: {e}")
+    with lock:
+        active_subscriptions = subs
+        
+    log_print(f"✅ Loaded {len(subs)} active subscriptions from DB.")
+    
+    for s in subs:
+         m = s.get('master')
+         if isinstance(m, dict):
+             log_print(f"   - Master: {m.get('id')} -> Slave: {s.get('slave', {}).get('id')}")
 
 def save_subscriptions():
-    try:
-        with lock:
-            serializable_list = []
-            for sub in active_subscriptions:
-                item = sub.copy()
-                # Convert Pydantic models to dicts if they aren't already
-                if hasattr(item['master'], 'dict'):
-                    item['master'] = item['master'].dict()
-                if hasattr(item['slave'], 'dict'):
-                    item['slave'] = item['slave'].dict()
-                serializable_list.append(item)
-                
-        with open(PERSISTENCE_FILE, 'w') as f:
-            json.dump(serializable_list, f, indent=2)
-        print("Saved subscriptions to disk.")
-    except Exception as e:
-        print(f"Failed to save subscriptions: {e}")
+    # Disabled: Subscriptions are managed via Database
+    # We no longer write to local JSON files.
+    pass
 
 
 @app.get("/")

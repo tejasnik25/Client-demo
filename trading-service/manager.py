@@ -38,51 +38,35 @@ processes = {} # {master_id: subprocess.Popen}
 api_process = None
 last_db_mtime = 0
 
-def sync_subscriptions_from_db():
+def get_subscriptions_from_db():
     """
-    Fallback: Reads ../src/db/database.json and generates subscriptions_v2.json
-    if it doesn't exist or is outdated.
+    Reads ../src/db/database.json directly and returns subscriptions.
+    Replaces the old sync-to-file mechanism.
     """
     global last_db_mtime
     try:
         db_path = os.path.join(BASE_DIR, "..", "src", "db", "database.json")
         if not os.path.exists(db_path):
-            # print(f"⚠ DB Path not found: {db_path}") # Silent to avoid log spam
-            return False
+            return []
             
-        # Check modification time to avoid unnecessary writes
-        current_mtime = os.path.getmtime(db_path)
-        sub_path = os.path.join(BASE_DIR, "subscriptions_v2.json")
-        
-        if os.path.exists(sub_path) and current_mtime <= last_db_mtime:
-            return False # No changes in DB
-            
-        last_db_mtime = current_mtime
-        
         with open(db_path, 'r') as f:
             data = json.load(f)
             
         strategies = {s['id']: s for s in data.get('strategies', [])}
         transactions = data.get('wallet_transactions', [])
         
-        # We derive active subscriptions from COMPLETED transactions
-        # This bypasses 'running_strategies' which might be missing or out of sync.
-        
-        print(f"🔍 Sync: Found {len(transactions)} txs, {len(strategies)} strats")
-        
         subs = []
-        processed_keys = set() # To avoid duplicates (user_id + strategy_id)
+        processed_keys = set()
         
-        # Sort transactions by date (newest first) to get latest settings if multiple exist
-        # Assuming created_at is ISO string
+        # Sort transactions by date (newest first) to get latest settings
         transactions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         
         for tx in transactions:
-            # 1. Filter Valid Transactions
+            # Filter for completed transactions only
             if tx.get('status') != 'completed':
                 continue
                 
-            # Optional: Check transaction_type if needed (e.g. 'deposit')
+            # Optional: Check transaction_type if needed
             if tx.get('transaction_type') != 'deposit':
                 continue
                 
@@ -92,39 +76,35 @@ def sync_subscriptions_from_db():
             if not uid or not sid:
                 continue
                 
-            # unique key for subscription
             key = f"{uid}_{sid}"
             if key in processed_keys:
-                continue # Already processed latest tx for this user/strategy
-                
+                continue
             processed_keys.add(key)
             
-            # 2. Get Strategy (Master Details)
+            # Match Strategy
             strat = strategies.get(sid)
             if not strat:
-                print(f"   ⚠ Strategy {sid} not found for tx {tx.get('id')}")
                 continue
                 
+            # 1. Master Credentials (From Strategy)
             master_id = strat.get('masterAccountId')
             master_pass = strat.get('masterAccountPassword')
             master_server = strat.get('masterAccountServer')
             
-            if not master_id:
-                print(f"   ⚠ Master ID missing in strategy {sid}")
+            if not master_id or not master_pass or not master_server:
                 continue
 
-            # 3. Get Slave Details (From Transaction)
+            # 2. Slave Credentials (From Transaction)
             slave_id = tx.get('mt_account_id')
             slave_pass = tx.get('mt_account_password')
-            slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo') # Default if missing
+            slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo')
             
             if not slave_id or not slave_pass:
-                print(f"   ⚠ Slave credentials missing in tx {tx.get('id')}")
                 continue
 
-            # 4. Construct Subscription
+            # 3. Construct Subscription
             sub = {
-                "id": f"sub_{uid}_{sid}", # Generate a stable ID
+                "id": f"sub_{uid}_{sid}",
                 "externalId": tx.get('id'),
                 "master": {
                     "id": str(master_id),
@@ -145,17 +125,11 @@ def sync_subscriptions_from_db():
             }
             subs.append(sub)
             
-        if subs:
-            out_path = os.path.join(BASE_DIR, "subscriptions_v2.json")
-            with open(out_path, 'w') as f:
-                json.dump(subs, f, indent=2)
-            print(f"✅ Synced {len(subs)} subscriptions from DB to {out_path}")
-            return True
+        return subs
             
     except Exception as e:
-        print(f"⚠ DB Sync Failed: {e}")
-        
-    return False
+        print(f"⚠ DB Read Failed: {e}")
+        return []
 
 def find_mt5_exe():
     """Finds the base terminal64.exe"""
@@ -249,34 +223,82 @@ def start_api():
     cmd = [sys.executable, "main.py", "--api-only"]
     api_process = subprocess.Popen(cmd, cwd=BASE_DIR)
 
+def generate_mt5_config(instance_dir, login, password, server):
+    """
+    Generates a startup.ini file for MT5 to force login and disable wizards.
+    """
+    config_path = os.path.join(instance_dir, "config", "startup.ini")
+    
+    # Ensure config directory exists
+    try:
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    except: pass
+    
+    # Standard INI content for MT5 startup
+    content = f"""[Common]
+Login={login}
+Password={password}
+Server={server}
+CertPassword=
+KeepPrivate=1
+NewsEnable=0
+CertInstall=0
+[Charts]
+MaxBars=5000
+PrintColor=0
+SaveDeleted=0
+[Experts]
+AllowDllImport=1
+Enabled=1
+Account=1
+Trade=1
+[StartUp]
+Minimize=1
+"""
+    try:
+        with open(config_path, 'w') as f:
+            f.write(content)
+        return config_path
+    except Exception as e:
+        print(f"❌ Failed to write config file: {e}")
+        return None
+
 def launch_terminal(exe_path, login, password, server):
     """
-    Explicitly launches the MT5 terminal with login credentials.
-    This forces the terminal to log in and bypasses the 'Open Account' wizard.
+    Explicitly launches the MT5 terminal using a config file to force login.
+    This is more robust than CLI arguments and handles special characters/popups better.
     """
     try:
-        # Check if already running
-        # (Simple check: if we just spawned it, we might not need to do anything, 
-        # but for robustness we can try to find it. 
-        # However, for now, we assume if the worker is down, we might need to relaunch the terminal too 
-        # OR the worker will attach to the existing one.)
+        instance_dir = os.path.dirname(exe_path)
         
-        # Actually, best practice: Launch it detached.
-        # Arguments for MT5: /login:123 /password:pass /server:Server
+        # 1. Generate Config File
+        config_path = generate_mt5_config(instance_dir, login, password, server)
         
         cmd = [
             exe_path,
-            f"/login:{login}",
-            f"/password:{password}",
-            f"/server:{server}",
-            "/portable" # Ensure it runs in portable mode to use local config
+            "/portable" # Critical: Use local instance data
         ]
         
-        # print(f"🖥 Launching Terminal for {login}...") # Don't print password
-        print(f"🖥 Launching Terminal for {login} (Server: {server}, Password: {'*' * len(str(password))})...")
+        if config_path:
+            # Path must be relative to the terminal executable or absolute?
+            # MT5 documentation says /config:file_name.
+            # If we are in the directory, relative path works.
+            # "config\startup.ini"
+            cmd.append(f"/config:config\\startup.ini")
+        else:
+            # Fallback to CLI args (less reliable)
+            cmd.extend([
+                f"/login:{login}",
+                f"/password:{password}",
+                f"/server:{server}"
+            ])
+        
+        print(f"🖥 Launching Terminal for {login} using Config Injection...")
         
         # Use Popen to launch independent process
-        subprocess.Popen(cmd, cwd=os.path.dirname(exe_path))
+        # cwd must be the instance directory for /portable to work correctly relative to it?
+        # Actually /portable makes it look in the dir where exe is located.
+        subprocess.Popen(cmd, cwd=instance_dir)
         
         # Wait a bit for it to start
         time.sleep(5)
@@ -323,54 +345,45 @@ def main():
                 print("⚠ API Server died. Restarting...")
                 start_api()
 
-            # Sync from DB (if changed)
-            sync_subscriptions_from_db()
+            # Sync from DB (Direct Read)
+            current_subs = get_subscriptions_from_db()
 
-            sub_file = find_subscriptions()
-            if sub_file:
+            if current_subs:
                 try:
-                    with open(sub_file, 'r') as f:
-                        data = json.load(f)
-                        
                     # Extract Masters with Credentials
                     masters = {} # {id: {password, server}}
-                    for sub in data:
-                        m = sub.get('master', {})
-                        if isinstance(m, dict):
-                            mid = str(m.get('id'))
-                            if mid:
-                                masters[mid] = {
-                                    "password": m.get('password', ''),
-                                    "server": m.get('server', 'MetaQuotes-Demo')
-                                }
-                            
-                    # Spawn missing workers
+                    for sub in current_subs:
+                        m = sub.get('master')
+                        if m and m.get('id'):
+                            masters[str(m['id'])] = {
+                                'password': m.get('password'),
+                                'server': m.get('server'),
+                                'platform': m.get('platform', 'MT5')
+                            }
+                    
+                    # Manage Processes
                     for mid, creds in masters.items():
-                        if mid not in processes or processes[mid].poll() is not None:
-                            
-                            # ENV CHECK: Only launch terminals in production
-                            if APP_ENV != 'production':
-                                if mid not in printed_local_msg:
-                                    print(f"ℹ [Local Mode] Detected Master {mid}, but skipping MT5 Launch/Worker.")
-                                    print(f"   (To enable, set APP_ENV=production)")
-                                    printed_local_msg.add(mid)
-                                continue
+                        # Environment Check: Block local launch if not production
+                        if APP_ENV != 'production':
+                            if mid not in printed_local_msg:
+                                print(f"ℹ [Local Mode] Detected Master {mid}, but skipping MT5 Launch/Worker.")
+                                print(f"   (To enable, set APP_ENV=production)")
+                                printed_local_msg.add(mid)
+                            continue
 
-                            # Create Instance
+                        if mid not in processes or processes[mid].poll() is not None:
+                            # 1. Setup Instance
+                            exe_path = find_mt5_exe()
                             inst_exe = setup_instance(mid, exe_path)
                             
-                            # Launch Terminal Explicitly (Auto-Login)
-                            pass_len = len(str(creds['password']))
-                            print(f"🔑 Debug: Preparing launch for {mid}. Password Length: {pass_len}")
-                            if pass_len == 0:
-                                print(f"❌ CRITICAL: Password for {mid} is EMPTY! Check database.")
-                            else:
-                                p_str = str(creds['password'])
-                                print(f"🔑 Password Check: Starts with '{p_str[:1]}', Ends with '{p_str[-1]}'")
-
+                            if not inst_exe:
+                                print(f"❌ Failed to setup instance for {mid}")
+                                continue
+                                
+                            # 2. Launch Terminal (with Config Injection)
                             # KILL STALE PROCESS
                             kill_existing_mt5(inst_exe)
-
+                            
                             launch_terminal(inst_exe, mid, creds['password'], creds['server'])
                             
                             # Start Worker
@@ -378,9 +391,9 @@ def main():
                             start_worker(mid, inst_exe)
                             
                 except Exception as e:
-                    print(f"⚠ Error reading subscriptions: {e}")
+                    print(f"⚠ Error processing subscriptions: {e}")
             else:
-                print("⏳ Waiting for subscriptions_v2.json...")
+                print("⏳ Waiting for active subscriptions in DB...")
             
             time.sleep(5)
             
