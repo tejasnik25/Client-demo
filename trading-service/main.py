@@ -85,7 +85,7 @@ app.add_middleware(
 # If MT5 is installed in a custom location, set this path.
 # Example: r"C:\Program Files\MetaTrader 5\terminal64.exe"
 MT5_PATH = "" 
-FILTER_MASTER_ID = None # If set, this worker only handles this Master ID
+FILTER_MASTER_ID = args.master_id # Set from CLI args
 # ---------------------------------------------------------
 
 # Global State for Subscriptions

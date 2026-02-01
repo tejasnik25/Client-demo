@@ -338,9 +338,15 @@ def main():
                             inst_exe = setup_instance(mid, exe_path)
                             
                             # Launch Terminal Explicitly (Auto-Login)
+                            pass_len = len(str(creds['password']))
+                            print(f"🔑 Debug: Preparing launch for {mid}. Password Length: {pass_len}")
+                            if pass_len == 0:
+                                print(f"❌ CRITICAL: Password for {mid} is EMPTY! Check database.")
+                            
                             launch_terminal(inst_exe, mid, creds['password'], creds['server'])
                             
                             # Start Worker
+                            print(f"👷 Debug: Spawning worker for {mid} with Filter ID: {mid}")
                             start_worker(mid, inst_exe)
                             
                 except Exception as e:
