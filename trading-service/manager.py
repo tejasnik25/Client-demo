@@ -220,6 +220,28 @@ def setup_instance(master_id, base_exe_path):
 
     return os.path.join(target_dir, "terminal64.exe")
 
+def kill_existing_mt5(exe_path):
+    """
+    Force kills any running process from this specific executable path.
+    This ensures we don't have zombie processes or 'already running' issues.
+    """
+    try:
+        import psutil
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
+            try:
+                if proc.info['exe'] and os.path.normpath(proc.info['exe']) == os.path.normpath(exe_path):
+                    print(f"🔪 Killing stale MT5 process: {proc.info['pid']} ({exe_path})")
+                    proc.kill()
+                    time.sleep(2) # Give it time to die
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except ImportError:
+        print("⚠ psutil not installed. Skipping precise process kill. (Please run: pip install psutil)")
+        # Fallback: We can't easily kill by path without psutil on Windows cleanly.
+        # But since we use portable folders, maybe we don't need to kill GLOBAL mt5, just the one in this folder.
+    except Exception as e:
+        print(f"⚠ Failed to kill existing MT5: {e}")
+
 def start_api():
     """Starts the API Server (Port 8000)"""
     global api_process
@@ -342,7 +364,13 @@ def main():
                             print(f"🔑 Debug: Preparing launch for {mid}. Password Length: {pass_len}")
                             if pass_len == 0:
                                 print(f"❌ CRITICAL: Password for {mid} is EMPTY! Check database.")
-                            
+                            else:
+                                p_str = str(creds['password'])
+                                print(f"🔑 Password Check: Starts with '{p_str[:1]}', Ends with '{p_str[-1]}'")
+
+                            # KILL STALE PROCESS
+                            kill_existing_mt5(inst_exe)
+
                             launch_terminal(inst_exe, mid, creds['password'], creds['server'])
                             
                             # Start Worker
