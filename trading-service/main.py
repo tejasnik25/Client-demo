@@ -927,14 +927,21 @@ def copy_trade_worker():
                         path_arg['path'] = MT5_PATH
 
                     # Attempt 1: Connect to existing terminal (or launch)
-                    try:
-                        if mt5.initialize(**path_arg):
-                            init_success = True
-                    except: pass
+                    # We loop here to aggressively close popups if init fails
+                    for attempt in range(5):
+                        try:
+                            # Pre-emptive popup closing
+                            close_popup_windows()
+                            
+                            if mt5.initialize(**path_arg):
+                                init_success = True
+                                break
+                        except: pass
+                        time.sleep(2)
                     
                     if not init_success:
-                         log_print("✗ MT5 Init Failed. Retrying in 10s...")
-                         time.sleep(10)
+                         log_print("✗ MT5 Init Failed (Timeout/Blocked). Retrying in 5s...")
+                         time.sleep(5)
                          continue
 
                     # Ensure any post-launch popups are closed

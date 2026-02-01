@@ -58,53 +58,68 @@ def sync_subscriptions_from_db():
             
         strategies = {s['id']: s for s in data.get('strategies', [])}
         transactions = data.get('wallet_transactions', [])
-        running = data.get('running_strategies', [])
         
-        print(f"🔍 Sync: Found {len(running)} running, {len(transactions)} txs, {len(strategies)} strats")
+        # We derive active subscriptions from COMPLETED transactions
+        # This bypasses 'running_strategies' which might be missing or out of sync.
+        
+        print(f"🔍 Sync: Found {len(transactions)} txs, {len(strategies)} strats")
         
         subs = []
+        processed_keys = set() # To avoid duplicates (user_id + strategy_id)
         
-        for run in running:
-            # Check status
-            if run.get('status') not in ['active', 'in-process', 'running']:
-                print(f"   Skipping run {run.get('id')}: Status {run.get('status')}")
+        # Sort transactions by date (newest first) to get latest settings if multiple exist
+        # Assuming created_at is ISO string
+        transactions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        for tx in transactions:
+            # 1. Filter Valid Transactions
+            if tx.get('status') != 'completed':
                 continue
                 
-            strat = strategies.get(run.get('strategy_id'))
-            if not strat: 
-                print(f"   Skipping run {run.get('id')}: Strategy not found")
-                continue
-            
-            # Find Slave Credentials in Transactions
-            # We look for a transaction for this user and strategy
-            user_txs = [t for t in transactions if t.get('user_id') == run.get('user_id') and t.get('strategy_id') == run.get('strategy_id')]
-            if not user_txs:
-                print(f"   Skipping run {run.get('id')}: No tx found for user {run.get('user_id')}")
+            # Optional: Check transaction_type if needed (e.g. 'deposit')
+            if tx.get('transaction_type') != 'deposit':
                 continue
                 
-            # Use latest transaction (assuming append order)
-            tx = user_txs[-1] 
+            uid = tx.get('user_id')
+            sid = tx.get('strategy_id')
             
-            slave_id = tx.get('mt_account_id')
-            slave_pass = tx.get('mt_account_password')
-            # Default to MetaQuotes-Demo if missing (common in dev), but in prod should be explicit
-            slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo') 
+            if not uid or not sid:
+                continue
+                
+            # unique key for subscription
+            key = f"{uid}_{sid}"
+            if key in processed_keys:
+                continue # Already processed latest tx for this user/strategy
+                
+            processed_keys.add(key)
             
-            if not slave_id or not slave_pass:
-                print(f"   Skipping run {run.get('id')}: Missing credentials in tx {tx.get('id')}")
+            # 2. Get Strategy (Master Details)
+            strat = strategies.get(sid)
+            if not strat:
+                print(f"   ⚠ Strategy {sid} not found for tx {tx.get('id')}")
                 continue
                 
             master_id = strat.get('masterAccountId')
             master_pass = strat.get('masterAccountPassword')
             master_server = strat.get('masterAccountServer')
             
-            if not master_id: 
-                print(f"   Skipping run {run.get('id')}: Missing Master ID in strategy")
+            if not master_id:
+                print(f"   ⚠ Master ID missing in strategy {sid}")
                 continue
+
+            # 3. Get Slave Details (From Transaction)
+            slave_id = tx.get('mt_account_id')
+            slave_pass = tx.get('mt_account_password')
+            slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo') # Default if missing
             
+            if not slave_id or not slave_pass:
+                print(f"   ⚠ Slave credentials missing in tx {tx.get('id')}")
+                continue
+
+            # 4. Construct Subscription
             sub = {
-                "id": run.get('id'),
-                "externalId": run.get('id'),
+                "id": f"sub_{uid}_{sid}", # Generate a stable ID
+                "externalId": tx.get('id'),
                 "master": {
                     "id": str(master_id),
                     "password": master_pass,
@@ -229,7 +244,9 @@ def launch_terminal(exe_path, login, password, server):
             "/portable" # Ensure it runs in portable mode to use local config
         ]
         
-        print(f"🖥 Launching Terminal for {login}...")
+        # print(f"🖥 Launching Terminal for {login}...") # Don't print password
+        print(f"🖥 Launching Terminal for {login} (Server: {server})...")
+        
         # Use Popen to launch independent process
         subprocess.Popen(cmd, cwd=os.path.dirname(exe_path))
         
