@@ -206,6 +206,40 @@ def start_api():
     cmd = [sys.executable, "main.py", "--api-only"]
     api_process = subprocess.Popen(cmd, cwd=BASE_DIR)
 
+def launch_terminal(exe_path, login, password, server):
+    """
+    Explicitly launches the MT5 terminal with login credentials.
+    This forces the terminal to log in and bypasses the 'Open Account' wizard.
+    """
+    try:
+        # Check if already running
+        # (Simple check: if we just spawned it, we might not need to do anything, 
+        # but for robustness we can try to find it. 
+        # However, for now, we assume if the worker is down, we might need to relaunch the terminal too 
+        # OR the worker will attach to the existing one.)
+        
+        # Actually, best practice: Launch it detached.
+        # Arguments for MT5: /login:123 /password:pass /server:Server
+        
+        cmd = [
+            exe_path,
+            f"/login:{login}",
+            f"/password:{password}",
+            f"/server:{server}",
+            "/portable" # Ensure it runs in portable mode to use local config
+        ]
+        
+        print(f"🖥 Launching Terminal for {login}...")
+        # Use Popen to launch independent process
+        subprocess.Popen(cmd, cwd=os.path.dirname(exe_path))
+        
+        # Wait a bit for it to start
+        time.sleep(5)
+        return True
+    except Exception as e:
+        print(f"❌ Failed to launch terminal for {login}: {e}")
+        return False
+
 def start_worker(master_id, exe_path):
     """Starts a Worker Process"""
     print(f"👷 Starting Worker for Master {master_id}...")
@@ -250,19 +284,27 @@ def main():
                     with open(sub_file, 'r') as f:
                         data = json.load(f)
                         
-                    # Extract Masters
-                    masters = set()
+                    # Extract Masters with Credentials
+                    masters = {} # {id: {password, server}}
                     for sub in data:
                         m = sub.get('master', {})
                         if isinstance(m, dict):
-                            mid = m.get('id')
-                            if mid: masters.add(str(mid))
+                            mid = str(m.get('id'))
+                            if mid:
+                                masters[mid] = {
+                                    "password": m.get('password', ''),
+                                    "server": m.get('server', 'MetaQuotes-Demo')
+                                }
                             
                     # Spawn missing workers
-                    for mid in masters:
+                    for mid, creds in masters.items():
                         if mid not in processes or processes[mid].poll() is not None:
                             # Create Instance
                             inst_exe = setup_instance(mid, exe_path)
+                            
+                            # Launch Terminal Explicitly (Auto-Login)
+                            launch_terminal(inst_exe, mid, creds['password'], creds['server'])
+                            
                             # Start Worker
                             start_worker(mid, inst_exe)
                             
