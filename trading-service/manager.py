@@ -9,7 +9,12 @@ import glob
 # ---------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------
-APP_ENV = os.environ.get("APP_ENV", "local") # Default to local to prevent auto-launch on dev machines
+# Check for command line argument override or Environment Variable
+if "--production" in sys.argv:
+    APP_ENV = "production"
+else:
+    APP_ENV = os.environ.get("APP_ENV", "local")
+
 BASE_MT5_PATH = os.environ.get("MT5_PATH", r"C:\Program Files\MetaTrader 5")
 INSTANCES_DIR = os.path.abspath("MT5_Instances")
 
