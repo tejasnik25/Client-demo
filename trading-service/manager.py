@@ -40,23 +40,17 @@ last_db_mtime = 0
 
 def get_subscriptions_from_db():
     """
-    Reads subscriptions from valid source.
-    Priority 1: subscriptions_v2.json (API Push Mode - Production)
-    Priority 2: database.json (Direct DB Mode - Local Dev)
+    Reads subscriptions.
+    Priority 1: database.json (Source of Truth - if available)
+    Priority 2: subscriptions_v2.json (API Cache - if DB missing)
+    Auto-creates subscriptions_v2.json if missing.
     """
     global last_db_mtime
     
-    # 1. Try API Push File (Standard for Production/Vercel)
+    # Path to API Cache File
     api_file = os.path.join(BASE_DIR, "subscriptions_v2.json")
-    if os.path.exists(api_file):
-        try:
-            with open(api_file, 'r') as f:
-                data = json.load(f)
-                return data
-        except:
-            pass # Malformed, continue to DB check
 
-    # 2. Try Local Database (Local Development)
+    # 1. Try Local Database (Preferred Source of Truth)
     candidates = [
         os.path.join(BASE_DIR, "..", "src", "db", "database.json"),
         os.path.join(BASE_DIR, "database.json"),
@@ -123,9 +117,32 @@ def get_subscriptions_from_db():
                     "settings": {"riskType": "balance_multiplier", "riskValue": 1.0}
                 }
                 subs.append(sub)
+            
+            # Sync to Cache File (Real-time update)
+            try:
+                with open(api_file, 'w') as f:
+                    json.dump(subs, f, indent=2)
+            except: pass
+            
             return subs
         except Exception:
+            pass # Fallback to API file
+
+    # 2. Try API Push File (Fallback)
+    if os.path.exists(api_file):
+        try:
+            with open(api_file, 'r') as f:
+                data = json.load(f)
+                return data
+        except:
             return []
+
+    # 3. Auto-Create if Missing
+    try:
+        with open(api_file, 'w') as f:
+            json.dump([], f)
+        print("ℹ Created new subscriptions_v2.json file.")
+    except: pass
 
     return []
 

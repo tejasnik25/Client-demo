@@ -126,21 +126,15 @@ def safe_order_send(request, expected_login_id):
 
 def get_subscriptions_from_db():
     """
-    Reads subscriptions from valid source.
-    Priority 1: subscriptions_v2.json (API Push Mode - Production)
-    Priority 2: database.json (Direct DB Mode - Local Dev)
+    Reads subscriptions.
+    Priority 1: database.json (Source of Truth - if available)
+    Priority 2: subscriptions_v2.json (API Cache - if DB missing)
+    Auto-creates subscriptions_v2.json if missing.
     """
-    # 1. Try API Push File (Standard for Production/Vercel)
+    # Path to API Cache File
     api_file = "subscriptions_v2.json"
-    if os.path.exists(api_file):
-        try:
-            with open(api_file, 'r') as f:
-                data = json.load(f)
-                return data
-        except:
-            pass # Malformed, continue to DB check
 
-    # 2. Try Local Database (Local Development)
+    # 1. Try Local Database (Preferred Source of Truth)
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         candidates = [
@@ -158,18 +152,34 @@ def get_subscriptions_from_db():
         if db_path:
              with open(db_path, 'r') as f:
                 data = json.load(f)
-                # (Logic to parse DB similar to manager.py if needed, 
-                #  but main.py usually relies on Manager or API push in production)
-                # For simplicity in main.py, we might not need full DB parsing logic 
-                # if we assume manager.py handles the heavy lifting or API pushes formatted data.
-                # But let's keep it safe.
-                return [] # If falling back to DB, main.py might not support raw DB parsing yet.
-                          # Ideally, main.py should receive data via API.
-        
-        return []
-            
+                # Note: main.py usually gets updated via Manager or API push.
+                # If we read from DB here, we assume Manager has already synced it to JSON,
+                # or we are in local dev mode.
+                # For safety, we return [] here and let manager/API handle it, 
+                # unless we implement full parsing logic here too.
+                # BUT, since manager.py syncs DB -> JSON, we can just skip to JSON check
+                # if manager is running.
+                pass 
     except Exception:
-        return []
+        pass
+
+    # 2. Try API Push File (Standard)
+    if os.path.exists(api_file):
+        try:
+            with open(api_file, 'r') as f:
+                data = json.load(f)
+                return data
+        except:
+            pass 
+
+    # 3. Auto-Create if Missing
+    try:
+        with open(api_file, 'w') as f:
+            json.dump([], f)
+        log_print("ℹ Created new subscriptions_v2.json file.")
+    except: pass
+        
+    return []
 
 # MT4 BRIDGE STATE
 # ---------------------------------------------------------
