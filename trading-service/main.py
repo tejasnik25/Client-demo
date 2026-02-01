@@ -467,7 +467,13 @@ def safe_mt5_login(account_id, password, server):
                 return True, None
             
         # 2. Login
-        if mt5.login(login=int(account_id), password=password, server=server):
+        # Convert account_id to int, as MT5 requires int login
+        try:
+            login_id_int = int(account_id)
+        except ValueError:
+            return False, f"Invalid Login ID format: {account_id} (Must be numeric)"
+
+        if mt5.login(login=login_id_int, password=password, server=server):
             # WAIT FOR CONNECTION
             # log_print(f"   ⌛ Waiting for connection for {account_id}...")
             for _ in range(40): # Wait up to 4 seconds (faster checks)
@@ -489,7 +495,7 @@ def safe_mt5_login(account_id, password, server):
         # 3. Retry on failure (once)
         err_code, err_desc = mt5.last_error()
         time.sleep(0.2)
-        if mt5.login(login=int(account_id), password=password, server=server):
+        if mt5.login(login=login_id_int, password=password, server=server):
              # Wait for connection again
              for _ in range(20):
                  if mt5.terminal_info().connected:

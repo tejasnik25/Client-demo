@@ -1,7 +1,7 @@
-2026-02-01 13:11:03,520 - INFO - \u2705 Found Subscription File: subscriptions_v2.json
-2026-02-01 13:11:03,658 - INFO - \U0001f4c2 Loaded Subscriptions from subscriptions_v2.json
-2026-02-01 13:11:03,658 - INFO - \u2705 Parsed 1 subscriptions.
-2026-02-01 13:11:03,659 - INFO -    - Master: 5019876 -> Slave: uup
-2026-02-01 13:11:03,660 - INFO - \U0001f4c2 Loaded Subscriptions from subscriptions_v2.json
-2026-02-01 13:11:03,661 - INFO - \u2705 Parsed 1 subscriptions.
-2026-02-01 13:11:03,661 - INFO -    - Master: 5019876 -> Slave: uup
+2026-02-01 18:34:08,182 - INFO - \u2705 Found Subscription File: subscriptions_v2.json
+2026-02-01 18:34:08,254 - INFO - \U0001f4c2 Loaded Subscriptions from subscriptions_v2.json
+2026-02-01 18:34:08,254 - INFO - \u2705 Parsed 1 subscriptions.
+2026-02-01 18:34:08,255 - INFO -    - Master: 5019876 -> Slave: uup
+2026-02-01 18:34:08,256 - INFO - \U0001f4c2 Loaded Subscriptions from subscriptions_v2.json
+2026-02-01 18:34:08,256 - INFO - \u2705 Parsed 1 subscriptions.
+2026-02-01 18:34:08,256 - INFO -    - Master: 5019876 -> Slave: uup

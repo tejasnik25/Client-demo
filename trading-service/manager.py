@@ -9,6 +9,7 @@ import glob
 # ---------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------
+APP_ENV = os.environ.get("APP_ENV", "local") # Default to local to prevent auto-launch on dev machines
 BASE_MT5_PATH = os.environ.get("MT5_PATH", r"C:\Program Files\MetaTrader 5")
 INSTANCES_DIR = os.path.abspath("MT5_Instances")
 
@@ -245,7 +246,7 @@ def launch_terminal(exe_path, login, password, server):
         ]
         
         # print(f"🖥 Launching Terminal for {login}...") # Don't print password
-        print(f"🖥 Launching Terminal for {login} (Server: {server})...")
+        print(f"🖥 Launching Terminal for {login} (Server: {server}, Password: {'*' * len(str(password))})...")
         
         # Use Popen to launch independent process
         subprocess.Popen(cmd, cwd=os.path.dirname(exe_path))
@@ -272,6 +273,7 @@ def start_worker(master_id, exe_path):
 def main():
     print("════════════════════════════════════════════════════════════")
     print("🚀 MULTI-TERMINAL MANAGER (ROLLBACK)")
+    print(f"🌍 ENVIRONMENT: {APP_ENV.upper()}")
     print("════════════════════════════════════════════════════════════")
     
     # 1. Locate MT5
@@ -285,6 +287,8 @@ def main():
     start_api()
     
     # 3. Monitor Loop
+    printed_local_msg = set()
+    
     while True:
         try:
             # Monitor API Server
@@ -316,6 +320,15 @@ def main():
                     # Spawn missing workers
                     for mid, creds in masters.items():
                         if mid not in processes or processes[mid].poll() is not None:
+                            
+                            # ENV CHECK: Only launch terminals in production
+                            if APP_ENV != 'production':
+                                if mid not in printed_local_msg:
+                                    print(f"ℹ [Local Mode] Detected Master {mid}, but skipping MT5 Launch/Worker.")
+                                    print(f"   (To enable, set APP_ENV=production)")
+                                    printed_local_msg.add(mid)
+                                continue
+
                             # Create Instance
                             inst_exe = setup_instance(mid, exe_path)
                             
