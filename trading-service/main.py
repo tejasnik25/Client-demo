@@ -1151,6 +1151,9 @@ def copy_trade_worker():
                             close_popup_windows()
                             
                             # Increased timeout for IPC
+                            # IMPORTANT: Must shutdown first to clear stale handles
+                            mt5.shutdown()
+                            
                             if mt5.initialize(timeout=30000, **path_arg):
                                 init_success = True
                                 log_print("   ✓ mt5.initialize() Success")
@@ -1191,6 +1194,9 @@ def copy_trade_worker():
                                             cmd = [launch_path]
                                             
                                             # IMPORTANT: Maintain Portable Mode if detected
+                                            # Also set CWD to the instance directory to ensure data is stored correctly
+                                            launch_cwd = os.path.dirname(launch_path)
+                                            
                                             if "MT5_Instances" in launch_path or "/portable" in str(sys.argv):
                                                 cmd.append("/portable")
 
@@ -1208,7 +1214,10 @@ def copy_trade_worker():
                                                         f"/server:{m_launch.get('server')}"
                                                     ])
                                             
-                                            subprocess.Popen(cmd)
+                                            # CRITICAL FIX: Set cwd to instance directory
+                                            subprocess.Popen(cmd, cwd=launch_cwd)
+                                            log_print(f"     -> Process launched with CWD: {launch_cwd}")
+                                            
                                             log_print("     -> Waiting 20s for GUI to load and popups to appear...")
                                             time.sleep(20) # Increased to 20s for slow servers
                                             close_popup_windows()
