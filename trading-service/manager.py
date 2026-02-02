@@ -6,6 +6,7 @@ import shutil
 import json
 import glob
 import urllib.request
+import ssl
 
 # ---------------------------------------------------------
 # CONFIGURATION
@@ -70,15 +71,28 @@ def get_subscriptions_from_db():
             if not target_url.startswith("http"):
                 target_url = "https://" + target_url
                 
+            # Create unverified SSL context to avoid certificate errors on Windows
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+                
             req = urllib.request.Request(target_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
                 if response.status == 200:
-                    data = json.loads(response.read().decode())
-                    if isinstance(data, list):
-                        # Update cache
-                        with open(api_file, 'w') as f:
-                            json.dump(data, f, indent=2)
-                        return data
+                    raw_data = response.read().decode('utf-8')
+                    try:
+                        data = json.loads(raw_data)
+                        if isinstance(data, list):
+                            # Update cache
+                            with open(api_file, 'w') as f:
+                                json.dump(data, f, indent=2)
+                            return data
+                        else:
+                            print(f"⚠ Remote Fetch Warning: Expected list, got {type(data)}")
+                    except json.JSONDecodeError:
+                        print(f"⚠ Remote Fetch Error: Invalid JSON response. Content: {raw_data[:100]}...")
+                else:
+                    print(f"⚠ Remote Fetch Error: HTTP {response.status}")
         except Exception as e:
             print(f"⚠ Remote Fetch Failed: {e}")
 
