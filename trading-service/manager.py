@@ -16,7 +16,13 @@ if "--production" in sys.argv:
 else:
     APP_ENV = os.environ.get("APP_ENV", "local")
 
-API_URL = os.environ.get("API_URL", "") # e.g. https://my-app.vercel.app
+# Clean API_URL: remove spaces, newlines, and quotes that might have been accidentally added
+API_URL = os.environ.get("API_URL", "").strip().strip("'").strip('"') 
+
+if API_URL:
+    print(f"🌍 API URL Configured: [{API_URL}]")
+else:
+    print("⚠️ No API_URL configured. Using local DB only.")
 
 BASE_MT5_PATH = os.environ.get("MT5_PATH", r"C:\Program Files\MetaTrader 5")
 INSTANCES_DIR = os.path.abspath("MT5_Instances")
