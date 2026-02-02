@@ -88,10 +88,35 @@ def log_print(msg):
 # GLOBAL VARS
 STATUS_FILE_PREFIX = "status_"
 PERSISTENCE_FILE = "subscriptions_v2.json"
+CACHE_FILE = "trade_history_cache.json"
+
+# Persistent Cache for Trade History (Prevents Re-Copying closed trades)
+processed_orders_cache = {}
+
+def load_trade_cache():
+    global processed_orders_cache
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                data = json.load(f)
+                # Convert string keys "sid_ticket" back to logical checks if needed, 
+                # but simple dict lookup is faster.
+                processed_orders_cache = data
+            log_print(f"📦 Loaded {len(processed_orders_cache)} processed trades from cache.")
+        except Exception as e:
+            log_print(f"⚠ Failed to load trade cache: {e}")
+
+def save_trade_cache():
+    try:
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(processed_orders_cache, f)
+    except Exception as e:
+        print(f"⚠ Failed to save trade cache: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_subscriptions()
+    load_trade_cache()
     
     # Check Mode
     if args.api_only:
@@ -236,6 +261,10 @@ def load_subscriptions():
     
     log_print("🔄 Loading Subscriptions from Database...")
     subs = get_subscriptions_from_db()
+    
+    # OPTIMIZATION: Sort by Master ID to group same-master subscriptions
+    # This allows the worker to cache Master positions and avoid redundant login switching
+    subs.sort(key=lambda x: x.get('master', {}).get('id', ''))
     
     with lock:
         active_subscriptions = subs
@@ -698,7 +727,13 @@ def process_slave_sync(slave_sub, master_positions, safe_mode=False):
                             matched_slave_tickets.add(s_ticket)
                             
                             # BACKFILL CACHE: Ensure this match is recorded so we don't duplicate if s_pos_list fails later
-                            processed_orders_cache[(str(s_id), int(m_ticket))] = time.time()
+                            cache_key = f"{s_id}_{m_ticket}"
+                            if cache_key not in processed_orders_cache:
+                                processed_orders_cache[cache_key] = time.time()
+                                # Save cache periodically (or on every update if critical)
+                                # To avoid IO lag every loop, we could throttle, but for safety we save now.
+                                # Since this only happens when finding a match, it's not too frequent.
+                                save_trade_cache()
                             
                             # CRITICAL: Verify Volume Mismatch (Partial Close Handling)
                             # If Master volume < Slave volume, it means Master partially closed.
@@ -754,12 +789,13 @@ def process_slave_sync(slave_sub, master_positions, safe_mode=False):
                 
             # GLOBAL CACHE CHECK (Prevents Duplicates & Latency)
             # Checked AFTER s_pos_list scan to ensure we don't skip matching existing trades
-            # EXPLICIT TYPES: str(s_id), int(m_ticket) to ensure consistency
-            if (str(s_id), int(m_ticket)) in processed_orders_cache:
-                # If in cache but not in s_pos_list yet, we just sent it.
-                # Do NOT copy again.
-                # Do NOT close (because close loop only looks at s_pos_list)
-                log_print(f"      ⏳ Trade #{m_ticket} in cache (pending sync). Skipping copy.")
+            # Key Format: "slaveID_masterTicket"
+            cache_key = f"{s_id}_{m_ticket}"
+            if cache_key in processed_orders_cache:
+                # If in cache, it means we ALREADY copied it once.
+                # Even if it is NOT in s_pos_list (e.g. Closed Manually), we MUST NOT copy it again.
+                # This satisfies the user requirement: "System should not automatically open multiple trade".
+                # log_print(f"      ⏳ Trade #{m_ticket} in persistent cache (Already Copied). Skipping.")
                 continue
 
             # NEW: Strict Re-Entry Prevention
@@ -939,7 +975,9 @@ def process_slave_sync(slave_sub, master_positions, safe_mode=False):
                     # Add to matched tickets immediately to prevent duplicate in same loop (though unlikely)
                     matched_slave_tickets.add(result.order) 
                     # Add to global cache
-                    processed_orders_cache[(str(s_id), int(m_ticket))] = time.time() 
+                    cache_key = f"{s_id}_{m_ticket}"
+                    processed_orders_cache[cache_key] = time.time()
+                    save_trade_cache()
                     update_slave_db_status(s_id, "active", None) 
             else:
                  log_print(f"      ❌ Failed to get symbol info for {slave_symbol}")
@@ -1021,6 +1059,7 @@ def copy_trade_worker():
     
     # Optimization Cache
     sync_cache = {} # { sub_id: { 'hash': str, 'ts': float } }
+    master_positions_cache = {} # { m_id: {'positions': [], 'ts': float} }
     
     # ADAPTIVE POLLING STATE
     # Tracks when we last checked an idle master to prevent over-switching
@@ -1181,20 +1220,26 @@ def copy_trade_worker():
                          if not isinstance(m_init, dict) and hasattr(m_init, 'dict'): m_init = m_init.dict()
                          elif not isinstance(m_init, dict): m_init = m_init.__dict__
                          
-                         log_print(f"🔧 Force-Login Triggered for {m_init.get('id')}...")
-                         # Debug: Check credentials (masked)
-                         p_debug = str(m_init.get('password', ''))
-                         p_masked = f"{p_debug[:2]}***{p_debug[-2:]}" if len(p_debug) > 4 else "***"
-                         log_print(f"   🔑 Credentials: ID={m_init.get('id')} Server={m_init.get('server')} Pass={p_masked} (Len={len(p_debug)})")
-                         
-                         if mt5.login(login=int(m_init['id']), password=m_init['password'], server=m_init['server']):
-                             log_print(f"✅ Login Successful: {m_init['id']}")
-                             # Allow time for server connection
-                             time.sleep(1)
+                         # OPTIMIZATION: Check if already logged in to avoid redundant login overhead
+                         curr_info = mt5.account_info()
+                         if curr_info and str(curr_info.login) == str(m_init.get('id')):
+                             # Already logged in, skip force login
+                             pass
                          else:
-                             err = mt5.last_error()
-                             log_print(f"❌ Login Failed for {m_init['id']}: {err}")
-                             log_print(f"   -> Please CHECK Password and Server in Admin Panel.")
+                             log_print(f"🔧 Force-Login Triggered for {m_init.get('id')}...")
+                             # Debug: Check credentials (masked)
+                             p_debug = str(m_init.get('password', ''))
+                             p_masked = f"{p_debug[:2]}***{p_debug[-2:]}" if len(p_debug) > 4 else "***"
+                             log_print(f"   🔑 Credentials: ID={m_init.get('id')} Server={m_init.get('server')} Pass={p_masked} (Len={len(p_debug)})")
+                             
+                             if mt5.login(login=int(m_init['id']), password=m_init['password'], server=m_init['server']):
+                                 log_print(f"✅ Login Successful: {m_init['id']}")
+                                 # Allow time for server connection
+                                 time.sleep(0.5)
+                             else:
+                                 err = mt5.last_error()
+                                 log_print(f"❌ Login Failed for {m_init['id']}: {err}")
+                                 log_print(f"   -> Please CHECK Password and Server in Admin Panel.")
 
                 # 3. Check Algo Trading Status (Global Check)
                 try:
@@ -1246,21 +1291,39 @@ def copy_trade_worker():
                 master_valid = False
 
                 # A. LOGIN MASTER & GET POSITIONS
+                use_cache = False
+                if m_platform != 'MT4':
+                     # Check Cache
+                     cached = master_positions_cache.get(m_id)
+                     if cached and time.time() - cached['ts'] < 1.0: # 1s Cache
+                         master_positions = cached['positions']
+                         master_valid = True
+                         use_cache = True
+                         # log_print(f"   ⚡ Using Cached Master Positions for {m_id}")
+
                 if m_platform == 'MT4':
                     with mt4_lock:
                         data = mt4_master_data.get(m_id)
                         if data and time.time() - data.get('last_seen', 0) < 15:
                             master_positions = data.get('positions', [])
                             master_valid = True
-                else:
+                elif not use_cache:
                     # MT5 Master
                     with mt5_lock:
                         # LOGGING: Explicitly state we are switching to Master
                         # print(f"🔄 Switching to Master {m_id} to read positions...")
+                        
+                        # OPTIMIZATION: Check if already logged in to skip sleep/re-login overhead
+                        already_on_master = False
+                        curr_check = mt5.account_info()
+                        if curr_check and str(curr_check.login) == str(m_id):
+                            already_on_master = True
+                        
                         is_logged, err = safe_mt5_login(m_id, m_pass, m_server)
                         if is_logged:
-                            # Wait a tiny bit for positions to sync after login
-                            time.sleep(0.5)
+                            # Wait a tiny bit for positions to sync after login (only if we switched)
+                            if not already_on_master:
+                                time.sleep(0.5)
                             
                             # CRITICAL: Verify we are actually on Master
                             curr_m = mt5.account_info()
@@ -1294,6 +1357,12 @@ def copy_trade_worker():
                                 master_positions = [p for p in pos if p.magic != 123456]
                                 
                                 master_valid = True
+                                
+                                # UPDATE CACHE
+                                master_positions_cache[m_id] = {
+                                    'positions': master_positions,
+                                    'ts': time.time()
+                                }
                                 
                                 # Update Activity State
                                 has_trades = len(pos) > 0
@@ -1419,12 +1488,23 @@ def validate_mt5(details: MtAccountDetails):
                     return {"isValid": True}
                 else:
                     err_code, err_desc = mt5.last_error()
-                    if err_code == -6 or "Authorization failed" in err_desc or "Invalid account" in err_desc:
-                         print(f"✗ Fast Login Failed (Auth Error): {err_desc}")
-                         worker_paused = False
-                         return {"isValid": False, "error": f"Invalid Password/ID: {err_desc}"}
                     
-                    print(f"⚠ Fast Login Failed (System Error {err_code}): {err_desc}. Retrying with Clean Slate...")
+                    # Enhanced Error Mapping
+                    error_map = {
+                        10014: "Wrong Password or Invalid Account",
+                        10015: "Connection Failed (Check Server/Internet)",
+                        10027: "AutoTrading Disabled by Server",
+                        10004: "Requote",
+                        10013: "Invalid Request",
+                    }
+                    user_msg = error_map.get(err_code, f"{err_desc} ({err_code})")
+
+                    if err_code == 10014 or err_code == -6 or "Authorization failed" in err_desc or "Invalid account" in err_desc:
+                         print(f"✗ Fast Login Failed (Auth Error): {user_msg}")
+                         worker_paused = False
+                         return {"isValid": False, "error": f"Login Failed: {user_msg}"}
+                    
+                    print(f"⚠ Fast Login Failed (System Error {err_code}): {user_msg}. Retrying with Clean Slate...")
 
             # ---------------------------------------------------------
             # SLOW PATH: CLEAN SLATE RECOVERY
@@ -1467,8 +1547,16 @@ def validate_mt5(details: MtAccountDetails):
                     return {"isValid": True}
                 
                 err_code, err_desc = mt5.last_error()
+                error_map = {
+                    10014: "Wrong Password or Invalid Account",
+                    10015: "Connection Failed (Check Server/Internet)",
+                    10027: "AutoTrading Disabled by Server",
+                    10004: "Requote",
+                    10013: "Invalid Request",
+                }
+                user_msg = error_map.get(err_code, f"{err_desc} ({err_code})")
                 worker_paused = False
-                return {"isValid": False, "error": f"Login Verification Failed: {err_desc} (Code: {err_code})"}
+                return {"isValid": False, "error": f"Login Failed: {user_msg}"}
 
     except Exception as e:
         worker_paused = False
