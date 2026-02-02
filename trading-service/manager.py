@@ -384,6 +384,7 @@ def start_worker(master_id, exe_path):
     processes[master_id] = p
 
 def main():
+    global APP_ENV
     print("════════════════════════════════════════════════════════════")
     print("🚀 MULTI-TERMINAL MANAGER (ROLLBACK)")
     print(f"🌍 ENVIRONMENT: {APP_ENV.upper()}")
