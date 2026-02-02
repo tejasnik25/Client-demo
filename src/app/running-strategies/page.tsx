@@ -7,6 +7,7 @@ interface RunningStrategy {
   id: string;
   strategyName: string;
   status: string;
+  rejectionReason?: string;
 }
 
 const RunningStrategiesPage = () => {
@@ -29,6 +30,11 @@ const RunningStrategiesPage = () => {
           <div key={strategy.id} className="bg-white border border-red-500 p-4 rounded-lg">
             <h2 className="text-xl font-semibold text-gray-900">{strategy.strategyName}</h2>
             <p className="text-gray-700">Status: <span className={`font-bold ${strategy.status === 'in-process' ? 'text-yellow-500' : 'text-green-500'}`}>{strategy.status}</span></p>
+            {strategy.rejectionReason && (
+                 <div className="mt-2 p-2 bg-red-50 text-red-600 text-sm rounded border border-red-100">
+                     <strong>Error:</strong> {strategy.rejectionReason}
+                 </div>
+            )}
           </div>
         ))}
       </div>

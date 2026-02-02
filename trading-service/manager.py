@@ -60,6 +60,87 @@ def get_subscriptions_from_db():
     # Path to API Cache File
     api_file = os.path.join(BASE_DIR, "subscriptions_v2.json")
 
+    # -1. Try MySQL Database (Ultimate Source of Truth)
+    try:
+        conn = mysql.connector.connect(
+            host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME
+        )
+        cursor = conn.cursor(dictionary=True)
+        
+        # Query running strategies and join with wallet transactions/strategies
+        query = """
+        SELECT 
+            rs.id AS rs_id,
+            rs.user_id,
+            rs.strategy_id,
+            rs.plan,
+            rs.status,
+            s.master_account_id,
+            s.master_account_password,
+            s.master_account_server,
+            s.master_platform,
+            COALESCE(rsm.mt_account_id, wt.mt_account_id) AS slave_id,
+            COALESCE(rsm.mt_account_password, wt.mt_account_password) AS slave_password,
+            COALESCE(rsm.mt_account_server, wt.mt_account_server) AS slave_server,
+            COALESCE(rsm.platform, wt.platform) AS slave_platform
+        FROM running_strategies rs
+        JOIN strategies s ON rs.strategy_id = s.id
+        LEFT JOIN running_strategy_modifications rsm ON rsm.id = (
+             SELECT id FROM running_strategy_modifications
+             WHERE running_strategy_id = rs.id
+             ORDER BY created_at DESC LIMIT 1
+        )
+        LEFT JOIN wallet_transactions wt ON wt.id = (
+             SELECT id FROM wallet_transactions 
+             WHERE user_id = rs.user_id AND strategy_id = rs.strategy_id 
+             ORDER BY created_at DESC LIMIT 1
+        )
+        WHERE rs.status IN ('in-process', 'active') 
+        AND s.master_account_id IS NOT NULL
+        """
+        
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        
+        mysql_subs = []
+        for row in rows:
+            if not row['slave_id'] or not row['slave_password']:
+                continue
+                
+            sub = {
+                "id": f"sub_{row['user_id']}_{row['strategy_id']}",
+                "externalId": row['rs_id'],
+                "master": {
+                    "id": str(row['master_account_id']),
+                    "password": row['master_account_password'],
+                    "server": row['master_account_server'],
+                    "platform": row['master_platform'] or 'MT5'
+                },
+                "slave": {
+                    "id": str(row['slave_id']),
+                    "password": row['slave_password'],
+                    "server": row['slave_server'] or 'MetaQuotes-Demo',
+                    "platform": row['slave_platform'] or 'MT5'
+                },
+                "settings": {"riskType": "balance_multiplier", "riskValue": 1.0}
+            }
+            mysql_subs.append(sub)
+            
+        conn.close()
+        
+        if mysql_subs:
+            # print(f"✅ Loaded {len(mysql_subs)} subscriptions from MySQL.")
+            # Sync to Cache File
+            try:
+                with open(api_file, 'w') as f:
+                    json.dump(mysql_subs, f, indent=2)
+            except: pass
+            return mysql_subs
+            
+    except Exception as e:
+        # print(f"⚠ MySQL Fetch Failed: {e}")
+        pass
+
     # 0. Try Remote Fetch (Active Pull)
     if API_URL:
         try:

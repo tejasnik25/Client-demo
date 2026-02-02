@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getRunningStrategiesForUser, createRunningStrategy, getStrategyById, updateRunningStrategyAdminStatus } from '@/db/dbService';
+import { getRunningStrategiesForUser, createRunningStrategy, getStrategyById, updateRunningStrategyAdminStatus, updateWalletTransactionStatus } from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
 export async function GET() {
@@ -77,6 +77,20 @@ export async function POST(req: Request) {
 
       // Update status based on validation
       await updateRunningStrategyAdminStatus(result.id, finalStatus);
+      
+      // Update wallet transaction with rejection reason if any
+      if (!validation.success) {
+          await updateWalletTransactionStatus(
+              (mtAccountId || '').toString().trim(), 
+              'failed', 
+              validation.error || 'Validation Failed'
+          );
+      } else {
+          // If successful, mark as in-process or active? 
+          // Usually 'completed' means payment done, but here we are in the context of strategy creation.
+          // The wallet transaction might have been created earlier.
+          // For now, we only care about setting the error reason if it failed.
+      }
 
       // If valid, START Copy Trading
       if (finalStatus === 'running' && strategy.masterAccountId) {

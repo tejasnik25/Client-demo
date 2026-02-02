@@ -2055,6 +2055,31 @@ export const deleteUserAdmin = async (id: string): Promise<{ success: boolean; e
 };
 
 // Fetch running strategies for a user from MySQL
+export const updateWalletTransactionStatus = async (
+  mtAccountId: string, 
+  status: 'pending' | 'in-process' | 'completed' | 'failed', 
+  rejectionReason?: string
+) => {
+  try {
+    const params: any[] = [status];
+    let query = 'UPDATE wallet_transactions SET status = ?';
+    
+    if (rejectionReason !== undefined) {
+      query += ', rejection_reason = ?';
+      params.push(rejectionReason);
+    }
+    
+    query += ' WHERE mt_account_id = ?';
+    params.push(mtAccountId);
+    
+    await pool.execute(query, params);
+    return true;
+  } catch (error) {
+    console.error('Error updating wallet transaction status:', error);
+    return false;
+  }
+};
+
 export const getRunningStrategiesForUser = async (
   userId: string
 ): Promise<{
@@ -2070,6 +2095,7 @@ export const getRunningStrategiesForUser = async (
   mtAccountId?: string | null;
   mtAccountPassword?: string | null;
   mtAccountServer?: string | null;
+  rejectionReason?: string | null;
 }[]> => {
   try {
     const [rows] = await pool.execute(
@@ -2084,7 +2110,8 @@ export const getRunningStrategiesForUser = async (
               COALESCE(rsm.platform, wt.platform) AS platform,
               COALESCE(rsm.mt_account_id, wt.mt_account_id) AS mtAccountId,
               COALESCE(rsm.mt_account_password, wt.mt_account_password) AS mtAccountPassword,
-              COALESCE(rsm.mt_account_server, wt.mt_account_server) AS mtAccountServer
+              COALESCE(rsm.mt_account_server, wt.mt_account_server) AS mtAccountServer,
+              wt.rejection_reason AS rejectionReason
        FROM running_strategies rs
        JOIN strategies s ON s.id = rs.strategy_id
        LEFT JOIN running_strategy_modifications rsm ON rsm.id = (
@@ -2113,6 +2140,7 @@ export const getRunningStrategiesForUser = async (
       mtAccountId: r.mtAccountId ?? null,
       mtAccountPassword: r.mtAccountPassword ?? null,
       mtAccountServer: r.mtAccountServer ?? null,
+      rejectionReason: r.rejectionReason ?? null,
     }));
   } catch (error) {
     console.error('Error fetching running strategies:', error);

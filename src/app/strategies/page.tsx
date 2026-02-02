@@ -788,6 +788,16 @@ Detail: ${data.detail || 'Connected'}`);
                           </div>
                         </div>
                       </div>
+                      
+                      {/* Error Message Section */}
+                      {(r as any).rejectionReason && (
+                        <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 flex items-start gap-2">
+                           <FiInfo className="flex-shrink-0 mt-0.5" />
+                           <div>
+                             <strong>Error:</strong> {(r as any).rejectionReason}
+                           </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

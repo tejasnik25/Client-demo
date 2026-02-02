@@ -51,6 +51,7 @@ export async function GET() {
           mtAccountId: r.mtAccountId ?? null,
           mtAccountPassword: r.mtAccountPassword ?? null,
           mtAccountServer: r.mtAccountServer ?? null,
+          rejectionReason: r.rejectionReason ?? null,
         };
       })
       .filter(Boolean);

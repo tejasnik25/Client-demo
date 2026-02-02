@@ -4,4 +4,5 @@ uvicorn==0.27.0
 pydantic==2.6.0
 MetaTrader5
 python-multipart==0.0.6
+mysql-connector-python
 # metaapi-cloud-sdk # Uncomment if using MetaApi

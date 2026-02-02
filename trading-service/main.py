@@ -11,10 +11,48 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Literal, List, Dict
 from contextlib import asynccontextmanager
+import mysql.connector
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 import logging
 from datetime import datetime
 import MetaTrader5 as mt5
+
+# DB CONFIG
+DB_HOST = os.environ.get("DB_HOST", "database-1.cz40cqqq414l.ap-south-1.rds.amazonaws.com")
+DB_USER = os.environ.get("DB_USER", "admin")
+DB_PASS = os.environ.get("DB_PASS", "Mishra12#")
+DB_NAME = os.environ.get("DB_NAME", "stock_analysis")
+
+def update_slave_db_status(slave_id, status, error_reason=None):
+    """
+    Updates the wallet_transactions table with the slave's status.
+    Uses 'mt_account_id' to find the transaction.
+    """
+    try:
+        conn = mysql.connector.connect(
+            host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME
+        )
+        cursor = conn.cursor()
+        
+        if error_reason:
+             cursor.execute(
+                "UPDATE wallet_transactions SET status = %s, rejection_reason = %s WHERE mt_account_id = %s",
+                (status, error_reason, slave_id)
+            )
+        else:
+             cursor.execute(
+                "UPDATE wallet_transactions SET status = %s WHERE mt_account_id = %s",
+                (status, slave_id)
+            )
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log_print(f"⚠ DB Update Failed: {e}")
 
 # CONFIGURATION
 # Parse Arguments
@@ -47,6 +85,7 @@ def log_print(msg):
 
 # GLOBAL VARS
 STATUS_FILE_PREFIX = "status_"
+PERSISTENCE_FILE = "subscriptions_v2.json"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -132,7 +171,7 @@ def get_subscriptions_from_db():
     Auto-creates subscriptions_v2.json if missing.
     """
     # Path to API Cache File
-    api_file = "subscriptions_v2.json"
+    api_file = PERSISTENCE_FILE
 
     # 1. Try Local Database (Preferred Source of Truth)
     try:
@@ -222,9 +261,9 @@ def save_subscriptions():
                     item['slave'] = item['slave'].dict()
                 serializable_list.append(item)
                 
-        with open("subscriptions_v2.json", 'w') as f:
+        with open(PERSISTENCE_FILE, 'w') as f:
             json.dump(serializable_list, f, indent=2)
-        print("✅ Saved subscriptions to subscriptions_v2.json (API Mode)")
+        print(f"✅ Saved subscriptions to {PERSISTENCE_FILE} (API Mode)")
     except Exception as e:
         print(f"Failed to save subscriptions: {e}")
 
@@ -543,13 +582,16 @@ def process_slave_sync(slave_sub, master_positions):
                 "error": login_err, 
                 "updated_at": time.time()
             }
+        update_slave_db_status(s_id, "failed", login_err)
         return
 
     # CRITICAL SAFETY CHECK: Ensure we are actually on the Slave account
     # Prevents opening trades on Master if login switch failed silently
     current_account = mt5.account_info()
     if not current_account or str(current_account.login) != str(s_id):
-        log_print(f"   ⛔ CRITICAL: Login Mismatch! Expected {s_id}, Found {current_account.login if current_account else 'None'}. ABORTING COPY.")
+        err_msg = f"Login Mismatch! Expected {s_id}, Found {current_account.login if current_account else 'None'}."
+        log_print(f"   ⛔ CRITICAL: {err_msg} ABORTING COPY.")
+        update_slave_db_status(s_id, "failed", err_msg)
         return
 
     # Wait a bit for Slave to sync positions/symbols
@@ -589,6 +631,9 @@ def process_slave_sync(slave_sub, master_positions):
             m_symbol = m_pos.get('symbol')
             m_type = m_pos.get('type')
             m_vol = m_pos.get('volume')
+            
+            if 'ValueIncome' in m_symbol or 'Value' in m_symbol:
+                 log_print(f"   🎯 [ValueIncome] Detected Master Trade #{m_ticket} on {m_symbol}")
             
             log_print(f"   🔍 Checking Master Trade #{m_ticket} ({m_symbol} {m_vol} lots)...")
 
@@ -704,26 +749,67 @@ def process_slave_sync(slave_sub, master_positions):
                 time.sleep(0.2) # Wait for symbol sync
                 
                 if not mt5.symbol_info(slave_symbol):
-                        # 2. Try Common Suffixes
-                        suffixes = ['m', '.m', 'pro', '.pro', '.c', '_i', '.r', '.ecn', 'ecn', 'b', '.b']
+                        # 2. Enhanced Symbol Mapping
+                        suffixes = ['m', '.m', 'pro', '.pro', '.c', '_i', '.r', '.ecn', 'ecn', 'b', '.b', '_otc', 'otc']
                         found = False
+                        
+                        # Strategy A: Add Suffixes (e.g. BTCUSD -> BTCUSD.m)
                         for suffix in suffixes:
                             trial = f"{master_symbol}{suffix}"
                             if mt5.symbol_info(trial):
                                 slave_symbol = trial
                                 found = True
-                                log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol}")
+                                log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol} (Added Suffix)")
                                 break
-                            # Try selecting it just in case
+                            # Try selecting
                             mt5.symbol_select(trial, True)
                             if mt5.symbol_info(trial):
                                 slave_symbol = trial
                                 found = True
-                                log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol}")
+                                log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol} (Added Suffix + Select)")
                                 break
                         
+                        # Strategy B: Remove Suffixes (e.g. BTCUSD.pro -> BTCUSD)
                         if not found:
-                            log_print(f"      ❌ Could not map symbol {master_symbol} for Slave {s_id}. Skipping.")
+                            # Try to identify base symbol by stripping common suffixes
+                            base_symbol = master_symbol
+                            for suffix in suffixes:
+                                if base_symbol.endswith(suffix):
+                                    base_symbol = base_symbol[:-len(suffix)]
+                                    break
+                            
+                            # Try Base
+                            if mt5.symbol_info(base_symbol):
+                                slave_symbol = base_symbol
+                                found = True
+                                log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol} (Removed Suffix)")
+                            else:
+                                mt5.symbol_select(base_symbol, True)
+                                if mt5.symbol_info(base_symbol):
+                                    slave_symbol = base_symbol
+                                    found = True
+                                    log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol} (Removed Suffix + Select)")
+
+                            # Strategy C: Base + New Suffix (e.g. BTCUSD.pro -> BTCUSD.m)
+                            if not found:
+                                for suffix in suffixes:
+                                    trial = f"{base_symbol}{suffix}"
+                                    if mt5.symbol_info(trial):
+                                        slave_symbol = trial
+                                        found = True
+                                        log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol} (Swapped Suffix)")
+                                        break
+                                    mt5.symbol_select(trial, True)
+                                    if mt5.symbol_info(trial):
+                                        slave_symbol = trial
+                                        found = True
+                                        log_print(f"      ✓ Mapped {master_symbol} -> {slave_symbol} (Swapped Suffix + Select)")
+                                        break
+
+                        if not found:
+                            msg = f"Could not map symbol {master_symbol} for Slave {s_id}"
+                            log_print(f"      ❌ {msg}. Skipping.")
+                            update_slave_db_status(s_id, "warning", msg)
                             continue
 
             # MOVED INSIDE THE LOOP
@@ -774,6 +860,7 @@ def process_slave_sync(slave_sub, master_positions):
                 if result.retcode != mt5.TRADE_RETCODE_DONE:
                     log_print(f"      ❌ Order Failed {slave_symbol}: {result.comment} ({result.retcode})")
                     last_action_msg = f"Failed {slave_symbol}: {result.comment}"
+                    update_slave_db_status(s_id, "error", f"Order Failed: {result.comment}")
                 else:
                     log_print(f"      ✅ Copied {slave_symbol} to Slave {s_id} (Ticket: {result.order})")
                     last_action_msg = f"Copied {slave_symbol}"
@@ -781,6 +868,7 @@ def process_slave_sync(slave_sub, master_positions):
                     matched_slave_tickets.add(result.order) 
                     # Add to global cache
                     processed_orders_cache[(str(s_id), int(m_ticket))] = time.time() 
+                    update_slave_db_status(s_id, "active", None) 
             else:
                  log_print(f"      ❌ Failed to get symbol info for {slave_symbol}")
 
