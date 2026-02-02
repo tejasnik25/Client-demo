@@ -567,9 +567,10 @@ def safe_mt5_login(account_id, password, server):
     except Exception as e:
         return False, f"Login Exception: {str(e)}"
 
-def process_slave_sync(slave_sub, master_positions):
+def process_slave_sync(slave_sub, master_positions, safe_mode=False):
     """
     Handles the synchronization for a single slave subscription.
+    safe_mode: If True, only validates credentials and does NOT close/open trades.
     """
     import MetaTrader5 as mt5
     slave = slave_sub['slave']
@@ -622,6 +623,14 @@ def process_slave_sync(slave_sub, master_positions):
         err_msg = f"Login Mismatch! Expected {s_id}, Found {current_account.login if current_account else 'None'}."
         log_print(f"   ⛔ CRITICAL: {err_msg} ABORTING COPY.")
         update_slave_db_status(s_id, "failed", err_msg)
+        return
+
+    # SAFE MODE CHECK (Validation Only)
+    # If Master is offline/invalid, we only wanted to validate Slave Login (done above).
+    # We must NOT proceed to Sync (which would close all slave trades because master_positions is empty).
+    if safe_mode:
+        # log_print(f"   ℹ Slave {s_id} Login Validated. Safe Mode active (skipping sync).")
+        update_slave_db_status(s_id, "active", None) # Clear errors
         return
 
     # Wait a bit for Slave to sync positions/symbols
@@ -739,6 +748,7 @@ def process_slave_sync(slave_sub, master_positions):
                             break
             
             if already_copied:
+                # log_print(f"   ℹ Trade #{m_ticket} already copied. Skipping.")
                 continue
                 
             # GLOBAL CACHE CHECK (Prevents Duplicates & Latency)
@@ -857,6 +867,37 @@ def process_slave_sync(slave_sub, master_positions):
                 if term_info and not term_info.trade_allowed:
                     force_enable_algo_trading(s_id) # Target specific slave window
 
+                # DYNAMIC FILLING MODE
+                # Some brokers require specific filling modes (e.g. FOK vs IOC).
+                # 0: FOK, 1: IOC, 2: RETURN
+                # We check what the symbol supports.
+                filling_mode = mt5.ORDER_FILLING_FOK # Default
+                
+                # Check symbol filling modes
+                # SYMBOL_FILLING_FOK = 1
+                # SYMBOL_FILLING_IOC = 2
+                # SYMBOL_FILLING_RETURN = 0 (Wait, SDK constants might differ, let's use integers)
+                
+                # Per MQL5 docs:
+                # ORDER_FILLING_FOK = 0
+                # ORDER_FILLING_IOC = 1
+                # ORDER_FILLING_RETURN = 2
+                
+                # symbol_info.filling_mode flags:
+                # SYMBOL_FILLING_FOK = 1
+                # SYMBOL_FILLING_IOC = 2
+                
+                s_filling = symbol_info.filling_mode
+                
+                if s_filling is not None:
+                     if s_filling & 1: # Supports FOK
+                         filling_mode = mt5.ORDER_FILLING_FOK
+                     elif s_filling & 2: # Supports IOC
+                         filling_mode = mt5.ORDER_FILLING_IOC
+                     else:
+                         # Fallback or Return
+                         filling_mode = mt5.ORDER_FILLING_RETURN
+                
                 request = {
                     "action": mt5.TRADE_ACTION_DEAL,
                     "symbol": slave_symbol,
@@ -867,10 +908,10 @@ def process_slave_sync(slave_sub, master_positions):
                     "magic": 123456,
                     "comment": "Copied Trade",
                     "type_time": mt5.ORDER_TIME_GTC,
-                    "type_filling": mt5.ORDER_FILLING_IOC,
+                    "type_filling": filling_mode,
                 }
                 
-                log_print(f"      ➤ Sending Order: {slave_symbol} {volume} lots")
+                log_print(f"      ➤ Sending Order: {slave_symbol} {volume} lots (Fill: {filling_mode})")
                 
                 # USE SAFETY WRAPPER
                 result = safe_order_send(request, s_id)
@@ -1205,53 +1246,39 @@ def copy_trade_worker():
 
                 # FORCE SLAVE PROCESSING EVEN IF MASTER LOGIN FAILED OR NO POSITIONS
                 # User Requirement: Validate slave credentials regardless of master status.
-                # If master login failed, we still want to check if slaves are valid.
-                # If master has 0 positions, we still want to check if slaves are valid (and maybe close stragglers).
                 
-                # However, if master login failed, we don't have 'master_positions'.
-                # We can pass an empty list, but we should flag that master is invalid so we don't accidentally "close" slave trades thinking master is flat.
-                # Actually, if master login failed, we should NOT close slave trades (safety).
-                # But we SHOULD try to login to slave to validate credentials.
+                # If master login failed, we must NOT copy trades (safety).
+                # If master has 0 positions, we must NOT copy trades (but might close stragglers).
                 
+                # FLAG: Are we in "Validation Only" mode?
+                validation_only = False
                 if not master_valid:
-                     # Master failed login. We can't sync trades, but we CAN validate slave credentials.
-                     # We will pass a special flag or empty list, but we must be careful not to trigger "Close Logic".
-                     # In process_slave_sync, the close logic iterates over 's_pos_list'.
-                     # If we don't want to close anything, we can skip the close loop if master is invalid.
-                     # But process_slave_sync doesn't know if master is valid or just empty.
-                     
-                     # FOR NOW: To satisfy "Check slave credentials", we will proceed BUT with a safeguard.
-                     # We will rely on 'process_slave_sync's login check.
-                     # To prevent closing trades, we must ensure 'process_slave_sync' knows master state.
-                     # For simplicity, if master is invalid, we will NOT call process_slave_sync for TRADING,
-                     # but we will call a new helper 'validate_slave_credentials_only'.
-                     # OR, we modify process_slave_sync to handle "Validation Only" mode.
-                     
-                     # Let's just use process_slave_sync but pass None as master_positions to signal "Don't Trade/Close".
-                     master_positions = None 
+                     master_positions = [] # Treat as empty
+                     validation_only = True
                 
                 # B. PROCESS SLAVES
                 # Generate Master Hash (Thread-Safe & Platform Agnostic)
                 try:
-                    if master_positions is not None:
+                    if not validation_only:
                         m_pos_hash = str(sorted([(get_attr(p, 'ticket'), get_attr(p, 'symbol'), get_attr(p, 'type'), get_attr(p, 'volume')) for p in master_positions]))
                     else:
-                        m_pos_hash = "MASTER_INVALID"
+                        m_pos_hash = "VALIDATION_ONLY"
                 except:
                     m_pos_hash = str(time.time()) # Fallback
 
                 for sub in subs_list:
                     sub_id = sub['id']
 
-                    # OPTIMIZATIONS REMOVED FOR STABILITY
-                    # Always check slave to ensure trade copying is reliable.
-
                     # Perform Sync
                     try:
                         with mt5_lock:
-                            # If master_positions is None, it means Master Login Failed.
-                            # We should still check Slave Login.
-                            process_slave_sync(sub, master_positions if master_positions is not None else [])
+                            # Pass validation_only flag via a special kwargs or just rely on empty master_positions?
+                            # Empty master_positions prevents opening new trades.
+                            # BUT it might trigger CLOSE logic if the slave has open trades.
+                            # DANGER: If master login failed, we shouldn't close slave trades!
+                            # FIX: Modify process_slave_sync to accept a 'safe_mode' flag.
+                            
+                            process_slave_sync(sub, master_positions, safe_mode=validation_only)
                         
                         # Update Cache
                         sync_cache[sub_id] = {'hash': m_pos_hash, 'ts': time.time()}
