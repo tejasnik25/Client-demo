@@ -1186,7 +1186,24 @@ def copy_trade_worker():
                                         
                                         if launch_path and os.path.exists(launch_path):
                                             log_print(f"     -> Manually relaunching MT5 from: {launch_path}")
-                                            subprocess.Popen(launch_path)
+                                            
+                                            # ENHANCED LAUNCH: Auto-Login with CLI Args
+                                            cmd = [launch_path]
+                                            if current_subs:
+                                                m_launch = current_subs[0]['master']
+                                                # Ensure dict
+                                                if not isinstance(m_launch, dict) and hasattr(m_launch, 'dict'): m_launch = m_launch.dict()
+                                                elif not isinstance(m_launch, dict): m_launch = m_launch.__dict__
+                                                
+                                                if m_launch.get('id') and m_launch.get('password'):
+                                                    log_print(f"     -> Injecting Credentials for Auto-Login: {m_launch.get('id')}")
+                                                    cmd.extend([
+                                                        f"/login:{m_launch.get('id')}",
+                                                        f"/password:{m_launch.get('password')}",
+                                                        f"/server:{m_launch.get('server')}"
+                                                    ])
+                                            
+                                            subprocess.Popen(cmd)
                                             log_print("     -> Waiting 20s for GUI to load and popups to appear...")
                                             time.sleep(20) # Increased to 20s for slow servers
                                             close_popup_windows()
