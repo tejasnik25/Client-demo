@@ -5,6 +5,7 @@ import os
 import shutil
 import json
 import glob
+import urllib.request
 
 # ---------------------------------------------------------
 # CONFIGURATION
@@ -14,6 +15,8 @@ if "--production" in sys.argv:
     APP_ENV = "production"
 else:
     APP_ENV = os.environ.get("APP_ENV", "local")
+
+API_URL = os.environ.get("API_URL", "") # e.g. https://my-app.vercel.app
 
 BASE_MT5_PATH = os.environ.get("MT5_PATH", r"C:\Program Files\MetaTrader 5")
 INSTANCES_DIR = os.path.abspath("MT5_Instances")
@@ -49,6 +52,29 @@ def get_subscriptions_from_db():
     
     # Path to API Cache File
     api_file = os.path.join(BASE_DIR, "subscriptions_v2.json")
+
+    # 0. Try Remote Fetch (Active Pull)
+    if API_URL:
+        try:
+            # Clean URL: remove trailing slash if present
+            base_url = API_URL.rstrip('/')
+            target_url = f"{base_url}/api/public/export-subscriptions"
+            
+            # Ensure protocol
+            if not target_url.startswith("http"):
+                target_url = "https://" + target_url
+                
+            req = urllib.request.Request(target_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status == 200:
+                    data = json.loads(response.read().decode())
+                    if isinstance(data, list):
+                        # Update cache
+                        with open(api_file, 'w') as f:
+                            json.dump(data, f, indent=2)
+                        return data
+        except Exception as e:
+            print(f"⚠ Remote Fetch Failed: {e}")
 
     # 1. Try Local Database (Preferred Source of Truth)
     candidates = [
