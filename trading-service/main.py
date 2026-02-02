@@ -44,8 +44,9 @@ def update_slave_db_status(slave_id, status, error_reason=None):
                 (status, error_reason, slave_id)
             )
         else:
+             # Clear rejection_reason on success/active status
              cursor.execute(
-                "UPDATE wallet_transactions SET status = %s WHERE mt_account_id = %s",
+                "UPDATE wallet_transactions SET status = %s, rejection_reason = NULL WHERE mt_account_id = %s",
                 (status, slave_id)
             )
         
@@ -550,8 +551,19 @@ def safe_mt5_login(account_id, password, server):
                   return True, None
              else:
                   return False, f"Login Mismatch (Retry): Expected {account_id}, Found {curr.login if curr else 'None'}"
-             
-        return False, f"Login Failed: {err_desc} ({err_code})"
+        
+        # ERROR MAPPING
+        err_code, err_desc = mt5.last_error()
+        error_map = {
+            10014: "Wrong Password or Invalid Account",
+            10015: "Connection Failed (Check Server/Internet)",
+            10027: "AutoTrading Disabled by Server",
+            10004: "Requote",
+            10013: "Invalid Request",
+        }
+        user_msg = error_map.get(err_code, f"Login Failed: {err_desc} ({err_code})")
+        return False, user_msg
+
     except Exception as e:
         return False, f"Login Exception: {str(e)}"
 
@@ -571,6 +583,23 @@ def process_slave_sync(slave_sub, master_positions):
     s_pass = get_attr(slave, 'password')
     s_server = get_attr(slave, 'server')
     
+    # 0. CHECK PERSISTENT ERROR STATE (Skip if credentials unchanged)
+    current_cred_hash = hash((s_id, s_pass, s_server))
+    with lock:
+        last_state = subscription_states.get(sub_id, {})
+    
+    if last_state.get("status") == "error":
+        if last_state.get("cred_hash") == current_cred_hash:
+             # User hasn't fixed credentials yet. Skip.
+             # log_print(f"   ℹ Skipping Slave {s_id} (Pending Credential Fix)")
+             return
+        else:
+             # Credentials changed! Reset error state and try again.
+             log_print(f"   ✨ Credentials updated for Slave {s_id}. Retrying login...")
+             with lock:
+                 if sub_id in subscription_states:
+                     del subscription_states[sub_id]
+
     # 1. LOGIN SLAVE
     log_print(f"   🔄 Switching to Slave {s_id} for sync...")
     is_logged_in, login_err = safe_mt5_login(s_id, s_pass, s_server)
@@ -580,7 +609,8 @@ def process_slave_sync(slave_sub, master_positions):
             subscription_states[sub_id] = {
                 "status": "error", 
                 "error": login_err, 
-                "updated_at": time.time()
+                "updated_at": time.time(),
+                "cred_hash": current_cred_hash # Store hash to prevent retry loop
             }
         update_slave_db_status(s_id, "failed", login_err)
         return
