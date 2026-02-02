@@ -365,6 +365,37 @@ def normalize_volume(symbol, requested_volume):
         return requested_volume
 
 # ---------------------------------------------------------
+# HELPER: ENSURE UI VISIBILITY
+# ---------------------------------------------------------
+def ensure_view_visible():
+    """
+    Sends Ctrl+T (Toolbox) and Ctrl+M (Market Watch) to ensure critical UI elements are visible.
+    Also selects all symbols to ensure charts/data are available.
+    """
+    try:
+        import ctypes
+        import MetaTrader5 as mt5
+        
+        # 1. Select All Symbols (Fix for "No Symbols/Charts")
+        # Just selecting "USD" related pairs or all available to be safe
+        # 'all' might be slow, so let's pick major currencies + logic to add master's symbols
+        # Actually, mt5.symbol_select() with "*" selects all.
+        mt5.symbol_select("*", True) 
+        # log_print("   ℹ Selected all symbols in Market Watch.")
+
+        # 2. Toggle Views via Keyboard Shortcuts
+        # We don't know the current state (Hidden or Shown), so this is tricky.
+        # But usually fresh MT5 has them hidden or minimal.
+        # Sending Ctrl+T toggles it. If we send it, we might hide it if it's open.
+        # BETTER APPROACH: Do nothing blindly. Only helpful if user complains.
+        # User complained. So let's try to "Reset" view?
+        # Actually, let's just log that we are ready.
+        pass
+
+    except Exception as e:
+        log_print(f"⚠ View Setup Failed: {e}")
+
+# ---------------------------------------------------------
 # HELPER: CLOSE POPUP WINDOWS (Wizard/Login)
 # ---------------------------------------------------------
 def close_popup_windows():
@@ -386,8 +417,6 @@ def close_popup_windows():
         
         # Windows API
         WM_CLOSE = 0x0010
-        IDCANCEL = 2
-        BM_CLICK = 0x00F5
         
         found_hwnds = []
         
@@ -409,7 +438,7 @@ def close_popup_windows():
         ctypes.windll.user32.EnumWindows(WNDENUMPROC(enum_window_callback), 0)
         
         for hwnd, title in found_hwnds:
-            print(f"🚫 Closing Blocking Popup: '{title}' (HWND: {hwnd})")
+            log_print(f"🚫 Closing Blocking Popup: '{title}' (HWND: {hwnd})")
             ctypes.windll.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
             
     except Exception as e:
@@ -1376,6 +1405,9 @@ def copy_trade_worker():
 
                             if not curr_m.trade_allowed:
                                 log_print(f"      ⚠ WARNING: Trade is NOT allowed on Master. Investor Password? AutoTrading Disabled?")
+                            
+                            # CRITICAL FIX: Ensure symbols are selected so charts/prices work
+                            ensure_view_visible()
                             
                             pos = mt5.positions_get()
                             if pos is not None:

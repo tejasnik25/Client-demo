@@ -399,6 +399,20 @@ Account=1
 Trade=1
 [StartUp]
 Minimize=1
+
+[Charts]
+MaxBars=100000
+PrintColor=1
+SaveDeleted=0
+
+[Experts]
+AllowDllImport=1
+Enabled=1
+Account=1
+Profile=1
+
+[Objects]
+ShowProperties=1
 """
     try:
         with open(config_path, 'w') as f:
