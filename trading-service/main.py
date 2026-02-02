@@ -20,6 +20,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 import logging
 from datetime import datetime
 import MetaTrader5 as mt5
+import subprocess  # Added for robust launching
 
 # DB CONFIG
 DB_HOST = os.environ.get("DB_HOST", "database-1.cz40cqqq414l.ap-south-1.rds.amazonaws.com")
@@ -1125,8 +1126,37 @@ def copy_trade_worker():
                                     try:
                                         import os
                                         os.system("taskkill /F /IM terminal64.exe")
-                                        time.sleep(5) # Increased wait time after kill
-                                    except: pass
+                                        log_print("     -> Process killed. Waiting 5s...")
+                                        time.sleep(5) 
+                                        
+                                        # Robust Recovery: Manual Launch + Wait + Popup Kill
+                                        # This prevents 'initialize' from getting stuck on the wizard
+                                        
+                                        # 1. Determine Path (Use explicit or find default)
+                                        launch_path = MT5_PATH
+                                        if not launch_path or not os.path.exists(launch_path):
+                                            common_paths = [
+                                                r"C:\Program Files\MetaTrader 5\terminal64.exe",
+                                                r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe"
+                                            ]
+                                            for p in common_paths:
+                                                if os.path.exists(p):
+                                                    launch_path = p
+                                                    log_print(f"     -> Found default MT5 path: {launch_path}")
+                                                    break
+                                        
+                                        if launch_path and os.path.exists(launch_path):
+                                            log_print(f"     -> Manually relaunching MT5 from: {launch_path}")
+                                            subprocess.Popen(launch_path)
+                                            log_print("     -> Waiting 20s for GUI to load and popups to appear...")
+                                            time.sleep(20) # Increased to 20s for slow servers
+                                            close_popup_windows()
+                                            log_print("     -> Popups closed. Ready for connection attempt.")
+                                        else:
+                                            log_print("     ⚠ Could not find 'terminal64.exe' to launch manually. Please use --mt5-path argument.")
+
+                                    except Exception as kill_err:
+                                        log_print(f"     -> Error during kill/restart: {kill_err}")
                         except Exception as e:
                              log_print(f"   ✗ mt5.initialize() Exception: {e}")
                         time.sleep(2)
