@@ -1072,8 +1072,12 @@ def copy_trade_worker():
             try:
                 import MetaTrader5 as mt5
             except ImportError:
+                log_print("⚠ MetaTrader5 module not found. Please pip install MetaTrader5.")
                 time.sleep(5)
                 continue
+
+            # DEBUG TRACE
+            # log_print("   ... Worker Loop Tick ...") 
 
             with mt5_lock:
                 # 1. Ensure MT5 is Initialized
@@ -1081,15 +1085,23 @@ def copy_trade_worker():
                 # Cleanup popups BEFORE init/check
                 close_popup_windows()
                 
-                term_info = mt5.terminal_info()
+                try:
+                    term_info = mt5.terminal_info()
+                except Exception as e:
+                    log_print(f"⚠ mt5.terminal_info() failed: {e}")
+                    term_info = None
+
                 if term_info:
-                    log_print(f"✓ MT5 Already Initialized (Connected: {term_info.connected})")
+                    # log_print(f"✓ MT5 Already Initialized (Connected: {term_info.connected})")
+                    pass
                 
                 if not term_info:
+                    log_print("⚠ MT5 not initialized. Attempting initialize()...")
                     init_success = False
                     path_arg = {}
                     if MT5_PATH:
                         path_arg['path'] = MT5_PATH
+                        log_print(f"   -> Using path: {MT5_PATH}")
 
                     # Attempt 1: Connect to existing terminal (or launch)
                     # We loop here to aggressively close popups if init fails
@@ -1098,10 +1110,25 @@ def copy_trade_worker():
                             # Pre-emptive popup closing
                             close_popup_windows()
                             
-                            if mt5.initialize(**path_arg):
+                            # Increased timeout for IPC
+                            if mt5.initialize(timeout=30000, **path_arg):
                                 init_success = True
+                                log_print("   ✓ mt5.initialize() Success")
                                 break
-                        except: pass
+                            else:
+                                err = mt5.last_error()
+                                log_print(f"   ✗ mt5.initialize() Failed (Attempt {attempt+1}): {err}")
+                                
+                                # If IPC timeout (-10005), terminal might be hung or busy
+                                if err[0] == -10005:
+                                    log_print("     -> IPC Timeout detected. Killing stale terminals...")
+                                    try:
+                                        import os
+                                        os.system("taskkill /F /IM terminal64.exe")
+                                        time.sleep(2)
+                                    except: pass
+                        except Exception as e:
+                             log_print(f"   ✗ mt5.initialize() Exception: {e}")
                         time.sleep(2)
                     
                     if not init_success:
@@ -1206,21 +1233,32 @@ def copy_trade_worker():
                                 log_print(f"   ⛔ CRITICAL: Master Login Mismatch! Expected {m_id}, Found {curr_m.login if curr_m else 'None'}. Skipping.")
                                 master_valid = False
                                 continue
+                            
+                            # DIAGNOSTIC: Print Account Details to help user debug "No Trade" issues
+                            log_print(f"   📊 Master Info: {curr_m.name} | Server: {curr_m.server} | ID: {curr_m.login}")
+                            log_print(f"      Status: Connected={term_info.connected} | TradeAllowed={curr_m.trade_allowed} | Balance={curr_m.balance}")
+                            
+                            if not term_info.connected:
+                                log_print(f"      ❌ WARNING: MT5 Disconnected! Check Internet or Proxy on Server.")
+                                
+                            if str(curr_m.server) != str(m_server):
+                                log_print(f"      ❌ CRITICAL SERVER MISMATCH! Script expects '{m_server}' but MT5 is on '{curr_m.server}'.")
+                                log_print(f"      -> This explains why you don't see trades. You are on the wrong server!")
 
+                            if not curr_m.trade_allowed:
+                                log_print(f"      ⚠ WARNING: Trade is NOT allowed on Master. Investor Password? AutoTrading Disabled?")
+                            
                             pos = mt5.positions_get()
                             if pos is not None:
+                                log_print(f"      ℹ Raw Positions Found: {len(pos)}")
+                                for p in pos:
+                                    log_print(f"         - Ticket: {p.ticket} | Symbol: {p.symbol} | Magic: {p.magic} | Vol: {p.volume}")
+                                
                                 # FILTER ECHO TRADES: Ignore trades with magic=123456 (Slave Trades)
                                 # This prevents infinite loops if we accidentally read Slave positions as Master
                                 master_positions = [p for p in pos if p.magic != 123456]
                                 
                                 master_valid = True
-                                
-                                # SMART SWITCHING: If Master has 0 positions, do NOT switch to Slaves.
-                                # User Request: "system should only switch ... when there is trade opnes on the master"
-                                # BUT: We must check if we need to CLOSE existing slave trades.
-                                # We can only skip if we are sure we have no 'active' copying session or no slave trades.
-                                # For safety, we should process synchronization even if empty, so `process_slave_sync` can close stragglers.
-                                # However, to reduce flashing, we can implement a 'cool-down' or check if we previously saw trades.
                                 
                                 # Update Activity State
                                 has_trades = len(pos) > 0
@@ -1228,8 +1266,17 @@ def copy_trade_worker():
                                 if has_trades:
                                     log_print(f"📊 Master {m_id} has {len(pos)} open positions.")
                                 else:
-                                    # Optional: Only log occasionally
-                                    pass
+                                    # DEBUG: Check History if no active trades
+                                    # Helps verify if trades are opening/closing instantly
+                                    try:
+                                        from datetime import datetime, timedelta
+                                        from_date = datetime.now() - timedelta(minutes=5)
+                                        history = mt5.history_deals_get(from_date, datetime.now())
+                                        if history:
+                                            log_print(f"   � Recent History (Last 5 mins): {len(history)} deals found.")
+                                            for deal in history[-3:]: # Show last 3
+                                                 log_print(f"      - Deal {deal.ticket}: {deal.symbol} {deal.volume} {deal.type} (Profit: {deal.profit})")
+                                    except: pass
                             else:
                                 log_print(f"⚠ Could not get positions for Master {m_id}")
                         else:
