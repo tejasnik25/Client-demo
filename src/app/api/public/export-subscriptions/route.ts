@@ -5,20 +5,31 @@ export const dynamic = 'force-dynamic'; // Prevent caching
 
 export async function GET(req: Request) {
   try {
+    // Test DB Connection first
+    try {
+        await pool.query('SELECT 1');
+    } catch (dbError: any) {
+        console.error('DB Connection Check Failed:', dbError);
+        return NextResponse.json({ 
+            error: 'Database Connection Failed', 
+            details: dbError.message,
+            hint: 'Check if DB_HOST, DB_USER, DB_PASSWORD are set in Vercel Environment Variables'
+        }, { status: 500 });
+    }
+
     // 1. Fetch Strategies (Masters)
+    // We select specific columns to avoid errors if the table structure varies slightly
     const [strategies]: any = await pool.query(
       `SELECT id, masterAccountId, masterAccountPassword, masterAccountServer, masterPlatform 
        FROM strategies 
-       WHERE masterAccountId IS NOT NULL`
+       WHERE masterAccountId IS NOT NULL AND masterAccountId != ''`
     );
 
     // 2. Fetch Wallet Transactions (Slaves) - Completed only
-    // Note: We prioritize the latest transaction for a user-strategy pair if duplicates exist
     const [transactions]: any = await pool.query(
       `SELECT id, userId, strategyId, mt_account_id, mt_account_password, mt_account_server, platform, status, created_at
        FROM wallet_transactions 
-       WHERE status = 'completed'
-       ORDER BY created_at DESC`
+       WHERE status = 'completed'`
     );
 
     // 3. Format into Subscriptions
@@ -28,6 +39,9 @@ export async function GET(req: Request) {
     // Map strategies for easy lookup
     const stratMap = new Map();
     strategies.forEach((s: any) => stratMap.set(s.id, s));
+
+    // Sort transactions by date (newest first) to prioritize latest subscription if duplicates exist
+    transactions.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     for (const tx of transactions) {
         if (!tx.mt_account_id || !tx.mt_account_password) continue;
@@ -64,6 +78,10 @@ export async function GET(req: Request) {
     return NextResponse.json(subs);
   } catch (error: any) {
     console.error('Export Subscriptions Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ 
+        error: 'Internal Server Error', 
+        details: error.message,
+        stack: error.stack 
+    }, { status: 500 });
   }
 }
