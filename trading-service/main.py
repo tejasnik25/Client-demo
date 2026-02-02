@@ -1058,16 +1058,19 @@ def copy_trade_worker():
                                 
                                 # SMART SWITCHING: If Master has 0 positions, do NOT switch to Slaves.
                                 # User Request: "system should only switch ... when there is trade opnes on the master"
-                                if len(master_positions) == 0:
-                                    # log_print(f"   ℹ Master {m_id} has 0 positions. Skipping slave checks.")
-                                    log_print(f"   ℹ Master {m_id} has 0 positions. Skipping slave checks.")
-                                    continue
+                                # BUT: We must check if we need to CLOSE existing slave trades.
+                                # We can only skip if we are sure we have no 'active' copying session or no slave trades.
+                                # For safety, we should process synchronization even if empty, so `process_slave_sync` can close stragglers.
+                                # However, to reduce flashing, we can implement a 'cool-down' or check if we previously saw trades.
                                 
                                 # Update Activity State
                                 has_trades = len(pos) > 0
                                 master_has_activity[m_id] = has_trades
                                 if has_trades:
                                     log_print(f"📊 Master {m_id} has {len(pos)} open positions.")
+                                else:
+                                    # Optional: Only log occasionally
+                                    pass
                             else:
                                 log_print(f"⚠ Could not get positions for Master {m_id}")
                         else:

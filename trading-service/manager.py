@@ -402,6 +402,12 @@ def main():
     # 3. Monitor Loop
     printed_local_msg = set()
     
+    # FORCE PRODUCTION MODE FOR RDP COMPATIBILITY
+    # If we are running this script, we likely want it to work.
+    if APP_ENV == 'local':
+        print("⚠ [Manager] APP_ENV is 'local'. Defaulting to PRODUCTION behavior for RDP compatibility.")
+        APP_ENV = 'production'
+
     while True:
         try:
             # Monitor API Server
