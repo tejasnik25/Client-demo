@@ -461,7 +461,12 @@ def start_worker(master_id, exe_path):
         "--master-id", str(master_id),
         "--mt5-path", exe_path
     ]
-    p = subprocess.Popen(cmd, cwd=BASE_DIR)
+    
+    # CREATE_NEW_CONSOLE = 0x00000010 (Windows only)
+    # This ensures each worker has its own window to display logs/trades
+    creation_flags = 0x00000010 if os.name == 'nt' else 0
+    
+    p = subprocess.Popen(cmd, cwd=BASE_DIR, creationflags=creation_flags)
     processes[master_id] = p
 
 def main():

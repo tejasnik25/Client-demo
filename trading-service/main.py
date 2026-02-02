@@ -1161,11 +1161,11 @@ def copy_trade_worker():
                                 
                                 # If IPC timeout (-10005), terminal might be hung or busy
                                 if err[0] == -10005:
-                                    log_print("     -> IPC Timeout detected. Killing stale terminals...")
+                                    log_print("     -> IPC Timeout detected. Skipping aggressive kill to protect other instances...")
                                     try:
                                         import os
-                                        os.system("taskkill /F /IM terminal64.exe")
-                                        log_print("     -> Process killed. Waiting 5s...")
+                                        # DANGEROUS IN MULTI-INSTANCE: os.system("taskkill /F /IM terminal64.exe")
+                                        log_print("     -> Waiting 5s before retry...")
                                         time.sleep(5) 
                                         
                                         # Robust Recovery: Manual Launch + Wait + Popup Kill
@@ -1189,6 +1189,11 @@ def copy_trade_worker():
                                             
                                             # ENHANCED LAUNCH: Auto-Login with CLI Args
                                             cmd = [launch_path]
+                                            
+                                            # IMPORTANT: Maintain Portable Mode if detected
+                                            if "MT5_Instances" in launch_path or "/portable" in str(sys.argv):
+                                                cmd.append("/portable")
+
                                             if current_subs:
                                                 m_launch = current_subs[0]['master']
                                                 # Ensure dict
