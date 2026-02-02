@@ -20,14 +20,15 @@ export async function GET(req: Request) {
     // 1. Fetch Strategies (Masters)
     // We select specific columns to avoid errors if the table structure varies slightly
     const [strategies]: any = await pool.query(
-      `SELECT id, masterAccountId, masterAccountPassword, masterAccountServer, masterPlatform 
+      `SELECT id, master_account_id, master_account_password, master_account_server, master_platform 
        FROM strategies 
-       WHERE masterAccountId IS NOT NULL AND masterAccountId != ''`
+       WHERE master_account_id IS NOT NULL AND master_account_id != ''`
     );
 
     // 2. Fetch Wallet Transactions (Slaves) - Completed only
+    // Note: mt_account_server column is NOT in database_setup.sql, so we omit it to avoid SQL errors
     const [transactions]: any = await pool.query(
-      `SELECT id, userId, strategyId, mt_account_id, mt_account_password, mt_account_server, platform, status, created_at
+      `SELECT id, user_id, strategy_id, mt_account_id, mt_account_password, platform, status, created_at
        FROM wallet_transactions 
        WHERE status = 'completed'`
     );
@@ -46,21 +47,23 @@ export async function GET(req: Request) {
     for (const tx of transactions) {
         if (!tx.mt_account_id || !tx.mt_account_password) continue;
         
-        const strat = stratMap.get(tx.strategyId);
+        // Note: strategy_id from wallet_transactions
+        const strat = stratMap.get(tx.strategy_id);
         if (!strat) continue;
         
-        const key = `${tx.userId}_${tx.strategyId}`;
+        const key = `${tx.user_id}_${tx.strategy_id}`;
         if (processedKeys.has(key)) continue;
         processedKeys.add(key);
 
         subs.push({
-            id: `sub_${tx.userId}_${tx.strategyId}`,
+            id: `sub_${tx.user_id}_${tx.strategy_id}`,
             externalId: tx.id,
             master: {
-                id: String(strat.masterAccountId),
-                password: strat.masterAccountPassword,
-                server: strat.masterAccountServer,
-                platform: strat.masterPlatform || 'MT5'
+                // Use snake_case fields from DB
+                id: String(strat.master_account_id),
+                password: strat.master_account_password,
+                server: strat.master_account_server,
+                platform: strat.master_platform || 'MT5'
             },
             slave: {
                 id: String(tx.mt_account_id),

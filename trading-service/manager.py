@@ -92,7 +92,10 @@ def get_subscriptions_from_db():
                     except json.JSONDecodeError:
                         print(f"⚠ Remote Fetch Error: Invalid JSON response. Content: {raw_data[:100]}...")
                 else:
+                    error_body = response.read().decode('utf-8')
                     print(f"⚠ Remote Fetch Error: HTTP {response.status}")
+                    print(f"⚠ Server Response: {error_body[:500]}") # Print first 500 chars of error
+
         except Exception as e:
             print(f"⚠ Remote Fetch Failed: {e}")
 
