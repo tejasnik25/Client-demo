@@ -1125,7 +1125,7 @@ def copy_trade_worker():
                                     try:
                                         import os
                                         os.system("taskkill /F /IM terminal64.exe")
-                                        time.sleep(2)
+                                        time.sleep(5) # Increased wait time after kill
                                     except: pass
                         except Exception as e:
                              log_print(f"   ✗ mt5.initialize() Exception: {e}")
@@ -1135,9 +1135,14 @@ def copy_trade_worker():
                          log_print("✗ MT5 Init Failed (Timeout/Blocked). Retrying in 5s...")
                          time.sleep(5)
                          continue
-
+                    
                     # Ensure any post-launch popups are closed
                     close_popup_windows()
+
+                    # WAIT FOR GUI TO LOAD (Critical Fix for "Opened then Closed")
+                    # If we login too fast, MT5 might crash or close.
+                    log_print("   ⏳ Waiting 5s for MT5 GUI to stabilize...")
+                    time.sleep(5)
 
                     # 2. Force Login (Critical for Fresh Instances)
                     # We do this immediately after init to clear any Wizards
