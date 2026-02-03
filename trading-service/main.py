@@ -1494,9 +1494,16 @@ def copy_trade_worker():
 
                 for sub in subs_list:
                     sub_id = sub['id']
+                    
+                    # SAFETY: Prevent Self-Copying (Master == Slave)
+                    # This avoids infinite loops and double exposure if user misconfigures.
+                    if str(sub['master']['id']) == str(sub['slave']['id']):
+                         log_print(f"   ⚠ SKIPPING Subscription {sub_id}: Master and Slave IDs are identical ({sub['master']['id']}). Self-copying is dangerous.")
+                         continue
 
                     # Perform Sync
                     try:
+                        log_print(f"   ▶ Processing Slave {sub['slave']['id']} (Sub: {sub_id})...")
                         with mt5_lock:
                             # Pass validation_only flag via a special kwargs or just rely on empty master_positions?
                             # Empty master_positions prevents opening new trades.
