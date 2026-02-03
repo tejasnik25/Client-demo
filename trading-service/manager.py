@@ -439,17 +439,39 @@ def sync_srv_files(instance_dir, base_exe_path):
 
         # Copy all .srv files
         copied_count = 0
-        for item in os.listdir(base_config_dir):
-            if item.lower().endswith(".srv"):
-                s = os.path.join(base_config_dir, item)
-                d = os.path.join(instance_config_dir, item)
-                try:
-                    shutil.copy2(s, d)
-                    copied_count += 1
-                except: pass
+        
+        # 1. SEARCH ADDITIONAL SOURCE DIRS (For "Upload" support)
+        # Allows user to drop .srv files in project root or uploads folder
+        search_dirs = [
+            base_config_dir, # Base MT5 Config
+            BASE_DIR, # Current Script Directory
+            os.path.abspath(os.path.join(BASE_DIR, "..", "public", "uploads")), # Next.js Uploads
+            os.path.abspath(os.path.join(BASE_DIR, "uploads")), # Local Uploads
+        ]
+
+        for src_dir in search_dirs:
+            if not os.path.exists(src_dir): continue
+            
+            for item in os.listdir(src_dir):
+                if item.lower().endswith(".srv"):
+                    s = os.path.join(src_dir, item)
+                    d = os.path.join(instance_config_dir, item)
+                    
+                    # Avoid re-copying if same size/time (Optimization)
+                    if os.path.exists(d):
+                        try:
+                            if os.path.getsize(s) == os.path.getsize(d):
+                                continue
+                        except: pass
+
+                    try:
+                        shutil.copy2(s, d)
+                        copied_count += 1
+                        # print(f"   + Installed: {item} (from {os.path.basename(src_dir)})")
+                    except: pass
         
         if copied_count > 0:
-            print(f"🔄 Synced {copied_count} server definitions (.srv) from Base MT5.")
+            print(f"🔄 Synced {copied_count} server definitions (.srv) to Instance.")
             
     except Exception as e:
         print(f"⚠ Failed to sync .srv files: {e}")

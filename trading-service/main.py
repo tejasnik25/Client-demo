@@ -558,6 +558,12 @@ def safe_mt5_login(account_id, password, server):
     """
     try:
         import MetaTrader5 as mt5
+        
+        # 0. Clean Inputs (Crucial for Automation)
+        account_id = str(account_id).strip()
+        password = str(password).strip()
+        server = str(server).strip()
+
         # 1. Check if already logged in (Optimization)
         current = mt5.account_info()
         if current and str(current.login) == str(account_id):
@@ -572,6 +578,12 @@ def safe_mt5_login(account_id, password, server):
         except ValueError:
             return False, f"Invalid Login ID format: {account_id} (Must be numeric)"
 
+        # DIAGNOSTIC: Check if server exists in config
+        # We can't easily check MT5 internal config via Python API, 
+        # but we can assume if login fails with "Invalid Account" or "Connection Failed", it might be server related.
+        
+        log_print(f"   🔑 Attempting Login: ID={account_id} Server='{server}'")
+        
         if mt5.login(login=login_id_int, password=password, server=server):
             # WAIT FOR CONNECTION
             # log_print(f"   ⌛ Waiting for connection for {account_id}...")
@@ -593,7 +605,38 @@ def safe_mt5_login(account_id, password, server):
 
         # 3. Retry on failure (once)
         err_code, err_desc = mt5.last_error()
-        time.sleep(0.2)
+        
+        # IMPROVED DIAGNOSTICS FOR SERVER ISSUES
+        if err_code == 10015: # Connection failed
+             log_print(f"   ⚠ Connection Failed to server '{server}'. This usually means:")
+             log_print(f"      1. The server name is wrong (Case Sensitive!).")
+             log_print(f"      2. The server definition (.srv) is MISSING in this portable instance.")
+             
+             # Advanced Diagnostic: Check for similar server names
+             try:
+                 term_info = mt5.terminal_info()
+                 if term_info and term_info.path:
+                     config_path = os.path.join(term_info.path, "Config")
+                     if os.path.exists(config_path):
+                         srv_files = [f[:-4] for f in os.listdir(config_path) if f.endswith(".srv")]
+                         
+                         if server not in srv_files:
+                             log_print(f"      ❌ CRITICAL: '{server}.srv' NOT found in {config_path}")
+                             # Suggest alternatives
+                             import difflib
+                             matches = difflib.get_close_matches(server, srv_files, n=3, cutoff=0.6)
+                             if matches:
+                                 log_print(f"      💡 Did you mean: {', '.join(matches)}?")
+                             else:
+                                 log_print(f"      💡 Available servers: {', '.join(srv_files[:5])}...")
+                         else:
+                             log_print(f"      ✔ '{server}.srv' exists. Issue might be internet or proxy.")
+             except Exception as diag_err:
+                 log_print(f"      (Diagnostic failed: {diag_err})")
+             
+        time.sleep(0.5) # Increased wait before retry
+        log_print(f"   ↻ Retrying Login for {account_id}...")
+        
         if mt5.login(login=login_id_int, password=password, server=server):
              # Wait for connection again
              for _ in range(20):
