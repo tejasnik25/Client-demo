@@ -14,7 +14,8 @@ import {
   FaNetworkWired,
   FaChevronDown,
   FaBullhorn,
-  FaChartBar
+  FaChartBar,
+  FaHdd
 } from 'react-icons/fa';
 
 type NavItemProps = {
@@ -75,6 +76,12 @@ export function Sidebar() {
           icon={<FaChartBar size={18} />} 
           label="Strategy Management" 
           active={pathname === '/admin/strategy'} 
+        />
+        <NavItem 
+          href="/admin/servers" 
+          icon={<FaHdd size={18} />} 
+          label="Server Management" 
+          active={pathname === '/admin/servers'} 
         />
         <div className={`rounded-lg ${pathname.startsWith('/admin/payments') ? 'bg-gray-100' : ''}`}>
           <div className={`flex items-center justify-between px-4 py-3 text-sm rounded-lg cursor-pointer ${pathname.startsWith('/admin/payments') 

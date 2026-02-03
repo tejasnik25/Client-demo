@@ -3,12 +3,13 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { FiUsers, FiDollarSign, FiLink, FiDatabase, FiActivity, FiTrendingUp } from 'react-icons/fi';
+import { FiUsers, FiDollarSign, FiLink, FiDatabase, FiActivity, FiTrendingUp, FiHardDrive } from 'react-icons/fi';
 import UserManagement from '@/components/admin/UserManagement';
 import StrategyManagement from '@/components/admin/StrategyManagement';
 import PaymentVerification from '@/components/admin/PaymentVerification';
 import AnalyticsDashboard from '@/components/admin/AnalyticsDashboard';
 import PaymentNotifications from '@/components/admin/PaymentNotifications';
+import ServerDefinitionUpload from '@/components/admin/ServerDefinitionUpload';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Card, { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { signIn } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import { validateEmail } from '@/utils/auth';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -13,6 +13,16 @@ import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
 // Admin login page component
 export default function AdminLoginPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
+
+  // Redirect if already logged in as admin
+  if (status === 'authenticated' && session?.user?.role === 'ADMIN') {
+    if (typeof window !== 'undefined') {
+       localStorage.setItem('adminSessionActive', 'true');
+    }
+    router.replace('/admin');
+  }
+
   const sha256Hex = async (input: string) => {
     const enc = new TextEncoder();
     const buf = await crypto.subtle.digest('SHA-256', enc.encode(input));

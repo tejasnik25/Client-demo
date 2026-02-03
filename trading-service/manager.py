@@ -428,12 +428,17 @@ def sync_srv_files(instance_dir, base_exe_path):
     This ensures that if the user adds a broker in the Base MT5, it becomes available to instances.
     """
     try:
-        base_config_dir = os.path.join(os.path.dirname(base_exe_path), "Config")
+        # Resolve Base Config Directory
+        if os.path.basename(base_exe_path).lower() in ['terminal64.exe', 'terminal.exe']:
+             base_dir_root = os.path.dirname(base_exe_path)
+        else:
+             base_dir_root = base_exe_path # Assume dir passed
+             
+        base_config_dir = os.path.join(base_dir_root, "Config")
         instance_config_dir = os.path.join(instance_dir, "Config")
         
-        if not os.path.exists(base_config_dir):
-            return
-
+        # print(f"   🔍 Syncing .srv files from {base_config_dir} -> {instance_config_dir}")
+        
         if not os.path.exists(instance_config_dir):
             os.makedirs(instance_config_dir)
 
@@ -447,10 +452,15 @@ def sync_srv_files(instance_dir, base_exe_path):
             BASE_DIR, # Current Script Directory
             os.path.abspath(os.path.join(BASE_DIR, "..", "public", "uploads")), # Next.js Uploads
             os.path.abspath(os.path.join(BASE_DIR, "uploads")), # Local Uploads
+            # Add user desktop or downloads for convenience? No, keep it scoped.
         ]
-
+        
+        # Add any other potential Config folders (e.g. from other instances if base is empty?)
+        
         for src_dir in search_dirs:
             if not os.path.exists(src_dir): continue
+            
+            # print(f"      Checking {src_dir}...")
             
             for item in os.listdir(src_dir):
                 if item.lower().endswith(".srv"):
@@ -494,16 +504,35 @@ def launch_terminal(exe_path, login, password, server):
         base_mt5 = find_mt5_exe() 
         if base_mt5:
             sync_srv_files(instance_dir, base_mt5)
+            
+            # FORCE RE-SCAN: Sometimes user adds .srv file to Base MT5 while Manager is running.
+            # We should try to copy it again if the server is still missing in instance.
+            srv_check = os.path.join(instance_dir, "Config", f"{server}.srv")
+            if not os.path.exists(srv_check):
+                print(f"   ℹ Server '{server}' still missing in Instance. Re-scanning Base MT5 Config...")
+                sync_srv_files(instance_dir, base_mt5)
 
         # CHECK: Does the server definition exist?
         srv_name = f"{server}.srv"
         srv_path = os.path.join(instance_dir, "Config", srv_name)
-        if not os.path.exists(srv_path):
-            print(f"⚠ WARNING: Server definition '{srv_name}' NOT found in Instance Config!")
+        dat_path = os.path.join(instance_dir, "Config", "servers.dat")
+        
+        if not os.path.exists(srv_path) and not os.path.exists(dat_path):
+            print(f"⚠ WARNING: Server definition '{srv_name}' AND 'servers.dat' NOT found in Instance Config!")
             print(f"   -> System attempts to auto-sync from Base MT5, but it seems missing there too.")
-            print(f"   -> IF LOGIN FAILS: Open Base MT5 manually, search for '{server}' in 'Open an Account', close it, and restart this script.")
+            print(f"   ⛔ CRITICAL: MT5 WILL FAIL TO CONNECT TO '{server}'.")
+            print(f"   👉 ACTION REQUIRED: Open the BASE MT5 Terminal manually ({base_mt5}),")
+            print(f"      Go to 'File > Open an Account', SEARCH for '{server}', and close it.")
+            print(f"      Then restart this script.")
+            # Optional: We could BLOCK launch here, but maybe user wants to try anyway?
+            # User said "system is adding the account on the MT5 local server instead of broker's server".
+            # This confirms that without .srv, it fails back to MetaQuotes-Demo.
+            # So we should probably NOT launch it to avoid confusion, or at least warn loudly.
         else:
-            print(f"   ✔ Server definition '{srv_name}' found.")
+            if os.path.exists(srv_path):
+                print(f"   ✔ Server definition '{srv_name}' found.")
+            elif os.path.exists(dat_path):
+                 print(f"   ✔ 'servers.dat' found (assuming '{server}' is inside).")
 
         # 1. Generate Config File
         config_path = generate_mt5_config(instance_dir, login, password, server)

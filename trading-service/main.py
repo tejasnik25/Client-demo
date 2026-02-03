@@ -6,8 +6,9 @@ import json
 import os
 import argparse
 import sys
-from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+import shutil
 from pydantic import BaseModel
 from typing import Optional, Literal, List, Dict
 from contextlib import asynccontextmanager
@@ -1541,7 +1542,12 @@ def copy_trade_worker():
                     # SAFETY: Prevent Self-Copying (Master == Slave)
                     # This avoids infinite loops and double exposure if user misconfigures.
                     if str(sub['master']['id']) == str(sub['slave']['id']):
+                         update_slave_db_status(str(sub['slave']['id']), "failed", "Master and Slave IDs identical; self-copy denied")
                          log_print(f"   ⚠ SKIPPING Subscription {sub_id}: Master and Slave IDs are identical ({sub['master']['id']}). Self-copying is dangerous.")
+                         try:
+                             log_print(f"     Pair Details: Master({sub['master']['id']}, {sub['master'].get('server')}) -> Slave({sub['slave']['id']}, {sub['slave'].get('server')})")
+                         except:
+                             pass
                          continue
 
                     # Perform Sync
@@ -1753,6 +1759,37 @@ def mt4_poll_commands(account_id: str):
             print(f"📤 Sent {len(commands)} commands to MT4 Slave {account_id}")
         
     return {"commands": commands}
+
+@app.post("/upload/server-definition", dependencies=[Depends(verify_api_key)])
+async def upload_server_definition(file: UploadFile = File(...)):
+    """
+    Allows Admin to upload .srv files remotely to fix 'Unknown Server' errors.
+    Files are saved to public/uploads where manager.py can find them.
+    """
+    if not file.filename.endswith(".srv") and not file.filename.endswith(".dat"):
+        raise HTTPException(status_code=400, detail="Only .srv or .dat files are allowed")
+    
+    try:
+        # Determine Upload Path
+        # We use the 'public/uploads' folder which is shared/synced
+        upload_dir = os.path.join(os.path.dirname(__file__), "..", "public", "uploads")
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+            
+        file_path = os.path.join(upload_dir, file.filename)
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        print(f"📥 Received Server Definition: {file.filename}")
+        print(f"   -> Saved to: {file_path}")
+        print(f"   -> Manager will detect this on next instance launch/sync.")
+        
+        return {"status": "success", "filename": file.filename, "path": file_path, "message": "File uploaded. Restart the subscription/service to apply."}
+        
+    except Exception as e:
+        print(f"❌ Upload Failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @app.post("/subscriptions", dependencies=[Depends(verify_api_key)])
