@@ -463,7 +463,7 @@ def sync_srv_files(instance_dir, base_exe_path):
             # print(f"      Checking {src_dir}...")
             
             for item in os.listdir(src_dir):
-                if item.lower().endswith(".srv"):
+                if item.lower().endswith(".srv") or item.lower() == "servers.dat":
                     s = os.path.join(src_dir, item)
                     d = os.path.join(instance_config_dir, item)
                     

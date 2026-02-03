@@ -20,8 +20,8 @@ export default function ServerDefinitionUpload() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
-      if (!selectedFile.name.endsWith('.srv')) {
-        setError('Please select a valid .srv file');
+      if (!selectedFile.name.endsWith('.srv') && !selectedFile.name.endsWith('.dat')) {
+        setError('Please select a valid .srv or .dat file');
         setFile(null);
         return;
       }
