@@ -422,6 +422,38 @@ ShowProperties=1
         print(f"❌ Failed to write config file: {e}")
         return None
 
+def sync_srv_files(instance_dir, base_exe_path):
+    """
+    Copies .srv files (Server Definitions) from the Base MT5 Config to the Instance Config.
+    This ensures that if the user adds a broker in the Base MT5, it becomes available to instances.
+    """
+    try:
+        base_config_dir = os.path.join(os.path.dirname(base_exe_path), "Config")
+        instance_config_dir = os.path.join(instance_dir, "Config")
+        
+        if not os.path.exists(base_config_dir):
+            return
+
+        if not os.path.exists(instance_config_dir):
+            os.makedirs(instance_config_dir)
+
+        # Copy all .srv files
+        copied_count = 0
+        for item in os.listdir(base_config_dir):
+            if item.lower().endswith(".srv"):
+                s = os.path.join(base_config_dir, item)
+                d = os.path.join(instance_config_dir, item)
+                try:
+                    shutil.copy2(s, d)
+                    copied_count += 1
+                except: pass
+        
+        if copied_count > 0:
+            print(f"🔄 Synced {copied_count} server definitions (.srv) from Base MT5.")
+            
+    except Exception as e:
+        print(f"⚠ Failed to sync .srv files: {e}")
+
 def launch_terminal(exe_path, login, password, server):
     """
     Explicitly launches the MT5 terminal using a config file to force login.
@@ -430,6 +462,27 @@ def launch_terminal(exe_path, login, password, server):
     try:
         instance_dir = os.path.dirname(exe_path)
         
+        # 0. Sync Server Definitions (Critical for "Unknown Server" errors)
+        # We need to find the Base MT5 path. We can infer it or search again.
+        # Since we don't store Base Path easily, let's try to find it.
+        # But wait, exe_path IS the instance path.
+        # We can re-use find_mt5_exe() logic or just look at common paths if not stored.
+        # Better: Pass base_path to this function or finding it.
+        # Let's just try standard paths.
+        base_mt5 = find_mt5_exe() 
+        if base_mt5:
+            sync_srv_files(instance_dir, base_mt5)
+
+        # CHECK: Does the server definition exist?
+        srv_name = f"{server}.srv"
+        srv_path = os.path.join(instance_dir, "Config", srv_name)
+        if not os.path.exists(srv_path):
+            print(f"⚠ WARNING: Server definition '{srv_name}' NOT found in Instance Config!")
+            print(f"   -> System attempts to auto-sync from Base MT5, but it seems missing there too.")
+            print(f"   -> IF LOGIN FAILS: Open Base MT5 manually, search for '{server}' in 'Open an Account', close it, and restart this script.")
+        else:
+            print(f"   ✔ Server definition '{srv_name}' found.")
+
         # 1. Generate Config File
         config_path = generate_mt5_config(instance_dir, login, password, server)
         

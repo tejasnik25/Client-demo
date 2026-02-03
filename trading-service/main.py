@@ -1394,8 +1394,20 @@ def copy_trade_worker():
                             
                             # DIAGNOSTIC: Print Account Details to help user debug "No Trade" issues
                             log_print(f"   📊 Master Info: {curr_m.name} | Server: {curr_m.server} | ID: {curr_m.login}")
-                            log_print(f"      Status: Connected={term_info.connected} | TradeAllowed={curr_m.trade_allowed} | Balance={curr_m.balance}")
                             
+                            # DIAGNOSTIC: Check Margin Mode (Hedging vs Netting)
+                            margin_mode = curr_m.margin_mode
+                            mode_str = "UNKNOWN"
+                            if margin_mode == mt5.ACCOUNT_MARGIN_MODE_RETAIL_NETTING: mode_str = "NETTING"
+                            elif margin_mode == mt5.ACCOUNT_MARGIN_MODE_EXCHANGE: mode_str = "EXCHANGE"
+                            elif margin_mode == mt5.ACCOUNT_MARGIN_MODE_RETAIL_HEDGING: mode_str = "HEDGING"
+                            
+                            log_print(f"      Status: Connected={term_info.connected} | Mode={mode_str} | Balance={curr_m.balance}")
+
+                            if margin_mode == mt5.ACCOUNT_MARGIN_MODE_RETAIL_NETTING:
+                                log_print("      ⚠ WARNING: Account is in NETTING mode! This might be why you see 'Netting'.")
+                                log_print("                 If this is a Demo account, try creating a 'Hedging' account instead.")
+
                             if not term_info.connected:
                                 log_print(f"      ❌ WARNING: MT5 Disconnected! Check Internet or Proxy on Server.")
                                 
