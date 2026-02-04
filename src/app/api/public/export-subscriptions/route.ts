@@ -51,12 +51,12 @@ export async function GET(req: Request) {
         const strat = stratMap.get(tx.strategy_id);
         if (!strat) continue;
         
-        const key = `${tx.user_id}_${tx.strategy_id}`;
+        const key = `${tx.user_id}_${tx.strategy_id}_${tx.mt_account_id}`;
         if (processedKeys.has(key)) continue;
         processedKeys.add(key);
 
         subs.push({
-            id: `sub_${tx.user_id}_${tx.strategy_id}`,
+            id: `sub_${tx.user_id}_${tx.strategy_id}_${tx.mt_account_id}`,
             externalId: tx.id,
             master: {
                 // Use snake_case fields from DB

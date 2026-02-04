@@ -1881,8 +1881,15 @@ async def create_subscription(sub: SubscriptionRequest):
         
         if duplicate:
              print(f"⚠ Duplicate Subscription Detected! {sub.externalId} matches existing {duplicate['id']}")
-             # Return error to prevent duplicate
-             return {"success": False, "error": f"Subscription already exists (ID: {duplicate['id']})"}
+             # IDEMPOTENCY FIX: 
+             # Instead of erroring, we treat this as a success.
+             # We return the EXISTING ID so the frontend knows it's connected.
+             # We also update the settings of the existing subscription just in case.
+             duplicate['settings'] = sub.settings
+             duplicate['master'] = sub.master # Update credentials if changed
+             duplicate['slave'] = sub.slave
+             save_subscriptions()
+             return {"success": True, "id": duplicate['id'], "message": "Subscription already active (updated)"}
 
         existing = next((x for x in active_subscriptions if x['id'] == sub.externalId), None)
         

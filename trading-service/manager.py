@@ -108,7 +108,7 @@ def get_subscriptions_from_db():
                 continue
                 
             sub = {
-                "id": f"sub_{row['user_id']}_{row['strategy_id']}",
+                "id": f"sub_{row['user_id']}_{row['strategy_id']}_{row['slave_id']}",
                 "externalId": row['rs_id'],
                 "master": {
                     "id": str(row['master_account_id']),
@@ -210,7 +210,11 @@ def get_subscriptions_from_db():
                 if tx.get('status') != 'completed': continue
                 uid = tx.get('userId')
                 sid = tx.get('strategyId')
-                key = f"{uid}_{sid}"
+                slave_id = tx.get('mt_account_id')
+                
+                if not slave_id: continue
+
+                key = f"{uid}_{sid}_{slave_id}"
                 if key in processed_keys: continue
                 processed_keys.add(key)
                 
@@ -223,14 +227,13 @@ def get_subscriptions_from_db():
                 
                 if not master_id or not master_pass or not master_server: continue
 
-                slave_id = tx.get('mt_account_id')
                 slave_pass = tx.get('mt_account_password')
                 slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo')
                 
-                if not slave_id or not slave_pass: continue
+                if not slave_pass: continue
 
                 sub = {
-                    "id": f"sub_{uid}_{sid}",
+                    "id": f"sub_{uid}_{sid}_{slave_id}",
                     "externalId": tx.get('id'),
                     "master": {
                         "id": str(master_id),
