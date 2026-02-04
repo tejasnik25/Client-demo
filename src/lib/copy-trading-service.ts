@@ -256,12 +256,13 @@ export function getCopyTradingProvider(): ICopyTradingProvider {
   
   if (!finalUrl) {
     if (process.env.NODE_ENV === 'development') {
-      // Default to AWS IP even in dev if env var is missing, as per user requirement
-      finalUrl = 'http://15.206.157.59:8000';
-      console.warn('[CopyTrading] COPY_TRADING_API_URL missing in dev. Defaulting to AWS IP: http://15.206.157.59:8000');
+      // Default to Localhost for dev/RDP environment
+      finalUrl = 'http://127.0.0.1:8000';
+      console.warn('[CopyTrading] COPY_TRADING_API_URL missing in dev. Defaulting to Localhost: http://127.0.0.1:8000');
     } else {
       // Fallback for production if forgot to set env var (legacy behavior)
-      finalUrl = 'http://15.206.157.59:8000'; 
+      // Since this is likely running on the same machine as the Python service (RDP), use localhost
+      finalUrl = 'http://127.0.0.1:8000'; 
       console.warn(`[CopyTrading] COPY_TRADING_API_URL missing in prod. Defaulting to ${finalUrl}`);
     }
   }

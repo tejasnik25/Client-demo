@@ -12,7 +12,8 @@ export async function GET() {
     // Proxy to Python Service
     // In production/serverless, we cannot read local filesystem for uploads.
     // We must query the Python service which holds the persistent files.
-    const apiUrl = process.env.COPY_TRADING_API_URL || 'http://15.206.157.59:8000';
+    // Default to localhost for RDP setups where Next.js and Python run on same machine
+    const apiUrl = process.env.COPY_TRADING_API_URL || 'http://127.0.0.1:8000';
     
     // Fallback API Key if env var fails to load (Temporary fix for local dev)
     const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';

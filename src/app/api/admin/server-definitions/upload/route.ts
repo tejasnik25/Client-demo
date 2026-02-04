@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     // We CANNOT save locally in Vercel/Production (EROFS error).
     // So we MUST forward it to the Python service which has persistent storage.
     try {
-      const apiUrl = process.env.COPY_TRADING_API_URL || 'http://15.206.157.59:8000';
+      const apiUrl = process.env.COPY_TRADING_API_URL || 'http://127.0.0.1:8000';
       
       // Fallback API Key if env var fails to load (Temporary fix for local dev)
       const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';

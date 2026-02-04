@@ -24,10 +24,13 @@ import MetaTrader5 as mt5
 import subprocess  # Added for robust launching
 
 # DB CONFIG
-DB_HOST = os.environ.get("DB_HOST", "database-1.cz40cqqq414l.ap-south-1.rds.amazonaws.com")
+# Updated Defaults to match Production .env (Client_demo_25)
+DB_HOST = os.environ.get("DB_HOST", "stock-analysis-db.cx8ioemygq4m.ap-south-1.rds.amazonaws.com")
 DB_USER = os.environ.get("DB_USER", "admin")
-DB_PASS = os.environ.get("DB_PASS", "Mishra12#")
-DB_NAME = os.environ.get("DB_NAME", "stock_analysis")
+DB_PASS = os.environ.get("DB_PASS", "Client_demo_25")
+DB_NAME = os.environ.get("DB_NAME", "stock_analysis_db")
+
+print(f"🔌 DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
 
 def update_slave_db_status(slave_id, status, error_reason=None):
     """
