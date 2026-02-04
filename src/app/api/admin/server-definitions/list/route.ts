@@ -38,15 +38,19 @@ export async function GET() {
       
       const data = await response.json();
       
-      // Transform string array to object array to match expected frontend format
-      const files = (data.files || []).map((filename: string) => ({
-        name: filename,
-        // We don't have size/date from Python simple list, but that's okay for now
-        // We could enhance Python endpoint later if needed
-        size: 0,
-        lastModified: new Date().toISOString(),
-        path: `/uploads/${filename}` 
-      }));
+      // Transform string array or object array to match expected frontend format
+      const files = (data.files || []).map((item: any) => {
+        // Handle both old format (string[]) and new format ({name, size}[])
+        const name = typeof item === 'string' ? item : item.name;
+        const size = typeof item === 'string' ? 0 : (item.size || 0);
+        
+        return {
+          name: name,
+          size: size,
+          lastModified: new Date().toISOString(),
+          path: `/uploads/${name}` 
+        };
+      });
       
       return NextResponse.json({ files });
       

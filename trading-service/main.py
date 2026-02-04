@@ -587,6 +587,7 @@ def sync_server_definitions(terminal_path):
                     try:
                         shutil.copy2(s, d)
                         copied += 1
+                        log_print(f"   -> Synced {item} ({os.path.getsize(s)} bytes)")
                     except: pass
         
         if copied > 0:
@@ -777,6 +778,10 @@ def process_slave_sync(slave_sub, master_positions, safe_mode=False):
         log_print(f"   ⛔ CRITICAL: {err_msg} ABORTING COPY.")
         update_slave_db_status(s_id, "failed", err_msg)
         return
+        
+    # SLAVE DIAGNOSTICS (Netting/Hedging)
+    if current_account.margin_mode == mt5.ACCOUNT_MARGIN_MODE_RETAIL_NETTING:
+         log_print(f"   ℹ Slave {s_id} is in NETTING mode. Hedging behavior may be limited.")
 
     # SAFE MODE CHECK (Validation Only)
     # If Master is offline/invalid, we only wanted to validate Slave Login (done above).
@@ -1854,7 +1859,9 @@ async def list_server_definitions():
         files = []
         for f in os.listdir(upload_dir):
             if f.endswith(".srv") or f.endswith(".dat"):
-                files.append(f)
+                file_path = os.path.join(upload_dir, f)
+                size = os.path.getsize(file_path)
+                files.append({"name": f, "size": size})
                 
         return {"files": files}
     except Exception as e:
