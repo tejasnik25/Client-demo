@@ -1872,6 +1872,18 @@ async def create_subscription(sub: SubscriptionRequest):
     print(f"➕ Starting copy from {sub.master.id} to {sub.slave.id}")
     
     with lock:
+        # Check for existing identical subscription (same master+slave)
+        # We check if ANY existing subscription has same master ID and slave ID
+        duplicate = next((x for x in active_subscriptions if 
+                          str(x['master']['id']) == str(sub.master.id) and 
+                          str(x['slave']['id']) == str(sub.slave.id) and
+                          x['id'] != sub.externalId), None)
+        
+        if duplicate:
+             print(f"⚠ Duplicate Subscription Detected! {sub.externalId} matches existing {duplicate['id']}")
+             # Return error to prevent duplicate
+             return {"success": False, "error": f"Subscription already exists (ID: {duplicate['id']})"}
+
         existing = next((x for x in active_subscriptions if x['id'] == sub.externalId), None)
         
         if existing:
