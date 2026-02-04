@@ -22,7 +22,7 @@ export async function GET() {
     try {
       const response = await fetch(targetUrl, {
         headers: {
-          'x-api-key': apiKey
+          'Authorization': `Bearer ${apiKey}`
         }
       });
       

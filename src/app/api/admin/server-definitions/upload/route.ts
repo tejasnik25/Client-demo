@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
-          'x-api-key': apiKey,
+          'Authorization': `Bearer ${apiKey}`,
           // Do NOT set Content-Type header manually when using FormData
           // The browser/fetch client will set it with the boundary
         },
