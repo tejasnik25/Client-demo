@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
       const targetUrl = `${baseUrl}/upload/server-definition`;
       
       console.log(`[API] Proxying upload to Python service: ${targetUrl}`);
+      console.log(`[API] Loaded API Key: ${apiKey ? 'Present (Masked)' : 'Missing'}`);
 
       // Construct new FormData for the upstream request
       const pythonFormData = new FormData();
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
           // Do NOT set Content-Type header manually when using FormData
           // The browser/fetch client will set it with the boundary
         },

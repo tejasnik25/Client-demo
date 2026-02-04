@@ -19,10 +19,14 @@ export async function GET() {
     const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
     const targetUrl = `${baseUrl}/server-definitions`;
     
+    console.log(`[API] Proxying list to Python service: ${targetUrl}`);
+    console.log(`[API] Loaded API Key: ${apiKey ? 'Present (Masked)' : 'Missing'}`);
+
     try {
       const response = await fetch(targetUrl, {
         headers: {
-          'Authorization': `Bearer ${apiKey}`
+          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey
         }
       });
       

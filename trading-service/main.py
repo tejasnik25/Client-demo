@@ -307,11 +307,19 @@ async def root():
 # This must match the COPY_TRADING_API_KEY in your Next.js .env
 API_KEY = "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
 
-def verify_api_key(authorization: Optional[str] = Header(None)):
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing Authorization Header")
-    if authorization != f"Bearer {API_KEY}":
-        raise HTTPException(status_code=403, detail="Invalid API Key")
+def verify_api_key(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+):
+    if x_api_key:
+        if x_api_key != API_KEY:
+             raise HTTPException(status_code=403, detail="Invalid API Key")
+        return
+    if authorization:
+        if authorization != f"Bearer {API_KEY}":
+             raise HTTPException(status_code=403, detail="Invalid API Key")
+        return
+    raise HTTPException(status_code=401, detail="Missing Authorization Header")
 
 class MtAccountDetails(BaseModel):
     id: str
@@ -552,6 +560,41 @@ def force_enable_algo_trading(account_id=None):
 # ---------------------------------------------------------
 # WORKER HELPERS (CLEANER ARCHITECTURE)
 # ---------------------------------------------------------
+def sync_server_definitions(terminal_path):
+    """
+    Syncs .srv and .dat files from 'public/uploads' to the terminal's Config folder.
+    """
+    try:
+        config_dir = os.path.join(terminal_path, "Config")
+        if not os.path.exists(config_dir):
+            return
+
+        # Define source directories (uploads)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        uploads_dir = os.path.abspath(os.path.join(base_dir, "..", "public", "uploads"))
+        
+        if not os.path.exists(uploads_dir):
+            return
+
+        copied = 0
+        for item in os.listdir(uploads_dir):
+            if item.lower().endswith(".srv") or item.lower() == "servers.dat":
+                s = os.path.join(uploads_dir, item)
+                d = os.path.join(config_dir, item)
+                
+                # Copy if new or changed
+                if not os.path.exists(d) or os.path.getsize(s) != os.path.getsize(d):
+                    try:
+                        shutil.copy2(s, d)
+                        copied += 1
+                    except: pass
+        
+        if copied > 0:
+            log_print(f"🔄 Synced {copied} server definitions to {config_dir}")
+            
+    except Exception as e:
+        log_print(f"⚠ Failed to sync server definitions: {e}")
+
 def safe_mt5_login(account_id, password, server):
     """
     Robust login with retry, status checks, and connection wait.
@@ -564,6 +607,13 @@ def safe_mt5_login(account_id, password, server):
         account_id = str(account_id).strip()
         password = str(password).strip()
         server = str(server).strip()
+
+        # [NEW] Sync Server Definitions (Proactive)
+        try:
+            term_info = mt5.terminal_info()
+            if term_info and term_info.path:
+                sync_server_definitions(term_info.path)
+        except: pass
 
         # 1. Check if already logged in (Optimization)
         current = mt5.account_info()
