@@ -1791,6 +1791,24 @@ async def upload_server_definition(file: UploadFile = File(...)):
         print(f"❌ Upload Failed: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
+@app.get("/server-definitions", dependencies=[Depends(verify_api_key)])
+async def list_server_definitions():
+    """
+    Lists all uploaded .srv and .dat files in the public/uploads directory.
+    """
+    try:
+        upload_dir = os.path.join(os.path.dirname(__file__), "..", "public", "uploads")
+        if not os.path.exists(upload_dir):
+            return {"files": []}
+            
+        files = []
+        for f in os.listdir(upload_dir):
+            if f.endswith(".srv") or f.endswith(".dat"):
+                files.append(f)
+                
+        return {"files": files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
 
 @app.post("/subscriptions", dependencies=[Depends(verify_api_key)])
 async def create_subscription(sub: SubscriptionRequest):

@@ -2,8 +2,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
-import fs from 'fs';
-import path from 'path';
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,55 +23,57 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Only .srv or .dat files are allowed' }, { status: 400 });
     }
 
-    // 3. Save File Locally (Robust Fallback)
-    // We save directly to public/uploads because manager.py looks there anyway.
-    // This works even if the Python service is down.
+    // 3. Proxy to Python Service
+    // We CANNOT save locally in Vercel/Production (EROFS error).
+    // So we MUST forward it to the Python service which has persistent storage.
     try {
-      const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-
-      const bytes = await file.arrayBuffer();
-      const buffer = Buffer.from(bytes);
-      const filePath = path.join(uploadsDir, file.name);
-
-      fs.writeFileSync(filePath, buffer);
-      console.log(`[API] Saved server definition locally: ${filePath}`);
-    } catch (fsError) {
-      console.error('[API] Failed to save file locally:', fsError);
-      throw new Error('Failed to save file to disk');
-    }
-
-    // 4. Optionally Notify Python Service (Best Effort)
-    // We try to tell the Python service about it, but ignore errors if it's down.
-    try {
-      const apiUrl = process.env.COPY_TRADING_API_URL || 'http://127.0.0.1:8000';
+      const apiUrl = process.env.COPY_TRADING_API_URL || 'http://15.206.157.59:8000';
       const apiKey = process.env.COPY_TRADING_API_KEY || '';
       
       // Remove trailing slash
       const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
       const targetUrl = `${baseUrl}/upload/server-definition`;
       
-      console.log(`[API] Notifying Python service: ${targetUrl}`);
+      console.log(`[API] Proxying upload to Python service: ${targetUrl}`);
 
-      // We need to send the file again or just ping?
-      // Since we already saved it, we could just rely on manager.py finding it.
-      // But the Python endpoint expects a file upload. 
-      // Let's just skip the forwarding if we saved it locally, OR try to forward it for completeness.
-      // Since the user got ECONNREFUSED, the service is likely down.
-      // We don't want to block the user success message.
+      // Construct new FormData for the upstream request
+      const pythonFormData = new FormData();
+      pythonFormData.append('file', file);
+
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          // Do NOT set Content-Type header manually when using FormData
+          // The browser/fetch client will set it with the boundary
+        },
+        body: pythonFormData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[API] Python service rejected upload: ${response.status} ${errorText}`);
+        return NextResponse.json(
+          { error: `Trading Service failed: ${errorText}` },
+          { status: response.status }
+        );
+      }
+
+      const result = await response.json();
       
-      // If we saved locally, we consider it a success.
-      
-    } catch (netError) {
-      console.warn('[API] Python service notification failed (ignoring):', netError);
+      return NextResponse.json({ 
+        status: 'success', 
+        message: `File uploaded to Trading Service successfully.`,
+        details: result
+      });
+
+    } catch (netError: any) {
+      console.error('[API] Python service connection failed:', netError);
+      return NextResponse.json(
+        { error: `Could not connect to Trading Service: ${netError.message}` },
+        { status: 503 }
+      );
     }
-
-    return NextResponse.json({ 
-      status: 'success', 
-      message: `File ${file.name} uploaded successfully. It will be detected automatically.` 
-    });
 
   } catch (error: any) {
     console.error('[API] Upload Error:', error);
