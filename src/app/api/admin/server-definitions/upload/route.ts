@@ -28,14 +28,16 @@ export async function POST(req: NextRequest) {
     // So we MUST forward it to the Python service which has persistent storage.
     try {
       const apiUrl = process.env.COPY_TRADING_API_URL || 'http://15.206.157.59:8000';
-      const apiKey = process.env.COPY_TRADING_API_KEY || '';
+      
+      // Fallback API Key if env var fails to load (Temporary fix for local dev)
+      const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
       
       // Remove trailing slash
       const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
       const targetUrl = `${baseUrl}/upload/server-definition`;
       
       console.log(`[API] Proxying upload to Python service: ${targetUrl}`);
-      console.log(`[API] Loaded API Key: ${apiKey ? 'Present (Masked)' : 'Missing'}`);
+      console.log(`[API] Loaded API Key: ${process.env.COPY_TRADING_API_KEY ? 'Present (Env)' : 'Using Fallback'}`);
 
       // Construct new FormData for the upstream request
       const pythonFormData = new FormData();
