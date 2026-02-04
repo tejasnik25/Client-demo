@@ -95,6 +95,10 @@ export default function ServerDefinitionUpload() {
             These files allow the system to connect to new brokers. You can find them in your local MT5 installation folder under <strong>Config</strong>.
             <br/>
             <strong>Note:</strong> Newer MT5 versions use <code>servers.dat</code> instead of individual <code>.srv</code> files. Both are supported.
+            <br/><br/>
+            <strong>Important:</strong> Browser security requires you to manually navigate to your MT5 folder. We cannot open it automatically.
+            <br/>
+            Common path: <code>C:\Program Files\MetaTrader 5\Config</code>
           </AlertDescription>
         </Alert>
 

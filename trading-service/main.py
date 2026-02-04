@@ -1820,27 +1820,40 @@ async def upload_server_definition(file: UploadFile = File(...)):
     """
     Allows Admin to upload .srv files remotely to fix 'Unknown Server' errors.
     Files are saved to public/uploads where manager.py can find them.
+    Also backs up to local 'uploads' directory for redundancy.
     """
     if not file.filename.endswith(".srv") and not file.filename.endswith(".dat"):
         raise HTTPException(status_code=400, detail="Only .srv or .dat files are allowed")
     
     try:
-        # Determine Upload Path
-        # We use the 'public/uploads' folder which is shared/synced
-        upload_dir = os.path.join(os.path.dirname(__file__), "..", "public", "uploads")
-        if not os.path.exists(upload_dir):
-            os.makedirs(upload_dir)
-            
-        file_path = os.path.join(upload_dir, file.filename)
+        # Determine Upload Paths
+        paths = []
         
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # 1. Public Uploads (Shared/Synced)
+        public_dir = os.path.join(os.path.dirname(__file__), "..", "public", "uploads")
+        if not os.path.exists(public_dir):
+            os.makedirs(public_dir)
+        paths.append(os.path.join(public_dir, file.filename))
+        
+        # 2. Local Service Uploads (Redundancy)
+        local_dir = os.path.join(os.path.dirname(__file__), "uploads")
+        if not os.path.exists(local_dir):
+            os.makedirs(local_dir)
+        paths.append(os.path.join(local_dir, file.filename))
+        
+        # Save to all locations
+        # We need to read the file content once and write to multiple places
+        content = await file.read()
+        
+        for p in paths:
+            with open(p, "wb") as buffer:
+                buffer.write(content)
+            print(f"   -> Saved to: {p}")
             
         print(f"📥 Received Server Definition: {file.filename}")
-        print(f"   -> Saved to: {file_path}")
         print(f"   -> Manager will detect this on next instance launch/sync.")
         
-        return {"status": "success", "filename": file.filename, "path": file_path, "message": "File uploaded. Restart the subscription/service to apply."}
+        return {"status": "success", "filename": file.filename, "paths": paths, "message": "File uploaded. Restart the subscription/service to apply."}
         
     except Exception as e:
         print(f"❌ Upload Failed: {e}")
@@ -1849,21 +1862,27 @@ async def upload_server_definition(file: UploadFile = File(...)):
 @app.get("/server-definitions", dependencies=[Depends(verify_api_key)])
 async def list_server_definitions():
     """
-    Lists all uploaded .srv and .dat files in the public/uploads directory.
+    Lists all uploaded .srv and .dat files in the public/uploads directory and local uploads.
     """
     try:
-        upload_dir = os.path.join(os.path.dirname(__file__), "..", "public", "uploads")
-        if not os.path.exists(upload_dir):
-            return {"files": []}
+        dirs = [
+            os.path.join(os.path.dirname(__file__), "..", "public", "uploads"),
+            os.path.join(os.path.dirname(__file__), "uploads")
+        ]
             
-        files = []
-        for f in os.listdir(upload_dir):
-            if f.endswith(".srv") or f.endswith(".dat"):
-                file_path = os.path.join(upload_dir, f)
-                size = os.path.getsize(file_path)
-                files.append({"name": f, "size": size})
+        files_map = {} # Use dict to deduplicate by name
+        
+        for d in dirs:
+            if not os.path.exists(d): continue
+            
+            for f in os.listdir(d):
+                if f.endswith(".srv") or f.endswith(".dat"):
+                    file_path = os.path.join(d, f)
+                    size = os.path.getsize(file_path)
+                    # If duplicate, this overwrites, which is fine (shows latest size)
+                    files_map[f] = {"name": f, "size": size}
                 
-        return {"files": files}
+        return {"files": list(files_map.values())}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
 

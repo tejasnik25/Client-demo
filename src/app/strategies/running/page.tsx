@@ -91,9 +91,18 @@ const RunningStrategiesPageInner: React.FC = () => {
         const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
         const runData = await runRes.json();
         setRunning(runData?.strategies || []);
+      } else {
+        // Handle HTTP errors (e.g. 500, 404)
+        const errorText = await res.text();
+        try {
+            const errorJson = JSON.parse(errorText);
+            alert(`Service Error (${res.status}):\n${errorJson.error || errorJson.detail || 'Unknown Error'}`);
+        } catch {
+            alert(`Service Error (${res.status}):\n${res.statusText}`);
+        }
       }
-    } catch (e) {
-      alert('Failed to check status. Service might be unreachable.');
+    } catch (e: any) {
+      alert(`Failed to check status.\nError: ${e.message || 'Service might be unreachable'}`);
     }
   };
 
