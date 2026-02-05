@@ -570,28 +570,34 @@ def sync_server_definitions(terminal_path):
     try:
         config_dir = os.path.join(terminal_path, "Config")
         if not os.path.exists(config_dir):
+            # Try to create it if it doesn't exist (unlikely for a valid terminal)
             return
 
         # Define source directories (uploads)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         uploads_dir = os.path.abspath(os.path.join(base_dir, "..", "public", "uploads"))
         
+        # Ensure uploads dir exists to avoid errors
         if not os.path.exists(uploads_dir):
-            return
+             try:
+                 os.makedirs(uploads_dir, exist_ok=True)
+             except: return
 
         copied = 0
-        for item in os.listdir(uploads_dir):
-            if item.lower().endswith(".srv") or item.lower() == "servers.dat":
-                s = os.path.join(uploads_dir, item)
-                d = os.path.join(config_dir, item)
-                
-                # Copy if new or changed
-                if not os.path.exists(d) or os.path.getsize(s) != os.path.getsize(d):
-                    try:
-                        shutil.copy2(s, d)
-                        copied += 1
-                        log_print(f"   -> Synced {item} ({os.path.getsize(s)} bytes)")
-                    except: pass
+        # Check if directory is empty or not
+        if os.path.exists(uploads_dir):
+            for item in os.listdir(uploads_dir):
+                if item.lower().endswith(".srv") or item.lower() == "servers.dat":
+                    s = os.path.join(uploads_dir, item)
+                    d = os.path.join(config_dir, item)
+                    
+                    # Copy if new or changed
+                    if not os.path.exists(d) or os.path.getsize(s) != os.path.getsize(d):
+                        try:
+                            shutil.copy2(s, d)
+                            copied += 1
+                            log_print(f"   -> Synced {item} ({os.path.getsize(s)} bytes)")
+                        except: pass
         
         if copied > 0:
             log_print(f"🔄 Synced {copied} server definitions to {config_dir}")

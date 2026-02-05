@@ -107,6 +107,16 @@ def get_subscriptions_from_db():
             if not row['slave_id'] or not row['slave_password']:
                 continue
                 
+            # Validate Numeric IDs (MT5 requires numeric login)
+            if not str(row['slave_id']).isdigit():
+                print(f"⚠ Skipping Subscription with Invalid Non-Numeric Slave ID: {row['slave_id']} (User: {row['user_id']})")
+                continue
+                
+            master_id_str = str(row['master_account_id'])
+            if not master_id_str.isdigit():
+                 print(f"⚠ Skipping Subscription with Invalid Non-Numeric Master ID: {master_id_str}")
+                 continue
+                
             sub = {
                 "id": f"sub_{row['user_id']}_{row['strategy_id']}_{row['slave_id']}",
                 "externalId": row['rs_id'],
@@ -450,18 +460,30 @@ def sync_srv_files(instance_dir, base_exe_path):
         
         # 1. SEARCH ADDITIONAL SOURCE DIRS (For "Upload" support)
         # Allows user to drop .srv files in project root or uploads folder
+        
+        # Define Public Uploads Path (Next.js)
+        public_uploads = os.path.abspath(os.path.join(BASE_DIR, "..", "public", "uploads"))
+        if not os.path.exists(public_uploads):
+            try:
+                os.makedirs(public_uploads, exist_ok=True)
+                print(f"   ℹ Created missing public uploads directory: {public_uploads}")
+            except: pass
+
         search_dirs = [
             base_config_dir, # Base MT5 Config
             BASE_DIR, # Current Script Directory
-            os.path.abspath(os.path.join(BASE_DIR, "..", "public", "uploads")), # Next.js Uploads
+            public_uploads, # Next.js Uploads
             os.path.abspath(os.path.join(BASE_DIR, "uploads")), # Local Uploads
-            # Add user desktop or downloads for convenience? No, keep it scoped.
+            r"C:\Program Files\MetaTrader 5\Config", # Fallback Standard Install
+            r"D:\MetaTrader 5\Config", # Fallback Custom Install
         ]
         
         # Add any other potential Config folders (e.g. from other instances if base is empty?)
         
         for src_dir in search_dirs:
-            if not os.path.exists(src_dir): continue
+            if not os.path.exists(src_dir): 
+                # print(f"      (Skipping missing source: {src_dir})")
+                continue
             
             # print(f"      Checking {src_dir}...")
             
@@ -471,6 +493,7 @@ def sync_srv_files(instance_dir, base_exe_path):
                     d = os.path.join(instance_config_dir, item)
                     
                     # Avoid re-copying if same size/time (Optimization)
+                    # BUT force update if it's servers.dat to be safe, or if size differs
                     if os.path.exists(d):
                         try:
                             if os.path.getsize(s) == os.path.getsize(d):
@@ -480,11 +503,16 @@ def sync_srv_files(instance_dir, base_exe_path):
                     try:
                         shutil.copy2(s, d)
                         copied_count += 1
-                        # print(f"   + Installed: {item} (from {os.path.basename(src_dir)})")
-                    except: pass
+                        print(f"   + Installed: {item} (from {src_dir})")
+                    except Exception as copy_err:
+                        print(f"   ⚠ Failed to copy {item}: {copy_err}")
         
         if copied_count > 0:
-            print(f"🔄 Synced {copied_count} server definitions (.srv) to Instance.")
+            print(f"🔄 Synced {copied_count} server definitions (.srv/dat) to Instance.")
+        else:
+            # Warn if no servers found at all
+            if not os.path.exists(os.path.join(instance_config_dir, "servers.dat")):
+                 print(f"⚠ WARNING: No server definitions synced! MT5 may fail to connect.")
             
     except Exception as e:
         print(f"⚠ Failed to sync .srv files: {e}")
