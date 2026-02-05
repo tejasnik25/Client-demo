@@ -12,7 +12,11 @@ import shutil
 from pydantic import BaseModel
 from typing import Optional, Literal, List, Dict
 from contextlib import asynccontextmanager
-import mysql.connector
+try:
+    import mysql.connector
+except ImportError:
+    mysql = None
+    print("⚠ Warning: mysql-connector-python not found. Database features will be disabled.")
 from dotenv import load_dotenv
 
 # Load .env file
@@ -1875,24 +1879,35 @@ async def list_server_definitions():
     """
     try:
         dirs = [
-            os.path.join(os.path.dirname(__file__), "..", "public", "uploads"),
-            os.path.join(os.path.dirname(__file__), "uploads")
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "public", "uploads")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "uploads"))
         ]
+        
+        print(f"📂 Listing server definitions from: {dirs}")
             
         files_map = {} # Use dict to deduplicate by name
         
         for d in dirs:
-            if not os.path.exists(d): continue
+            if not os.path.exists(d):
+                try:
+                    os.makedirs(d, exist_ok=True)
+                    print(f"   -> Created missing directory: {d}")
+                except:
+                    print(f"   -> Missing directory: {d}")
+                    continue
             
+            print(f"   -> Scanning {d}...")
             for f in os.listdir(d):
-                if f.endswith(".srv") or f.endswith(".dat"):
+                if f.lower().endswith(".srv") or f.lower() == "servers.dat":
                     file_path = os.path.join(d, f)
                     size = os.path.getsize(file_path)
                     # If duplicate, this overwrites, which is fine (shows latest size)
                     files_map[f] = {"name": f, "size": size}
+                    print(f"      Found: {f} ({size} bytes)")
                 
         return {"files": list(files_map.values())}
     except Exception as e:
+        print(f"❌ Failed to list files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
 
 @app.post("/subscriptions", dependencies=[Depends(verify_api_key)])

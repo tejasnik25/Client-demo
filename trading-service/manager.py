@@ -7,6 +7,11 @@ import json
 import glob
 import urllib.request
 import ssl
+try:
+    import mysql.connector
+except ImportError:
+    mysql = None
+    print("⚠ Warning: mysql-connector-python not found. Database features will be disabled.")
 
 # ---------------------------------------------------------
 # CONFIGURATION
@@ -135,6 +140,16 @@ def get_subscriptions_from_db():
                 "settings": {"riskType": "balance_multiplier", "riskValue": 1.0}
             }
             mysql_subs.append(sub)
+            
+        # Check for duplicate slave usage across DIFFERENT masters
+        slave_master_map = {}
+        for sub in mysql_subs:
+            s_id = sub['slave']['id']
+            m_id = sub['master']['id']
+            if s_id in slave_master_map and slave_master_map[s_id] != m_id:
+                print(f"⚠ WARNING: Slave {s_id} is assigned to MULTIPLE Masters! ({slave_master_map[s_id]} and {m_id})")
+                # Potential Logic: We could mark it as invalid or skip, but for now just warn
+            slave_master_map[s_id] = m_id
             
         conn.close()
         
