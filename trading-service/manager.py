@@ -148,7 +148,7 @@ def get_subscriptions_from_db():
                 "slave": {
                     "id": str(row['slave_id']),
                     "password": row['slave_password'],
-                    "server": row['slave_server'] or 'MetaQuotes-Demo',
+                    "server": (row['slave_server'] or 'MetaQuotes-Demo').replace('\u200e', '').strip(),
                     "platform": row['slave_platform'] or 'MT5'
                 },
                 "settings": {"riskType": "balance_multiplier", "riskValue": 1.0}
