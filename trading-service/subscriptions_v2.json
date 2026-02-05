@@ -40,6 +40,26 @@
     }
   },
   {
+    "id": "sub_user_1762531624017_strategy-3_270852996",
+    "externalId": "ab8f6e44-d506-44e9-be03-ab1661d8bdf0",
+    "master": {
+      "id": "270870850",
+      "password": "Vijay@3138",
+      "server": "Exness-MT5Trial17",
+      "platform": "MT5"
+    },
+    "slave": {
+      "id": "270852996",
+      "password": "Vijay@1234",
+      "server": "Exness-MT5Trial17",
+      "platform": "MT5"
+    },
+    "settings": {
+      "riskType": "balance_multiplier",
+      "riskValue": 1.0
+    }
+  },
+  {
     "id": "sub_user_1761969607595_strategy-2_313831",
     "externalId": "b463a7e7-7520-483c-8b56-cdf81780f889",
     "master": {
@@ -91,7 +111,7 @@
     "slave": {
       "id": "25285165",
       "password": "5;q6xsbO,%AU",
-      "server": "Tickmill-Demo\u200e",
+      "server": "Tickmill-Demo",
       "platform": "MT5"
     },
     "settings": {
