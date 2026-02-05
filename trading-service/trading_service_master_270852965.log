@@ -1,0 +1,9 @@
+2026-02-05 12:52:30,603 - INFO - \U0001f504 Loading Subscriptions from Database...
+2026-02-05 12:52:31,286 - INFO - \u2705 Loaded 5 active subscriptions from DB.
+2026-02-05 12:52:31,293 - INFO -    - Master: 270852965 -> Slave: 270852965
+2026-02-05 12:52:31,297 - INFO -    - Master: 270852965 -> Slave: 25285165
+2026-02-05 12:52:31,311 - INFO -    - Master: 270870850 -> Slave: 433062757
+2026-02-05 12:52:31,314 - INFO -    - Master: 270870850 -> Slave: 270852996
+2026-02-05 12:52:31,325 - INFO -    - Master: 270870850 -> Slave: 313831
+2026-02-05 12:52:31,399 - INFO - \u26a0 MT5 not initialized. Attempting initialize()...
+2026-02-05 12:52:31,415 - INFO -    -> Using path: D:\Copy-Trade\Client-demo -- v1.5\MT5_Instances\Master_270852965\terminal64.exe

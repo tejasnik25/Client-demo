@@ -111,6 +111,7 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
   private async request(endpoint: string, method: 'GET' | 'POST', body?: any) {
     const awsUrl = 'http://15.206.157.59:8000';
     const localUrl = 'http://127.0.0.1:8000';
+    const isDev = process.env.NODE_ENV !== 'production';
     
     // Build list of URLs to try
     const urls: string[] = [];
@@ -120,8 +121,8 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
         urls.push(this.baseUrl);
     }
     
-    // 2. Localhost (always try local fallback for RDP)
-    if (!urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
+    // 2. Localhost fallback only in development/RDP workflows
+    if (isDev && !urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
         urls.push(localUrl);
     }
 
@@ -180,7 +181,7 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
       return { isValid: res.isValid, error: res.error };
     } catch (e: any) {
       // Return the actual connection error to help debugging
-      const target = this.baseUrl.includes('localhost') ? `${this.baseUrl} (Env Var seems missing - Set COPY_TRADING_API_URL)` : this.baseUrl;
+      const target = this.baseUrl.includes('localhost') ? `${this.baseUrl} (Env Var missing - Set COPY_TRADING_API_URL or COPY_TRADING_URL)` : this.baseUrl;
       return { isValid: false, error: `Connection Failed to ${target}. Check Firewall.` };
     }
   }
@@ -234,7 +235,7 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
       };
     } catch (e: any) {
       // Return the error message which now includes the target URL
-      const target = this.baseUrl.includes('localhost') ? `${this.baseUrl} (Env Var COPY_TRADING_API_URL seems missing)` : this.baseUrl;
+      const target = this.baseUrl.includes('localhost') ? `${this.baseUrl} (Env Var COPY_TRADING_API_URL/COPY_TRADING_URL missing)` : this.baseUrl;
       const errorMsg = e.message || String(e);
       return { status: 'error' as CopyTradingStatus, error: `${errorMsg} [Target: ${target}]` };
     }
@@ -243,7 +244,11 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
 
 // Factory to get the correct provider based on ENV
 export function getCopyTradingProvider(): ICopyTradingProvider {
-  const envUrl = process.env.COPY_TRADING_API_URL || process.env.NEXT_PUBLIC_COPY_TRADING_API_URL;
+  const envUrl = 
+    process.env.COPY_TRADING_API_URL ||
+    process.env.COPY_TRADING_URL ||
+    process.env.NEXT_PUBLIC_COPY_TRADING_API_URL ||
+    process.env.NEXT_PUBLIC_COPY_TRADING_URL;
   const isMock = process.env.USE_MOCK_TRADING === 'true';
   
   if (isMock) {
@@ -256,14 +261,12 @@ export function getCopyTradingProvider(): ICopyTradingProvider {
   
   if (!finalUrl) {
     if (process.env.NODE_ENV === 'development') {
-      // Default to Localhost for dev/RDP environment
       finalUrl = 'http://127.0.0.1:8000';
-      console.warn('[CopyTrading] COPY_TRADING_API_URL missing in dev. Defaulting to Localhost: http://127.0.0.1:8000');
+      console.warn('[CopyTrading] COPY_TRADING_API_URL/COPY_TRADING_URL missing in dev. Defaulting to http://127.0.0.1:8000');
     } else {
-      // Fallback for production if forgot to set env var (legacy behavior)
-      // Since this is likely running on the same machine as the Python service (RDP), use localhost
-      finalUrl = 'http://127.0.0.1:8000'; 
-      console.warn(`[CopyTrading] COPY_TRADING_API_URL missing in prod. Defaulting to ${finalUrl}`);
+      console.error('[CopyTrading] Provider URL missing in production. Set COPY_TRADING_API_URL or COPY_TRADING_URL in environment.');
+      // Do not force localhost in prod; rely on request() fallbacks or fail clearly
+      finalUrl = '';
     }
   }
 

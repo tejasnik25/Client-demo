@@ -14,6 +14,20 @@ except ImportError:
     print("⚠ Warning: mysql-connector-python not found. Database features will be disabled.")
 
 # ---------------------------------------------------------
+# DB CONFIGURATION
+# ---------------------------------------------------------
+# Load .env file
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+DB_HOST = os.environ.get("DB_HOST", "stock-analysis-db.cx8ioemygq4m.ap-south-1.rds.amazonaws.com")
+DB_USER = os.environ.get("DB_USER", "admin")
+DB_PASS = os.environ.get("DB_PASS", os.environ.get("DB_PASSWORD", "Client_demo_25"))
+DB_NAME = os.environ.get("DB_NAME", "stock_analysis_db")
+
+print(f"🔌 DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
+
+# ---------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------
 # Check for command line argument override or Environment Variable
@@ -163,7 +177,7 @@ def get_subscriptions_from_db():
             return mysql_subs
             
     except Exception as e:
-        # print(f"⚠ MySQL Fetch Failed: {e}")
+        print(f"⚠ MySQL Fetch Failed: {e}")
         pass
 
     # 0. Try Remote Fetch (Active Pull)
