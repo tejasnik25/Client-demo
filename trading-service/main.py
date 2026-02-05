@@ -609,6 +609,28 @@ def sync_server_definitions(terminal_path):
     except Exception as e:
         log_print(f"⚠ Failed to sync server definitions: {e}")
 
+# ---------------------------------------------------------
+# HELPER: CLEAN STRING (Remove Invisible Chars)
+# ---------------------------------------------------------
+def clean_string(s):
+    """
+    Removes invisible characters like LTR marks (\u200e), zero-width spaces, etc.
+    """
+    if not s:
+        return s
+    # List of characters to remove
+    remove_chars = [
+        '\u200e', # Left-to-Right Mark
+        '\u200f', # Right-to-Left Mark
+        '\u200b', # Zero Width Space
+        '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', # Embedding/Override
+        '\ufeff'  # BOM
+    ]
+    cleaned = str(s)
+    for char in remove_chars:
+        cleaned = cleaned.replace(char, '')
+    return cleaned.strip()
+
 def safe_mt5_login(account_id, password, server):
     """
     Robust login with retry, status checks, and connection wait.
@@ -618,9 +640,10 @@ def safe_mt5_login(account_id, password, server):
         import MetaTrader5 as mt5
         
         # 0. Clean Inputs (Crucial for Automation)
-        account_id = str(account_id).strip()
-        password = str(password).strip()
-        server = str(server).strip()
+        account_id = clean_string(account_id)
+        password = clean_string(password) # Passwords might have chars, but usually not format chars. Be careful? 
+        # Actually, passwords shouldn't have format chars. Safe to clean.
+        server = clean_string(server)
 
         # [NEW] Sync Server Definitions (Proactive)
         try:
