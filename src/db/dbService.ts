@@ -587,14 +587,11 @@ const addDefaultStrategies = async () => {
   }
 };
 
-// Initialize database on startup
-// We need to initialize the database in both development and production
-// But avoid running during build time on Vercel
-const isBuildTime = process.env.VERCEL_ENV === 'production' && process.env.VERCEL_REGION === undefined;
-if (!isBuildTime) {
-  // Initialize database for both development and production runtime
-  initializeDatabase().catch(err => console.error('Database initialization failed:', err));
-}
+// Initialize database on startup - DISABLED for Vercel performance
+// Database initialization should be triggered manually or via a separate migration script
+// to avoid timeouts on serverless function cold starts.
+// export const initDB = () => initializeDatabase().catch(err => console.error('Database initialization failed:', err));
+export { initializeDatabase };
 
 // Strategy CRUD operations
 export const getAllStrategies = async (): Promise<Strategy[]> => {

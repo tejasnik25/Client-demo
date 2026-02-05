@@ -16,10 +16,12 @@ const pool = mysql.createPool({
   port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 3306,
   waitForConnections: true,
   connectionLimit: 5,
+  maxIdle: 2, // Close idle connections to prevent server-side timeouts
+  idleTimeout: 30000, // 30s idle timeout
   queueLimit: 0,
-  connectTimeout: 120000,
+  connectTimeout: 20000, // Reduced from 120s to fail faster
   enableKeepAlive: true,
-  keepAliveInitialDelay: 10000,
+  keepAliveInitialDelay: 0, // Send keepalive immediately
   ...(sslConfig ? { ssl: sslConfig as any } : {}),
 });
 

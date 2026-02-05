@@ -119,6 +119,9 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     // 1. Configured URL (if valid)
     if (this.baseUrl && !this.baseUrl.includes('mock')) {
         urls.push(this.baseUrl);
+    } else if (!isDev && !this.baseUrl) {
+        // If in production and no URL configured, fail fast
+        throw new Error('Provider URL missing in production. Set COPY_TRADING_API_URL or COPY_TRADING_URL.');
     }
     
     // 2. Localhost fallback only in development/RDP workflows
@@ -127,6 +130,11 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     }
 
     // 3. AWS IP (Legacy fallback)
+    // Only try if we have no other options or if we are in dev?
+    // Actually, we should probably remove this for production if no env var is set, 
+    // but legacy behavior might rely on it. 
+    // However, if the user hasn't set the env var, relying on a hardcoded IP is flaky.
+    // Let's keep it but only if we haven't failed fast above.
     if (!urls.some(u => u.includes('15.206.157.59'))) {
         urls.push(awsUrl);
     }
@@ -259,7 +267,10 @@ export function getCopyTradingProvider(): ICopyTradingProvider {
   // Determine URL based on environment if not explicitly set
   let finalUrl = envUrl;
   
-  if (!finalUrl) {
+  if (finalUrl) {
+    // Log which variable was used (masked for security if needed, but URL is usually public-ish)
+    console.log(`[CopyTrading] Found configuration URL: ${finalUrl.replace(/(http[s]?:\/\/)([^@]+@)?(.*)/, '$1***@$3')}`);
+  } else {
     if (process.env.NODE_ENV === 'development') {
       finalUrl = 'http://127.0.0.1:8000';
       console.warn('[CopyTrading] COPY_TRADING_API_URL/COPY_TRADING_URL missing in dev. Defaulting to http://127.0.0.1:8000');
