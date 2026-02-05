@@ -1,33 +1,10 @@
-2026-02-05 22:37:36,099 - INFO - \U0001f504 Loading Subscriptions from Database...
-2026-02-05 22:37:36,389 - INFO - \u2705 Loaded 6 active subscriptions from DB.
-2026-02-05 22:37:36,389 - INFO -    - Master: 270852965 -> Slave: 270852965
-2026-02-05 22:37:36,390 - INFO -    - Master: 270852965 -> Slave: 25285165
-2026-02-05 22:37:36,390 - INFO -    - Master: 270870850 -> Slave: 433062757
-2026-02-05 22:37:36,391 - INFO -    - Master: 270870850 -> Slave: 270852996
-2026-02-05 22:37:36,391 - INFO -    - Master: 270870850 -> Slave: 270852996
-2026-02-05 22:37:36,392 - INFO -    - Master: 270870850 -> Slave: 313831
-2026-02-05 22:37:36,409 - INFO - \u26a0 MT5 not initialized. Attempting initialize()...
-2026-02-05 22:37:36,409 - INFO -    -> Using path: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965\terminal64.exe
-2026-02-05 22:38:09,117 - INFO -    \u2717 mt5.initialize() Failed (Attempt 1): (-10005, 'IPC timeout')
-2026-02-05 22:38:09,117 - INFO -      -> IPC Timeout detected. Skipping aggressive kill to protect other instances...
-2026-02-05 22:38:09,118 - INFO -      -> Waiting 5s before retry...
-2026-02-05 22:38:14,119 - INFO -      -> Manually relaunching MT5 from: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965\terminal64.exe
-2026-02-05 22:38:14,120 - INFO -      -> Injecting Credentials for Auto-Login: 270852965
-2026-02-05 22:38:14,174 - INFO -      -> Process launched with CWD: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965
-2026-02-05 22:38:14,177 - INFO -      -> Waiting 20s for GUI to load and popups to appear...
-2026-02-05 22:38:34,189 - INFO -      -> Popups closed. Ready for connection attempt.
-2026-02-05 22:39:09,226 - INFO -    \u2717 mt5.initialize() Failed (Attempt 2): (-10005, 'IPC timeout')
-2026-02-05 22:39:09,227 - INFO -      -> IPC Timeout detected. Skipping aggressive kill to protect other instances...
-2026-02-05 22:39:09,227 - INFO -      -> Waiting 5s before retry...
-2026-02-05 22:39:14,229 - INFO -      -> Manually relaunching MT5 from: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965\terminal64.exe
-2026-02-05 22:39:14,229 - INFO -      -> Injecting Credentials for Auto-Login: 270852965
-2026-02-05 22:39:14,277 - INFO -      -> Process launched with CWD: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965
-2026-02-05 22:39:14,278 - INFO -      -> Waiting 20s for GUI to load and popups to appear...
-2026-02-05 22:39:34,287 - INFO -      -> Popups closed. Ready for connection attempt.
-2026-02-05 22:40:09,414 - INFO -    \u2717 mt5.initialize() Failed (Attempt 3): (-10005, 'IPC timeout')
-2026-02-05 22:40:09,415 - INFO -      -> IPC Timeout detected. Skipping aggressive kill to protect other instances...
-2026-02-05 22:40:09,416 - INFO -      -> Waiting 5s before retry...
-2026-02-05 22:40:14,423 - INFO -      -> Manually relaunching MT5 from: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965\terminal64.exe
-2026-02-05 22:40:14,427 - INFO -      -> Injecting Credentials for Auto-Login: 270852965
-2026-02-05 22:40:14,480 - INFO -      -> Process launched with CWD: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965
-2026-02-05 22:40:14,486 - INFO -      -> Waiting 20s for GUI to load and popups to appear...
+2026-02-06 00:57:38,136 - INFO - \U0001f504 Loading Subscriptions from Database...
+2026-02-06 00:57:38,728 - INFO - \u2705 Loaded 6 active subscriptions from DB.
+2026-02-06 00:57:38,729 - INFO -    - Master: 270852965 -> Slave: 270852965
+2026-02-06 00:57:38,729 - INFO -    - Master: 270852965 -> Slave: 25285165
+2026-02-06 00:57:38,730 - INFO -    - Master: 270870850 -> Slave: 433062757
+2026-02-06 00:57:38,731 - INFO -    - Master: 270870850 -> Slave: 270852996
+2026-02-06 00:57:38,731 - INFO -    - Master: 270870850 -> Slave: 270852996
+2026-02-06 00:57:38,732 - INFO -    - Master: 270870850 -> Slave: 313831
+2026-02-06 00:57:38,762 - INFO - \u26a0 MT5 not initialized. Attempting initialize()...
+2026-02-06 00:57:38,766 - INFO -    -> Using path: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270852965\terminal64.exe
