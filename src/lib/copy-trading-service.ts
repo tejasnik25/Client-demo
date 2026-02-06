@@ -129,10 +129,11 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
         urls.push(localUrl);
     }
 
-    // 3. AWS IP (Legacy fallback) - REMOVED to prevent confusion
-    // if (!urls.some(u => u.includes('15.206.157.59'))) {
-    //    urls.push(awsUrl);
-    // }
+    // 3. AWS IP (Legacy fallback)
+    // Updated to the user-provided Public IP
+    if (!urls.some(u => u.includes('15.206.157.59'))) {
+        urls.push(awsUrl);
+    }
 
     let lastError: any;
 
