@@ -2068,4 +2068,13 @@ if __name__ == "__main__":
     print("════════════════════════════════════════════════════════════")
     
     # Run API
+    
+    # Start Worker in Background Thread
+    if not args.api_only:
+        print("🚀 Starting Background Copy Trade Worker...")
+        worker_thread = threading.Thread(target=copy_trade_worker, daemon=True)
+        worker_thread.start()
+    else:
+        print("📡 API Mode Started (Worker Disabled - Managed by Manager)")
+
     uvicorn.run(app, host="0.0.0.0", port=port)
