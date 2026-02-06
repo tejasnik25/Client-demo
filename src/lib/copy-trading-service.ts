@@ -129,15 +129,10 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
         urls.push(localUrl);
     }
 
-    // 3. AWS IP (Legacy fallback)
-    // Only try if we have no other options or if we are in dev?
-    // Actually, we should probably remove this for production if no env var is set, 
-    // but legacy behavior might rely on it. 
-    // However, if the user hasn't set the env var, relying on a hardcoded IP is flaky.
-    // Let's keep it but only if we haven't failed fast above.
-    if (!urls.some(u => u.includes('15.206.157.59'))) {
-        urls.push(awsUrl);
-    }
+    // 3. AWS IP (Legacy fallback) - REMOVED to prevent confusion
+    // if (!urls.some(u => u.includes('15.206.157.59'))) {
+    //    urls.push(awsUrl);
+    // }
 
     let lastError: any;
 
