@@ -120,8 +120,8 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     if (this.baseUrl && !this.baseUrl.includes('mock')) {
         urls.push(this.baseUrl);
     } else if (!isDev && !this.baseUrl) {
-        // If in production and no URL configured, fail fast
-        throw new Error('Provider URL missing in production. Set COPY_TRADING_API_URL or COPY_TRADING_URL.');
+        // If in production and no URL configured, warn but allow fallback to AWS IP
+        console.warn('Provider URL missing in production. Attempting fallback to AWS IP...');
     }
     
     // 2. Localhost fallback only in development/RDP workflows
@@ -271,9 +271,9 @@ export function getCopyTradingProvider(): ICopyTradingProvider {
       finalUrl = 'http://127.0.0.1:8000';
       console.warn('[CopyTrading] COPY_TRADING_API_URL/COPY_TRADING_URL missing in dev. Defaulting to http://127.0.0.1:8000');
     } else {
-      console.error('[CopyTrading] Provider URL missing in production. Set COPY_TRADING_API_URL or COPY_TRADING_URL in environment.');
-      // Do not force localhost in prod; rely on request() fallbacks or fail clearly
-      finalUrl = '';
+      console.warn('[CopyTrading] Provider URL missing in production. Defaulting to AWS IP: http://15.206.157.59:8000');
+      // Use AWS IP as default in production if env var is missing
+      finalUrl = 'http://15.206.157.59:8000';
     }
   }
 
