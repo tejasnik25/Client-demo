@@ -652,8 +652,10 @@ def safe_mt5_login(account_id, password, server):
         # [NEW] Sync Server Definitions (Proactive)
         try:
             term_info = mt5.terminal_info()
-            if term_info and term_info.path:
-                sync_server_definitions(term_info.path)
+            if term_info:
+                # Always sync to Data Path (AppData) as that's where MT5 looks for Config
+                target_path = term_info.data_path if hasattr(term_info, 'data_path') else term_info.path
+                sync_server_definitions(target_path)
         except: pass
 
         # 1. Check if already logged in (Optimization)
@@ -707,8 +709,10 @@ def safe_mt5_login(account_id, password, server):
              # Advanced Diagnostic: Check for similar server names
              try:
                  term_info = mt5.terminal_info()
-                 if term_info and term_info.path:
-                     config_path = os.path.join(term_info.path, "Config")
+                 if term_info:
+                     # Check Data Path first (where it matters)
+                     check_path = term_info.data_path if hasattr(term_info, 'data_path') else term_info.path
+                     config_path = os.path.join(check_path, "Config")
                      if os.path.exists(config_path):
                          srv_files = [f[:-4] for f in os.listdir(config_path) if f.endswith(".srv")]
                          
@@ -730,14 +734,14 @@ def safe_mt5_login(account_id, password, server):
         log_print(f"   ↻ Retrying Login for {account_id}...")
         
         if mt5.login(login=login_id_int, password=password, server=server):
-             # Wait for connection again
-             for _ in range(20):
+             # Wait for connection again (Increased timeout to 10s)
+             for i in range(50):
                  if mt5.terminal_info().connected:
                      # VERIFY LOGIN ID
                      curr = mt5.account_info()
                      if curr and str(curr.login) == str(account_id):
                          return True, None
-                 time.sleep(0.1)
+                 time.sleep(0.2)
              
              # Final check
              curr = mt5.account_info()
