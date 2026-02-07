@@ -140,6 +140,9 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     for (const base of urls) {
         const url = `${base}${endpoint}`;
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
           const res = await fetch(url, {
             method,
             headers: {
@@ -147,10 +150,13 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
               'Authorization': `Bearer ${this.apiKey}`
             },
             body: body ? JSON.stringify(body) : undefined,
-            cache: 'no-store'
+            cache: 'no-store',
+            signal: controller.signal
           });
+          clearTimeout(timeoutId);
           
           if (!res.ok) {
+
             // If it's a 404/500 from the server, it means we connected but something is wrong.
             // We should probably NOT failover if we got a valid HTTP response (even error) from the primary?
             // BUT, for 404 (Subscription not found), it might exist on the other server.

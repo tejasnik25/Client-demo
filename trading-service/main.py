@@ -1980,9 +1980,28 @@ async def debug_files_system():
         }
     }
 
+# ... (imports)
+
+def reload_subscriptions_if_changed():
+    """
+    Checks if subscriptions_v2.json has changed and reloads if necessary.
+    Crucial for API Mode to stay in sync with Manager/DB.
+    """
+    global last_config_mtime
+    try:
+        if os.path.exists(PERSISTENCE_FILE):
+            mtime = os.path.getmtime(PERSISTENCE_FILE)
+            if mtime > last_config_mtime:
+                load_subscriptions()
+                last_config_mtime = mtime
+    except Exception as e:
+        print(f"⚠ Failed to check/reload subscriptions: {e}")
+
 @app.post("/subscriptions", dependencies=[Depends(verify_api_key)])
 async def create_subscription(sub: SubscriptionRequest):
+    reload_subscriptions_if_changed() # Ensure we have latest state before adding
     print(f"➕ Starting copy from {sub.master.id} to {sub.slave.id}")
+
     
     with lock:
         # Check for existing identical subscription (same master+slave)
@@ -2039,7 +2058,9 @@ async def delete_subscription(id: str, action: SubscriptionAction):
 
 @app.get("/subscriptions/{id}/status", dependencies=[Depends(verify_api_key)])
 async def get_status(id: str):
+    reload_subscriptions_if_changed() # Ensure we have latest state
     with lock:
+
         exists = any(x['id'] == id for x in active_subscriptions)
         if not exists:
              return {"status": "disconnected", "detail": "Subscription not found"}
