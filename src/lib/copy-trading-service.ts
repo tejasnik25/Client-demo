@@ -175,12 +175,16 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     // If we exhausted all URLs
     console.error(`[CopyTrading] All connection attempts failed.`);
     if (lastError) {
-        lastError.message = `${lastError.message} (Target: ${this.baseUrl})`;
+        // Create a new error to avoid "Cannot set property message of which has only a getter"
+        // (common with DOMException or certain fetch errors)
+        const errorMessage = lastError.message || 'Unknown Error';
+        const enhancedError = new Error(`${errorMessage} (Target: ${this.baseUrl})`);
+        
         // Helpful message for Vercel/Localhost mismatch
         if (this.baseUrl.includes('localhost') || this.baseUrl.includes('127.0.0.1')) {
              console.error("NOTE: You are trying to connect to localhost from a deployed environment (Vercel) or a different machine. This will NOT work. The Python service must be on a public IP or you must access this site from the same machine (RDP).");
         }
-        throw lastError;
+        throw enhancedError;
     }
     throw new Error('Connection failed');
   }
