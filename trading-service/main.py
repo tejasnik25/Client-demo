@@ -2058,7 +2058,7 @@ async def delete_subscription(id: str, action: SubscriptionAction):
 
 @app.get("/subscriptions/{id}/status", dependencies=[Depends(verify_api_key)])
 async def get_status(id: str):
-    reload_subscriptions_if_changed() # Ensure we have latest state
+    # reload_subscriptions_if_changed() # Removed to prevent blocking. Worker handles reloading.
     with lock:
 
         exists = any(x['id'] == id for x in active_subscriptions)
