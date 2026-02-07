@@ -135,7 +135,13 @@ def get_subscriptions_from_db():
             if not master_id_str.isdigit():
                  print(f"⚠ Skipping Subscription with Invalid Non-Numeric Master ID: {master_id_str}")
                  continue
-                
+            
+            # HOTFIX: Correct Server for Slave 25285165 (Database has wrong 'Tickmill-Demo' value)
+            slave_server = (row['slave_server'] or 'MetaQuotes-Demo').replace('\u200e', '').strip()
+            if str(row['slave_id']) == '25285165' and 'Tickmill' in slave_server:
+                print(f"🔧 HOTFIX: Overriding incorrect server '{slave_server}' for Slave 25285165 -> 'RoboForex-Pro'")
+                slave_server = 'RoboForex-Pro'
+
             sub = {
                 "id": f"sub_{row['user_id']}_{row['strategy_id']}_{row['slave_id']}",
                 "externalId": row['rs_id'],
@@ -148,7 +154,7 @@ def get_subscriptions_from_db():
                 "slave": {
                     "id": str(row['slave_id']),
                     "password": row['slave_password'],
-                    "server": (row['slave_server'] or 'MetaQuotes-Demo').replace('\u200e', '').strip(),
+                    "server": slave_server,
                     "platform": row['slave_platform'] or 'MT5'
                 },
                 "settings": {"riskType": "balance_multiplier", "riskValue": 1.0}

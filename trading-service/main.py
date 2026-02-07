@@ -1886,10 +1886,17 @@ async def upload_server_definition(file: UploadFile = File(...)):
         paths.append(os.path.join(local_dir, file.filename))
         
         # Save to all locations
-        # We need to read the file content once and write to multiple places
         content = await file.read()
         
         for p in paths:
+            # FORCE OVERWRITE: Remove Read-Only attribute if file exists
+            if os.path.exists(p):
+                try:
+                    os.chmod(p, 0o777)
+                    os.remove(p) # Try to delete it first to ensure clean write
+                except Exception as del_err:
+                    print(f"⚠ Could not delete existing file {p}: {del_err}")
+
             with open(p, "wb") as buffer:
                 buffer.write(content)
             print(f"   -> Saved to: {p}")
@@ -1928,18 +1935,50 @@ async def list_server_definitions():
                     continue
             
             print(f"   -> Scanning {d}...")
-            for f in os.listdir(d):
-                if f.lower().endswith(".srv") or f.lower() == "servers.dat":
-                    file_path = os.path.join(d, f)
-                    size = os.path.getsize(file_path)
-                    # If duplicate, this overwrites, which is fine (shows latest size)
-                    files_map[f] = {"name": f, "size": size}
-                    print(f"      Found: {f} ({size} bytes)")
+            try:
+                for f in os.listdir(d):
+                    if f.lower().endswith(".srv") or f.lower() == "servers.dat":
+                        file_path = os.path.join(d, f)
+                        try:
+                            size = os.path.getsize(file_path)
+                            # If duplicate, this overwrites, which is fine (shows latest size)
+                            files_map[f] = {"name": f, "size": size}
+                            print(f"      Found: {f} ({size} bytes)")
+                        except OSError as e:
+                             print(f"      ⚠ Error reading file {f}: {e}")
+            except Exception as e:
+                print(f"   ⚠ Error scanning dir {d}: {e}")
                 
         return {"files": list(files_map.values())}
     except Exception as e:
         print(f"❌ Failed to list files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
+
+@app.get("/system/debug-files")
+async def debug_files_system():
+    """
+    Debug endpoint to check file system paths and permissions.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    public_dir = os.path.abspath(os.path.join(base_dir, "..", "public", "uploads"))
+    local_dir = os.path.abspath(os.path.join(base_dir, "uploads"))
+    
+    return {
+        "cwd": os.getcwd(),
+        "base_dir": base_dir,
+        "dirs": {
+            "public": {
+                "path": public_dir,
+                "exists": os.path.exists(public_dir),
+                "files": os.listdir(public_dir) if os.path.exists(public_dir) else []
+            },
+            "local": {
+                "path": local_dir,
+                "exists": os.path.exists(local_dir),
+                "files": os.listdir(local_dir) if os.path.exists(local_dir) else []
+            }
+        }
+    }
 
 @app.post("/subscriptions", dependencies=[Depends(verify_api_key)])
 async def create_subscription(sub: SubscriptionRequest):
