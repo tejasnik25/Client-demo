@@ -141,7 +141,9 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
         const url = `${base}${endpoint}`;
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+          // INCREASED TIMEOUT: 5s is too short for some MT5 operations (e.g. cold start / login).
+          // Increased to 30s to prevent "Operation Aborted" errors during high load.
+          const timeoutId = setTimeout(() => controller.abort(), 30000); 
 
           const res = await fetch(url, {
             method,

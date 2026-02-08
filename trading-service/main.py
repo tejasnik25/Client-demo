@@ -2129,10 +2129,6 @@ if __name__ == "__main__":
     # Unified Entry Point
     # Args are already parsed at the top level as 'args'
     
-    # AGGRESSIVE CLEANUP ON STARTUP
-    # We must ensure no zombie terminals are holding resources or ports.
-    kill_all_mt5_terminals()
-    
     if args.worker:
         print("════════════════════════════════════════════════════════════")
         print(f"🚀 STARTING WORKER MODE (Master: {args.master_id})")
@@ -2156,6 +2152,11 @@ if __name__ == "__main__":
 
     # Default / API Mode
     port = 8000
+    
+    # AGGRESSIVE CLEANUP ON STARTUP (API MODE ONLY)
+    # We must ensure no zombie terminals are holding resources or ports.
+    # Only run this when starting the API, NOT when starting workers (to avoid killing each other).
+    kill_all_mt5_terminals()
     
     print("════════════════════════════════════════════════════════════")
     print(f"🚀 STARTING MT5 COPY TRADING SERVICE ON 0.0.0.0:{port}")
