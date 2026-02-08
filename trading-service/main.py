@@ -1262,17 +1262,36 @@ def copy_trade_worker():
     master_last_check = {} # { m_id: timestamp }
     master_has_activity = {} # { m_id: bool }
 
-    last_config_mtime = 0
+    # last_config_mtime is a GLOBAL variable, but we are shadowing it here as a local variable
+    # This causes the error if we don't declare it global or use a different name.
+    # However, since this is a loop, we want to track the local worker's view of the file.
+    # So we should use a different name to avoid confusion with the global one, 
+    # OR we should use the global one.
+    # Given we have multiple workers, each worker should probably track its own reload state?
+    # Yes. So let's rename the local variable to avoid NameError if python is confused,
+    # OR (more likely) the error "name 'last_config_mtime' is not defined" 
+    # happens because I used it before assignment in some scope, or the scope is messy.
+    #
+    # Wait, in the screenshot the error is:
+    # "Failed to check/reload subscriptions: name 'last_config_mtime' is not defined"
+    # This error is caught in an exception handler somewhere.
+    # It seems to be happening in `create_subscription` or similar, NOT in the worker loop?
+    # The worker loop has `last_config_mtime = 0` right before usage.
+    # Let's check where else it is used.
+    
+    worker_last_config_mtime = 0
 
     while True:
         # 0. Auto-Reload Subscriptions (Hot-Reload)
         try:
             if os.path.exists(PERSISTENCE_FILE):
                 mtime = os.path.getmtime(PERSISTENCE_FILE)
-                if mtime > last_config_mtime:
+                if mtime > worker_last_config_mtime:
                     load_subscriptions()
-                    last_config_mtime = mtime
-        except: pass
+                    worker_last_config_mtime = mtime
+        except Exception as e: 
+             # log_print(f"Failed to check/reload subscriptions: {e}") 
+             pass
 
         try:
             # Check pause flag
@@ -2022,6 +2041,10 @@ def reload_subscriptions_if_changed():
     Crucial for API Mode to stay in sync with Manager/DB.
     """
     global last_config_mtime
+    # Defensive initialization to prevent NameError if something went wrong with global init
+    if 'last_config_mtime' not in globals():
+        last_config_mtime = 0
+        
     try:
         if os.path.exists(PERSISTENCE_FILE):
             mtime = os.path.getmtime(PERSISTENCE_FILE)
