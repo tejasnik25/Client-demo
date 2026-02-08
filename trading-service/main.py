@@ -565,6 +565,20 @@ def force_enable_algo_trading(account_id=None):
         return False
 
 # ---------------------------------------------------------
+# PROCESS MANAGEMENT HELPERS
+# ---------------------------------------------------------
+def kill_all_mt5_terminals():
+    """Aggressively kills all terminal64.exe processes to ensure a clean slate."""
+    import subprocess
+    try:
+        if os.name == 'nt':
+            # Redirect output to prevent console clutter
+            subprocess.run("taskkill /F /IM terminal64.exe", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log_print("   💀 Aggressively killed all stuck terminal64.exe processes.")
+    except Exception as e:
+        log_print(f"   ⚠ Failed to kill terminals: {e}")
+
+# ---------------------------------------------------------
 # WORKER HELPERS (CLEANER ARCHITECTURE)
 # ---------------------------------------------------------
 last_sync_times = {} # Throttle for sync operations
@@ -1616,8 +1630,10 @@ def copy_trade_worker():
                             # [NEW] Auto-Recover from IPC Timeout
                             # If login times out, the terminal is likely hung. Force shutdown to trigger restart in next loop.
                             if err and ("IPC timeout" in str(err) or "-10005" in str(err)):
-                                log_print("   ⚠ IPC Timeout detected during login. Forcing MT5 Shutdown to trigger restart...")
-                                try: mt5.shutdown() 
+                                log_print("   ⚠ IPC Timeout detected during login. Forcing aggressive MT5 Cleanup...")
+                                try: 
+                                    mt5.shutdown()
+                                    kill_all_mt5_terminals() # Kill process to ensure fresh start
                                 except: pass
                             
                             # Mark all slaves as error
@@ -2112,6 +2128,10 @@ async def reset_system():
 if __name__ == "__main__":
     # Unified Entry Point
     # Args are already parsed at the top level as 'args'
+    
+    # AGGRESSIVE CLEANUP ON STARTUP
+    # We must ensure no zombie terminals are holding resources or ports.
+    kill_all_mt5_terminals()
     
     if args.worker:
         print("════════════════════════════════════════════════════════════")
