@@ -166,9 +166,10 @@ FILTER_MASTER_ID = args.master_id # Set from CLI args
 active_subscriptions: List[dict] = []
 # Tracks the last known health state of each subscription (id -> status dict)
 subscription_states: Dict[str, dict] = {}
-lock = threading.Lock()
+lock = threading.RLock() # RLock to allow re-entrant calls (e.g. save_subscriptions inside create_subscription)
 mt5_lock = threading.Lock() # New lock for MT5 operations
 worker_paused = False # Flag to pause worker during critical operations
+last_config_mtime = 0 # Track last modification time of subscriptions file
 processed_orders_cache = {} # {(slave_id, master_ticket): timestamp}
 
 def safe_order_send(request, expected_login_id):
@@ -2046,15 +2047,27 @@ async def create_subscription(sub: SubscriptionRequest):
         
         if duplicate:
              print(f"⚠ Duplicate Subscription Detected! {sub.externalId} matches existing {duplicate['id']}")
-             # IDEMPOTENCY FIX: 
-             # Instead of erroring, we treat this as a success.
-             # We return the EXISTING ID so the frontend knows it's connected.
-             # We also update the settings of the existing subscription just in case.
+             # IDEMPOTENCY FIX (Updated): 
+             # The frontend likely generated a NEW ID (sub.externalId) during recovery.
+             # We must UPDATE the existing subscription's ID to match the new one.
+             
+             old_id = duplicate['id']
+             new_id = sub.externalId
+             
+             if old_id != new_id:
+                 print(f"🔄 Migrating ID: {old_id} -> {new_id}")
+                 duplicate['id'] = new_id
+                 
+                 # Migrate State
+                 if old_id in subscription_states:
+                     subscription_states[new_id] = subscription_states.pop(old_id)
+             
              duplicate['settings'] = sub.settings
-             duplicate['master'] = sub.master # Update credentials if changed
+             duplicate['master'] = sub.master 
              duplicate['slave'] = sub.slave
+             
              save_subscriptions()
-             return {"success": True, "id": duplicate['id'], "message": "Subscription already active (updated)"}
+             return {"success": True, "id": new_id, "message": "Subscription restored (ID updated)"}
 
         existing = next((x for x in active_subscriptions if x['id'] == sub.externalId), None)
         

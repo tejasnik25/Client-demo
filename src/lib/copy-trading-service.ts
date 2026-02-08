@@ -120,8 +120,8 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     if (this.baseUrl && !this.baseUrl.includes('mock')) {
         urls.push(this.baseUrl);
     } else if (!isDev && !this.baseUrl) {
-        // If in production and no URL configured, warn but allow fallback to AWS IP
-        console.warn('Provider URL missing in production. Attempting fallback to AWS IP...');
+        // Implicitly using AWS IP in production is fine.
+        console.log('[CopyTrading] Using default AWS Provider (No custom URL configured).');
     }
     
     // 2. Localhost fallback only in development/RDP workflows
