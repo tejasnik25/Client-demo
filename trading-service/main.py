@@ -567,10 +567,18 @@ def force_enable_algo_trading(account_id=None):
 # ---------------------------------------------------------
 # WORKER HELPERS (CLEANER ARCHITECTURE)
 # ---------------------------------------------------------
+last_sync_times = {} # Throttle for sync operations
+
 def sync_server_definitions(terminal_path):
     """
     Syncs .srv and .dat files from 'public/uploads' to the terminal's Config folder.
     """
+    global last_sync_times
+    # Throttle: Only sync every 60 seconds per terminal
+    if time.time() - last_sync_times.get(terminal_path, 0) < 60:
+        return
+    last_sync_times[terminal_path] = time.time()
+
     try:
         config_dir = os.path.join(terminal_path, "Config")
         if not os.path.exists(config_dir):
@@ -649,7 +657,15 @@ def safe_mt5_login(account_id, password, server):
         # Actually, passwords shouldn't have format chars. Safe to clean.
         server = clean_string(server)
 
+        # 1. Check if already logged in (Optimization)
+        current = mt5.account_info()
+        if current and str(current.login) == str(account_id):
+            # Even if logged in, check connection
+            if mt5.terminal_info().connected:
+                return True, None
+            
         # [NEW] Sync Server Definitions (Proactive)
+        # Only sync if we are about to login (context switch or reconnect)
         try:
             term_info = mt5.terminal_info()
             if term_info:
@@ -657,13 +673,6 @@ def safe_mt5_login(account_id, password, server):
                 target_path = term_info.data_path if hasattr(term_info, 'data_path') else term_info.path
                 sync_server_definitions(target_path)
         except: pass
-
-        # 1. Check if already logged in (Optimization)
-        current = mt5.account_info()
-        if current and str(current.login) == str(account_id):
-            # Even if logged in, check connection
-            if mt5.terminal_info().connected:
-                return True, None
             
         # 2. Login
         # Convert account_id to int, as MT5 requires int login
@@ -1603,6 +1612,14 @@ def copy_trade_worker():
                                 log_print(f"⚠ Could not get positions for Master {m_id}")
                         else:
                             log_print(f"✗ Master Login Failed {m_id}: {err}")
+                            
+                            # [NEW] Auto-Recover from IPC Timeout
+                            # If login times out, the terminal is likely hung. Force shutdown to trigger restart in next loop.
+                            if err and ("IPC timeout" in str(err) or "-10005" in str(err)):
+                                log_print("   ⚠ IPC Timeout detected during login. Forcing MT5 Shutdown to trigger restart...")
+                                try: mt5.shutdown() 
+                                except: pass
+                            
                             # Mark all slaves as error
                             with lock:
                                 for s in subs_list:
