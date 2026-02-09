@@ -833,6 +833,118 @@ def safe_mt5_login(account_id, password, server):
     except Exception as e:
         return False, f"Login Exception: {str(e)}"
 
+def process_mt4_slave_sync(slave_sub, master_positions):
+    """
+    Handles synchronization for MT4 Slaves via the HTTP Bridge.
+    It compares Master positions with known MT4 Slave positions (from mt4_master_data)
+    and queues commands for the MT4 EA to execute.
+    """
+    slave = slave_sub['slave']
+    s_id = str(slave['id'])
+    
+    # 1. Get Slave State (Pushed by EA)
+    with mt4_lock:
+        slave_data = mt4_master_data.get(s_id) # Using same dict for all MT4 accounts
+    
+    if not slave_data:
+        # EA hasn't connected yet
+        # log_print(f"   ⏳ MT4 Slave {s_id} waiting for EA connection...")
+        return
+
+    # Check for staleness
+    if time.time() - slave_data.get('last_seen', 0) > 60:
+        log_print(f"   ⚠ MT4 Slave {s_id} is disconnected (Last seen >60s ago).")
+        return
+
+    slave_positions = slave_data.get('positions', [])
+    
+    # 2. Compare Positions (Logic similar to MT5 but generating COMMANDS)
+    commands = []
+    
+    # A. OPEN NEW TRADES
+    for m_pos in master_positions:
+        m_ticket = m_pos['ticket']
+        
+        # Check if already exists on Slave
+        # We assume MT4 EA sends 'comment' or 'magic' to identify copied trades
+        # Or we check our internal cache? 
+        # Ideally, EA sends `magic` field.
+        
+        already_copied = False
+        for s_pos in slave_positions:
+            # Check by Magic Number (Standard Copy Trade logic)
+            # Assuming Magic 123456 is used for Copied Trades
+            # And maybe comment contains master ticket?
+            if s_pos.get('magic') == 123456:
+                # If we could store master ticket in comment, that's best.
+                # If not, we might risk duplicates if we only rely on symbol/vol.
+                # For now, let's assume we rely on our Python Cache to prevent sending duplicate OPEN commands.
+                pass
+        
+        # Check Python Cache
+        cache_key = f"{s_id}_{m_ticket}"
+        if cache_key in processed_orders_cache:
+            continue
+
+        # Create OPEN Command
+        cmd = {
+            "action": "OPEN",
+            "symbol": m_pos['symbol'], # MT4 EA handles mapping if needed, or we do it here
+            "type": m_pos['type'], # 0=Buy, 1=Sell
+            "volume": m_pos['volume'],
+            "ticket": m_ticket, # Master Ticket for reference
+            "sl": m_pos.get('sl', 0.0),
+            "tp": m_pos.get('tp', 0.0)
+        }
+        commands.append(cmd)
+        
+        # Mark as processed in cache immediately to prevent spamming commands
+        # (Real confirmation comes when we see it in slave_positions, but for commands we must be careful)
+        processed_orders_cache[cache_key] = time.time()
+        log_print(f"   📤 Queued MT4 OPEN: {m_pos['symbol']} {m_pos['volume']} -> Slave {s_id}")
+
+    # B. CLOSE TRADES (If Master closed)
+    # Strategy: Iterate Slave Positions -> Check if they have a match in Master
+    # NOTE: This assumes 1:1 mapping and simple logic. 
+    # Real-world needs robust "magic number" tracking or "ticket mapping".
+    # Since we don't have a DB for ticket mapping, we rely on matching SYMBOL and VOLUME (risky but standard for basic copy)
+    # OR we assume Magic Number 123456 implies "Copied".
+    
+    for s_pos in slave_positions:
+        # Only check trades we opened (Magic 123456)
+        if s_pos.get('magic') != 123456:
+            continue
+            
+        # Does this trade still exist on Master?
+        # We need to find a Master position that "matches" this slave position.
+        # Matching criteria: Symbol + Direction. Volume might differ if partial close, but usually check existence.
+        
+        found_on_master = False
+        for m_pos in master_positions:
+            # 1. Symbol Match (Basic) - In future, add symbol mapping check
+            if m_pos['symbol'] == s_pos['symbol']:
+                 # 2. Type Match
+                 if m_pos['type'] == s_pos['type']:
+                     found_on_master = True
+                     break
+        
+        if not found_on_master:
+            # Master doesn't have this position anymore -> CLOSE IT
+            log_print(f"   🔻 Queueing MT4 CLOSE for Slave {s_id}: Ticket {s_pos['ticket']} ({s_pos['symbol']})")
+            
+            cmd = {
+                "action": "CLOSE",
+                "ticket": s_pos['ticket']
+            }
+            commands.append(cmd)
+
+    # 3. Queue Commands
+    if commands:
+        with mt4_lock:
+            if s_id not in mt4_slave_commands:
+                mt4_slave_commands[s_id] = []
+            mt4_slave_commands[s_id].extend(commands)
+
 def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=False):
     """
     Handles the synchronization for a single slave subscription.
@@ -855,7 +967,14 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
     s_id = get_attr(slave, 'id')
     s_pass = get_attr(slave, 'password')
     s_server = get_attr(slave, 'server')
-    
+    s_platform = get_attr(slave, 'platform')
+
+    # 0. PLATFORM CHECK (MT5 ONLY)
+    if s_platform and str(s_platform).upper() == 'MT4':
+        # log_print(f"   ℹ Delegating Slave {s_id} to MT4 Bridge...")
+        process_mt4_slave_sync(slave_sub, master_positions)
+        return
+
     # 0. CHECK PERSISTENT ERROR STATE (Skip if credentials unchanged)
     current_cred_hash = hash((s_id, s_pass, s_server))
     with lock:
