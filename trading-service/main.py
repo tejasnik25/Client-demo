@@ -474,6 +474,7 @@ def force_enable_algo_trading(account_id=None):
     """
     try:
         import ctypes
+        from ctypes import wintypes
         import MetaTrader5 as mt5
         
         # Check status first
@@ -689,7 +690,12 @@ def clean_string(s):
     cleaned = str(s)
     for char in remove_chars:
         cleaned = cleaned.replace(char, '')
-    return cleaned.strip()
+    
+    # Only strip if it results in empty string (to catch empty inputs), otherwise keep spaces as they might be part of password
+    if not cleaned.strip():
+        return ""
+        
+    return cleaned # Removed .strip() to preserve valid leading/trailing spaces in passwords
 
 def safe_mt5_login(account_id, password, server):
     """
@@ -871,6 +877,17 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
         is_logged_in, login_err = safe_mt5_login(s_id, s_pass, s_server)
         
         if is_logged_in:
+            # Force Enable Algo Trading (Fix for 'Disable on Account Change')
+            # This setting in MT5 often disables Algo Trading when switching accounts.
+            # We proactively check and fix it IMMEDIATELY after login.
+            try:
+                term_info = mt5.terminal_info()
+                if term_info and not term_info.trade_allowed:
+                     log_print(f"      🔧 Algo Trading disabled after login. Attempting Auto-Fix...")
+                     force_enable_algo_trading(s_id)
+            except Exception as e:
+                log_print(f"      ⚠ Algo Fix Error: {e}")
+                
             break
             
         # Check for IPC Timeout (-10005) or Connection Issues
