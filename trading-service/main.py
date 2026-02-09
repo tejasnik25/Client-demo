@@ -814,7 +814,14 @@ def safe_mt5_login(account_id, password, server):
             10004: "Requote",
             10013: "Invalid Request",
         }
-        user_msg = error_map.get(err_code, f"Login Failed: {err_desc} ({err_code})")
+        
+        # SPECIAL CHECK FOR MISSING SERVER
+        # If we got 10015 and the server name is not standard, it's likely a missing .srv
+        if err_code == 10015:
+            user_msg = f"Connection Failed (Server '{server}' might be missing or offline)"
+        else:
+            user_msg = error_map.get(err_code, f"Login Failed: {err_desc} ({err_code})")
+            
         return False, user_msg
 
     except Exception as e:
