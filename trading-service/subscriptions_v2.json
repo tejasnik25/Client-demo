@@ -78,25 +78,5 @@
       "riskType": "balance_multiplier",
       "riskValue": 1.0
     }
-  },
-  {
-    "id": "sub_user_1762531624017_strategy-1_25285165",
-    "externalId": "e9db890b-eaf3-46ab-9572-ec308803bab7",
-    "master": {
-      "id": "270852965",
-      "password": "Vijay@12345",
-      "server": "Exness-MT5Trial17",
-      "platform": "MT5"
-    },
-    "slave": {
-      "id": "25285165",
-      "password": "5;q6xsbO,%AU",
-      "server": "RoboForex-Pro",
-      "platform": "MT5"
-    },
-    "settings": {
-      "riskType": "balance_multiplier",
-      "riskValue": 1.0
-    }
   }
 ]

@@ -675,27 +675,19 @@ def sync_server_definitions(terminal_path):
 # ---------------------------------------------------------
 def clean_string(s):
     """
-    Removes invisible characters like LTR marks (\u200e), zero-width spaces, etc.
+    Removes ONLY null bytes (\0) to ensure passwords are passed 100% raw.
+    Preserves all other characters including spaces, special chars, and invisible marks
+    that might be part of a valid password.
     """
     if not s:
-        return s
-    # List of characters to remove
-    remove_chars = [
-        '\u200e', # Left-to-Right Mark
-        '\u200f', # Right-to-Left Mark
-        '\u200b', # Zero Width Space
-        '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', # Embedding/Override
-        '\ufeff'  # BOM
-    ]
-    cleaned = str(s)
-    for char in remove_chars:
-        cleaned = cleaned.replace(char, '')
-    
-    # Only strip if it results in empty string (to catch empty inputs), otherwise keep spaces as they might be part of password
-    if not cleaned.strip():
         return ""
-        
-    return cleaned # Removed .strip() to preserve valid leading/trailing spaces in passwords
+    
+    # Only remove NULL bytes which are never valid in text strings
+    cleaned = str(s).replace('\0', '')
+    
+    # Return raw string - NO stripping of spaces!
+    # Users might have passwords starting/ending with space.
+    return cleaned
 
 def safe_mt5_login(account_id, password, server):
     """
@@ -881,10 +873,24 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
             # This setting in MT5 often disables Algo Trading when switching accounts.
             # We proactively check and fix it IMMEDIATELY after login.
             try:
+                # AGGRESSIVE ALGO ENABLEMENT
+                # We do this BLINDLY and REPEATEDLY because term_info might be stale
+                # or the UI might take a moment to update after login.
+                
+                log_print(f"      🔧 Aggressively Enabling Algo Trading for {s_id}...")
+                
+                # 1. Immediate Attempt
+                force_enable_algo_trading(s_id)
+                
+                # 2. Short wait for UI to settle
+                time.sleep(0.5)
+                
+                # 3. Verify and Retry if needed
                 term_info = mt5.terminal_info()
                 if term_info and not term_info.trade_allowed:
-                     log_print(f"      🔧 Algo Trading disabled after login. Attempting Auto-Fix...")
+                     log_print(f"      ⚠ Algo Trading still disabled. Retrying force-enable...")
                      force_enable_algo_trading(s_id)
+                     
             except Exception as e:
                 log_print(f"      ⚠ Algo Fix Error: {e}")
                 
