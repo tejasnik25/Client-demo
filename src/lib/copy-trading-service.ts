@@ -123,9 +123,10 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
         // Implicitly using AWS IP in production is fine.
         console.log('[CopyTrading] Using default AWS Provider (No custom URL configured).');
     }
-    
-    // 2. Localhost fallback only in development/RDP workflows
-    if (isDev && !urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
+      
+    // 2. Localhost fallback (Always try localhost if not already in list, 
+    // useful for Production on the same VPS to avoid Hairpinning issues)
+    if (!urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
         urls.push(localUrl);
     }
 

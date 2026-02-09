@@ -220,7 +220,7 @@ def get_subscriptions_from_db():
             cursor = conn.cursor(dictionary=True)
             
             # Query running strategies and join with wallet transactions/strategies
-            # UPDATED: Include 'error' and 'failed' statuses to ensure we retry them!
+            # UPDATED: Use subqueries to link wallet_transactions via user_id + strategy_id
             query = """
             SELECT 
                 rs.id AS rs_id,
@@ -232,21 +232,33 @@ def get_subscriptions_from_db():
                 s.master_account_password,
                 s.master_account_server,
                 s.master_platform,
-                wt.mt_account_id AS slave_id,
-                wt.mt_account_password AS slave_password,
-                wt.mt_account_server AS slave_server,
-                wt.platform AS slave_platform,
+                COALESCE(rsm.mt_account_id, wt.mt_account_id) AS slave_id,
+                COALESCE(rsm.mt_account_password, wt.mt_account_password) AS slave_password,
+                COALESCE(rsm.mt_account_server, wt.mt_account_server) AS slave_server,
+                COALESCE(rsm.platform, wt.platform) AS slave_platform,
                 wt.status AS slave_status
             FROM running_strategies rs
             JOIN strategies s ON rs.strategy_id = s.id
-            JOIN wallet_transactions wt ON rs.id = wt.running_strategy_id
-            WHERE rs.status = 'active' AND wt.status IN ('active', 'pending', 'error', 'failed')
+            LEFT JOIN running_strategy_modifications rsm ON rsm.id = (
+                 SELECT id FROM running_strategy_modifications
+                 WHERE running_strategy_id = rs.id
+                 ORDER BY created_at DESC LIMIT 1
+            )
+            LEFT JOIN wallet_transactions wt ON wt.id = (
+                 SELECT id FROM wallet_transactions 
+                 WHERE user_id = rs.user_id AND strategy_id = rs.strategy_id 
+                 ORDER BY created_at DESC LIMIT 1
+            )
+            WHERE rs.status = 'active'
             """
             cursor.execute(query)
             rows = cursor.fetchall()
             
             mysql_subs = []
             for row in rows:
+                if not row['slave_id'] or not row['slave_password']:
+                    continue
+
                 slave_server = row['slave_server']
                 
                 # Log if we found a previously failed subscription
@@ -1775,6 +1787,14 @@ def copy_trade_worker():
                             else:
                                 err = mt5.last_error()
                                 log_print(f"   ✗ mt5.initialize() Failed (Attempt {attempt+1}): {err}")
+                                
+                                # FAIL-SAFE: Try connecting without path (Active Terminal)
+                                if err[0] in [-10005, -10004]:
+                                     log_print("     ⚠ IPC Error. Trying fallback: Connect to ANY active terminal...")
+                                     if mt5.initialize(timeout=30000):
+                                          log_print("     ✅ Fallback Success: Connected to active terminal!")
+                                          init_success = True
+                                          break
                                 
                                 # If IPC timeout (-10005), terminal might be hung or busy
                                 if err[0] == -10005:
