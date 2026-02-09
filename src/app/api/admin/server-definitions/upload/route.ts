@@ -27,54 +27,75 @@ export async function POST(req: NextRequest) {
     // We CANNOT save locally in Vercel/Production (EROFS error).
     // So we MUST forward it to the Python service which has persistent storage.
     try {
-      const apiUrl = process.env.COPY_TRADING_API_URL || 'http://127.0.0.1:8000';
+      const envUrl = process.env.COPY_TRADING_API_URL;
+      const candidates = [];
       
+      // 1. Env Var
+      if (envUrl) candidates.push(envUrl);
+      
+      // 2. Public IP (AWS) - User preferred
+      candidates.push('http://15.206.157.59:8000');
+      
+      // 3. Localhost (Fallback)
+      if (!envUrl || !envUrl.includes('127.0.0.1')) {
+          candidates.push('http://127.0.0.1:8000');
+      }
+
       // Fallback API Key if env var fails to load (Temporary fix for local dev)
       const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
       
-      // Remove trailing slash
-      const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-      const targetUrl = `${baseUrl}/upload/server-definition`;
-      
-      console.log(`[API] Proxying upload to Python service: ${targetUrl}`);
-      console.log(`[API] Loaded API Key: ${process.env.COPY_TRADING_API_KEY ? 'Present (Env)' : 'Using Fallback'}`);
+      let lastError;
+      let successResponse;
 
-      // Construct new FormData for the upstream request
-      const pythonFormData = new FormData();
-      pythonFormData.append('file', file);
+      for (const apiUrl of candidates) {
+          const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+          const targetUrl = `${baseUrl}/upload/server-definition`;
+          
+          console.log(`[API] Proxying upload to Python service: ${targetUrl}`);
 
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'x-api-key': apiKey,
-          // Do NOT set Content-Type header manually when using FormData
-          // The browser/fetch client will set it with the boundary
-        },
-        body: pythonFormData,
-      });
+          try {
+              // Construct new FormData for the upstream request
+              const pythonFormData = new FormData();
+              pythonFormData.append('file', file);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[API] Python service rejected upload: ${response.status} ${errorText}`);
-        return NextResponse.json(
-          { error: `Trading Service failed: ${errorText}` },
-          { status: response.status }
-        );
+              const response = await fetch(targetUrl, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                  'x-api-key': apiKey,
+                },
+                body: pythonFormData,
+                signal: AbortSignal.timeout(15000) // 15s timeout
+              });
+
+              if (response.ok) {
+                  successResponse = await response.json();
+                  break; // Success!
+              } else {
+                  const errorText = await response.text();
+                  console.warn(`[API] Failed to upload to ${targetUrl}: ${response.status} ${errorText}`);
+                  lastError = new Error(`Trading Service failed (${targetUrl}): ${errorText}`);
+              }
+          } catch (e: any) {
+               console.warn(`[API] Connection failed to ${targetUrl}: ${e.message}`);
+               lastError = e;
+          }
       }
 
-      const result = await response.json();
-      
-      return NextResponse.json({ 
-        status: 'success', 
-        message: `File uploaded to Trading Service successfully.`,
-        details: result
-      });
+      if (successResponse) {
+          return NextResponse.json({ 
+            status: 'success', 
+            message: `File uploaded to Trading Service successfully.`,
+            details: successResponse
+          });
+      }
+
+      throw lastError || new Error("All connection attempts failed.");
 
     } catch (netError: any) {
       console.error('[API] Python service connection failed:', netError);
       return NextResponse.json(
-        { error: `Could not connect to Trading Service: ${netError.message}` },
+        { error: `Could not connect to Trading Service. Ensure manager.py is running. Error: ${netError.message}` },
         { status: 503 }
       );
     }

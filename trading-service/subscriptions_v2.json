@@ -1,25 +1,5 @@
 [
   {
-    "id": "sub_user_1762004201622_strategy-2_433062757",
-    "externalId": "4ac71a2f-d2e6-46c5-afd1-4a23eee3a38c",
-    "master": {
-      "id": "270870850",
-      "password": "Vijay@3138",
-      "server": "Exness-MT5Trial17",
-      "platform": "MT5"
-    },
-    "slave": {
-      "id": "433062757",
-      "password": "Vijay@3138",
-      "server": "Exness-MT5Trial7",
-      "platform": "MT5"
-    },
-    "settings": {
-      "riskType": "balance_multiplier",
-      "riskValue": 1.0
-    }
-  },
-  {
     "id": "sub_user_1762531624017_strategy-2_270852996",
     "externalId": "82b88756-0e99-471c-b119-b12687ad3d25",
     "master": {
@@ -33,26 +13,6 @@
       "password": "Vijay@1234",
       "server": "Exness-MT5Trial17",
       "platform": "MT5"
-    },
-    "settings": {
-      "riskType": "balance_multiplier",
-      "riskValue": 1.0
-    }
-  },
-  {
-    "id": "sub_user_1761969607595_strategy-2_313831",
-    "externalId": "b463a7e7-7520-483c-8b56-cdf81780f889",
-    "master": {
-      "id": "270870850",
-      "password": "Vijay@3138",
-      "server": "Exness-MT5Trial17",
-      "platform": "MT5"
-    },
-    "slave": {
-      "id": "313831",
-      "password": "Vijay@3138",
-      "server": "exness",
-      "platform": "MT4"
     },
     "settings": {
       "riskType": "balance_multiplier",

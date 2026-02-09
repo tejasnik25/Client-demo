@@ -273,6 +273,11 @@ def get_subscriptions_from_db():
                 if row['slave_status'] in ['error', 'failed']:
                      log_print(f"   ⚠ Retrying subscription for Slave {row['slave_id']} (Status was: {row['slave_status']})")
 
+                # IGNORE DUMMY ACCOUNTS (User Request)
+                if str(row['slave_id']).strip() in ['433062757', '313831']:
+                    log_print(f"   ⚠ Skipping Dummy Account: {row['slave_id']}")
+                    continue
+
                 master_id_val = str(row['master_account_id'])
                 if not master_id_val or master_id_val.lower() in ['none', 'null']: continue
 
@@ -934,12 +939,14 @@ def safe_mt5_login(account_id, password, server):
                  if term_info:
                      check_path = term_info.data_path if hasattr(term_info, 'data_path') else term_info.path
                      if sync_server_definitions(check_path, force=True):
-                         log_print("   🔄 Recovered missing server definition! Restarting terminal...")
-                         mt5.shutdown()
-                         if MT5_PATH: mt5.initialize(path=MT5_PATH)
-                         else: mt5.initialize()
-                         
-                         # RETRY LOGIN IMMEDIATELY
+                        log_print("   🔄 Recovered missing server definition! Restarting terminal...")
+                        mt5.shutdown()
+                        time.sleep(3) # Wait for shutdown
+                        
+                        if MT5_PATH: mt5.initialize(path=MT5_PATH)
+                        else: mt5.initialize()
+                        
+                        # RETRY LOGIN IMMEDIATELY
                          if mt5.login(login=login_id_int, password=password, server=server):
                              return True, None
              except: pass
@@ -1229,10 +1236,20 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
              log_print("      ↪ IPC Timeout detected during Slave Login. Re-initializing MT5...")
              try:
                  mt5.shutdown()
-                 time.sleep(1)
+                 time.sleep(5) # Give it time to close completely
+                 
                  # Re-init using global settings if available
                  path_arg = {'path': MT5_PATH} if MT5_PATH else {}
-                 mt5.initialize(**path_arg)
+                 
+                 # Retry initialize loop
+                 for init_attempt in range(3):
+                     if mt5.initialize(**path_arg):
+                         log_print("      ✔ Re-initialization successful.")
+                         break
+                     else:
+                         log_print(f"      ⚠ Re-init attempt {init_attempt+1} failed: {mt5.last_error()}")
+                         time.sleep(2)
+
              except Exception as e:
                  log_print(f"      ⚠ Re-init failed: {e}")
         
