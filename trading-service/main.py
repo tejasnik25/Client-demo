@@ -947,8 +947,8 @@ def safe_mt5_login(account_id, password, server):
                         else: mt5.initialize()
                         
                         # RETRY LOGIN IMMEDIATELY
-                         if mt5.login(login=login_id_int, password=password, server=server):
-                             return True, None
+                        if mt5.login(login=login_id_int, password=password, server=server):
+                            return True, None
              except: pass
 
              log_print(f"   ⚠ Still failing to connect to '{server}'. This usually means:")

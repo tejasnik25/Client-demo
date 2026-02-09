@@ -1,7 +1,7 @@
 [
   {
-    "id": "sub_user_1762531624017_strategy-2_270852996",
-    "externalId": "82b88756-0e99-471c-b119-b12687ad3d25",
+    "id": "sub_ab8f6e44-d506-44e9-be03-ab1661d8bdf0_270852996",
+    "externalId": "ab8f6e44-d506-44e9-be03-ab1661d8bdf0",
     "master": {
       "id": "270870850",
       "password": "Vijay@3138",
@@ -12,6 +12,26 @@
       "id": "270852996",
       "password": "Vijay@1234",
       "server": "Exness-MT5Trial17",
+      "platform": "MT5"
+    },
+    "settings": {
+      "riskType": "balance_multiplier",
+      "riskValue": 1.0
+    }
+  },
+  {
+    "id": "sub_e9db890b-eaf3-46ab-9572-ec308803bab7_51261",
+    "externalId": "e9db890b-eaf3-46ab-9572-ec308803bab7",
+    "master": {
+      "id": "270852965",
+      "password": "Vijay@12345",
+      "server": "Exness-MT5Trial17",
+      "platform": "MT5"
+    },
+    "slave": {
+      "id": "51261",
+      "password": "!Nka0fe7",
+      "server": "AurumMarkets-Demo",
       "platform": "MT5"
     },
     "settings": {
