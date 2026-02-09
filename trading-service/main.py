@@ -619,21 +619,23 @@ def kill_all_mt5_terminals():
 # ---------------------------------------------------------
 last_sync_times = {} # Throttle for sync operations
 
-def sync_server_definitions(terminal_path):
+def sync_server_definitions(terminal_path, force=False):
     """
     Syncs .srv and .dat files from 'public/uploads' to the terminal's Config folder.
+    Returns True if any file was copied/updated.
     """
     global last_sync_times
-    # Throttle: Only sync every 60 seconds per terminal
-    if time.time() - last_sync_times.get(terminal_path, 0) < 60:
-        return
+    # Throttle: Only sync every 60 seconds per terminal unless forced
+    if not force and time.time() - last_sync_times.get(terminal_path, 0) < 60:
+        return False
     last_sync_times[terminal_path] = time.time()
 
+    copied_any = False
     try:
         config_dir = os.path.join(terminal_path, "Config")
         if not os.path.exists(config_dir):
             # Try to create it if it doesn't exist (unlikely for a valid terminal)
-            return
+            return False
 
         # Define source directories (uploads)
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -643,8 +645,6 @@ def sync_server_definitions(terminal_path):
             os.path.abspath(os.path.join(base_dir, "..", "public", "uploads")), # Repo Structure
             os.path.abspath(os.path.join(base_dir, "uploads")) # Standalone Service
         ]
-        
-        copied = 0
         
         for uploads_dir in search_dirs:
             if not os.path.exists(uploads_dir):
@@ -659,17 +659,44 @@ def sync_server_definitions(terminal_path):
                     try:
                         if not os.path.exists(d) or os.path.getsize(s) != os.path.getsize(d):
                             shutil.copy2(s, d)
-                            copied += 1
+                            copied_any = True
                             log_print(f"   -> Synced {item} ({os.path.getsize(s)} bytes) from {uploads_dir}")
                     except Exception as e:
                         # log_print(f"      (Skip {item}: {e})")
                         pass
         
-        if copied > 0:
-            log_print(f"🔄 Synced {copied} server definitions to {config_dir}")
+        if copied_any:
+            log_print(f"🔄 Synced server definitions to {config_dir}")
             
     except Exception as e:
         log_print(f"⚠ Failed to sync server definitions: {e}")
+        
+    return copied_any
+
+# ---------------------------------------------------------
+# HELPER: DETECT RUNNING MT5 PATH
+# ---------------------------------------------------------
+def detect_running_mt5_path():
+    """
+    Attempts to find the path of an already running terminal64.exe.
+    This prevents launching a new default terminal instance if the user
+    is using a custom broker terminal (e.g., Aurum, Exness).
+    """
+    try:
+        # Use WMIC to get the executable path of running terminal64.exe processes
+        cmd = "wmic process where \"name='terminal64.exe'\" get ExecutablePath"
+        result = subprocess.check_output(cmd, shell=True, text=True)
+        
+        lines = [line.strip() for line in result.split('\n') if line.strip() and "ExecutablePath" not in line]
+        
+        if lines:
+            # Return the first found path
+            path = lines[0]
+            if os.path.exists(path):
+                return path
+    except Exception as e:
+        print(f"⚠ Could not detect running MT5 path: {e}")
+    return None
 
 # ---------------------------------------------------------
 # HELPER: CLEAN STRING (Remove Invisible Chars)
@@ -703,6 +730,13 @@ def safe_mt5_login(account_id, password, server):
         password = clean_string(password) # Passwords might have chars, but usually not format chars. Be careful? 
         # Actually, passwords shouldn't have format chars. Safe to clean.
         server = clean_string(server)
+        
+        # DEBUG PASSWORD (REMOVE IN PROD IF NEEDED)
+        if password:
+            masked = password[0] + "*" * (len(password)-2) + password[-1] if len(password) > 2 else "***"
+            # log_print(f"   🔐 Debug: Password for {account_id} length={len(password)} val={masked}")
+        else:
+            log_print(f"   ⚠ Debug: Password for {account_id} IS EMPTY!")
 
         # 1. Check if already logged in (Optimization)
         current = mt5.account_info()
@@ -718,7 +752,14 @@ def safe_mt5_login(account_id, password, server):
             if term_info:
                 # Always sync to Data Path (AppData) as that's where MT5 looks for Config
                 target_path = term_info.data_path if hasattr(term_info, 'data_path') else term_info.path
-                sync_server_definitions(target_path)
+                if sync_server_definitions(target_path):
+                     log_print("   🔄 New server definitions detected. Restarting terminal interface to apply...")
+                     mt5.shutdown()
+                     # Re-init with global path if set
+                     if MT5_PATH:
+                          mt5.initialize(path=MT5_PATH)
+                     else:
+                          mt5.initialize()
         except: pass
             
         # 2. Login
@@ -758,7 +799,25 @@ def safe_mt5_login(account_id, password, server):
         
         # IMPROVED DIAGNOSTICS FOR SERVER ISSUES
         if err_code == 10015: # Connection failed
-             log_print(f"   ⚠ Connection Failed to server '{server}'. This usually means:")
+             log_print(f"   ⚠ Connection Failed to server '{server}'. Checking for missing server definitions...")
+             
+             # Attempt FORCE SYNC & RECOVERY
+             try:
+                 term_info = mt5.terminal_info()
+                 if term_info:
+                     check_path = term_info.data_path if hasattr(term_info, 'data_path') else term_info.path
+                     if sync_server_definitions(check_path, force=True):
+                         log_print("   🔄 Recovered missing server definition! Restarting terminal...")
+                         mt5.shutdown()
+                         if MT5_PATH: mt5.initialize(path=MT5_PATH)
+                         else: mt5.initialize()
+                         
+                         # RETRY LOGIN IMMEDIATELY
+                         if mt5.login(login=login_id_int, password=password, server=server):
+                             return True, None
+             except: pass
+
+             log_print(f"   ⚠ Still failing to connect to '{server}'. This usually means:")
              log_print(f"      1. The server name is wrong (Case Sensitive!).")
              log_print(f"      2. The server definition (.srv) is MISSING in this portable instance.")
              
@@ -1483,6 +1542,16 @@ def copy_trade_worker():
     sync_cache = {} # { sub_id: { 'hash': str, 'ts': float } }
     master_positions_cache = {} # { m_id: {'positions': [], 'ts': float} }
     
+    # AUTO-DETECT PATH IF NOT PROVIDED
+    global MT5_PATH
+    if not MT5_PATH:
+        detected_path = detect_running_mt5_path()
+        if detected_path:
+            log_print(f"🔍 Auto-detected running MT5 Terminal: {detected_path}")
+            MT5_PATH = detected_path
+        else:
+            log_print("ℹ No running MT5 detected. Will use default path or search standard locations.")
+
     # ADAPTIVE POLLING STATE
     # Tracks when we last checked an idle master to prevent over-switching
     master_last_check = {} # { m_id: timestamp }
@@ -1984,7 +2053,7 @@ def validate_mt5(details: MtAccountDetails):
         # 1. PAUSE WORKER
         print(f"🔍 Validation Request for {details.id}. Pausing worker...")
         worker_paused = True
-        time.sleep(0.5) 
+        time.sleep(0.2) # Brief pause to let worker finish current iteration
         
         # 2. ACQUIRE LOCK WITH TIMEOUT
         # Prevent Vercel Timeout (30s) by failing fast if worker is stuck
@@ -2001,24 +2070,31 @@ def validate_mt5(details: MtAccountDetails):
             # OPTIMIZATION: FAST PATH
             # ---------------------------------------------------------
             path_arg = {}
+            # Use Global Path or Detect Running
             if MT5_PATH:
                 path_arg['path'] = MT5_PATH
+            else:
+                detected = detect_running_mt5_path()
+                if detected:
+                     path_arg['path'] = detected
+                     print(f"   -> Using detected path: {detected}")
 
+            # Try to connect without re-initializing if possible
             is_initialized = mt5.initialize(
                 **path_arg,
                 login=int(details.id),
                 password=details.password,
-                server=details.server
+                server=details.server,
+                timeout=5000 # 5s timeout
             )
             
             if is_initialized:
-                print(f"✓ MT5 already running. Verifying login for {details.id}...")
+                print(f"✓ MT5 running. Verifying login for {details.id}...")
                 authorized = mt5.login(login=int(details.id), password=details.password, server=details.server)
                 
                 if authorized:
                     info = mt5.account_info()
                     print(f"✅ FAST VALIDATION SUCCESS: Logged in to {info.login}")
-                    # worker_paused = False # Handled in finally
                     return {"isValid": True}
                 else:
                     err_code, err_desc = mt5.last_error()
@@ -2035,7 +2111,6 @@ def validate_mt5(details: MtAccountDetails):
 
                     if err_code == 10014 or err_code == -6 or "Authorization failed" in err_desc or "Invalid account" in err_desc:
                          print(f"✗ Fast Login Failed (Auth Error): {user_msg}")
-                         # worker_paused = False # Handled in finally
                          return {"isValid": False, "error": f"Login Failed: {user_msg}"}
                     
                     print(f"⚠ Fast Login Failed (System Error {err_code}): {user_msg}. Retrying with Clean Slate...")
@@ -2046,10 +2121,11 @@ def validate_mt5(details: MtAccountDetails):
             print(f"🔧 Starting Clean-Slate Validation for {details.id}...")
             
             try:
+                # Only shutdown if we suspect a hung terminal, but for validation we want speed.
+                # If we shutdown, we kill the worker's connection too.
+                # Since we paused the worker, it's okay.
                 mt5.shutdown()
-                # DISABLED DANGEROUS KILL: In multi-process mode, this kills ALL instances!
-                # os.system("taskkill /F /IM terminal64.exe >nul 2>&1") 
-                time.sleep(2)
+                time.sleep(1)
             except:
                 pass
 
@@ -2058,10 +2134,9 @@ def validate_mt5(details: MtAccountDetails):
                 login=int(details.id),
                 password=details.password,
                 server=details.server,
-                timeout=10000
+                timeout=8000 # 8s timeout
             ):
                 err_code, err_desc = mt5.last_error()
-                # worker_paused = False # Handled in finally
                 return {"isValid": False, "error": f"MT5 Launch/Login Failed: {err_desc} ({err_code})"}
             
             try:
@@ -2072,12 +2147,10 @@ def validate_mt5(details: MtAccountDetails):
             info = mt5.account_info()
             if info:
                 print(f"✅ VALIDATION SUCCESS (After Restart): Logged in to {info.login}")
-                # worker_paused = False # Handled in finally
                 return {"isValid": True}
             else:
                 if mt5.login(login=int(details.id), password=details.password, server=details.server):
                     print(f"✅ VALIDATION SUCCESS (Explicit Login): Logged in to {details.id}")
-                    # worker_paused = False # Handled in finally
                     return {"isValid": True}
                 
                 err_code, err_desc = mt5.last_error()
@@ -2089,7 +2162,6 @@ def validate_mt5(details: MtAccountDetails):
                     10013: "Invalid Request",
                 }
                 user_msg = error_map.get(err_code, f"{err_desc} ({err_code})")
-                # worker_paused = False # Handled in finally
                 return {"isValid": False, "error": f"Login Failed: {user_msg}"}
 
         finally:
