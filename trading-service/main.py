@@ -1514,11 +1514,11 @@ def copy_trade_worker():
                                                 
                                                 if m_launch.get('id') and m_launch.get('password'):
                                                     log_print(f"     -> Injecting Credentials for Auto-Login: {m_launch.get('id')}")
-                                                    # Quote the password to handle special chars safely
+                                                    # Pass raw password - subprocess.Popen handles quoting automatically!
                                                     safe_pass = m_launch.get('password')
                                                     cmd.extend([
                                                         f"/login:{m_launch.get('id')}",
-                                                        f'/password:"{safe_pass}"', 
+                                                        f"/password:{safe_pass}", 
                                                         f"/server:{m_launch.get('server')}"
                                                     ])
                                             
@@ -1695,7 +1695,8 @@ def copy_trade_worker():
                                 log_print(f"      -> This explains why you don't see trades. You are on the wrong server!")
 
                             if not curr_m.trade_allowed:
-                                log_print(f"      ⚠ WARNING: Trade is NOT allowed on Master. Investor Password? AutoTrading Disabled?")
+                                log_print(f"      ⚠ WARNING: Trade is NOT allowed on Master. Attempting Auto-Fix...")
+                                force_enable_algo_trading(m_id)
                             
                             # CRITICAL FIX: Ensure symbols are selected so charts/prices work
                             ensure_view_visible()
