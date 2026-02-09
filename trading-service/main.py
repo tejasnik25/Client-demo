@@ -263,6 +263,7 @@ def get_subscriptions_from_db():
 mt4_master_data: Dict[str, dict] = {}
 # Stores pending commands for MT4 Slaves: { account_id: [ { command: 'OPEN', symbol: '...', ... } ] }
 mt4_slave_commands: Dict[str, List[dict]] = {}
+mt4_last_warn_time: Dict[str, float] = {} # Key: slave_id, Value: timestamp
 mt4_lock = threading.Lock()
 # ---------------------------------------------------------
 
@@ -848,7 +849,11 @@ def process_mt4_slave_sync(slave_sub, master_positions):
     
     if not slave_data:
         # EA hasn't connected yet
-        # log_print(f"   ⏳ MT4 Slave {s_id} waiting for EA connection...")
+        # Log periodically (every 30s) to warn user
+        now = time.time()
+        if s_id not in mt4_last_warn_time or (now - mt4_last_warn_time[s_id] > 30):
+            log_print(f"   ⏳ MT4 Slave {s_id} waiting for EA connection... (Ensure MT4 Terminal is open and EA is running)")
+            mt4_last_warn_time[s_id] = now
         return
 
     # Check for staleness
@@ -1981,7 +1986,17 @@ def validate_mt5(details: MtAccountDetails):
         worker_paused = True
         time.sleep(0.5) 
         
-        with mt5_lock:
+        # 2. ACQUIRE LOCK WITH TIMEOUT
+        # Prevent Vercel Timeout (30s) by failing fast if worker is stuck
+        if not mt5_lock.acquire(timeout=5):
+             worker_paused = False # Resume worker if we can't grab it
+             print(f"⚠ Validation Timeout: Could not acquire lock for {details.id} (Worker is busy)")
+             return {
+                 "isValid": False, 
+                 "error": "System is busy processing trades. Please try again in 10 seconds."
+             }
+        
+        try:
             # ---------------------------------------------------------
             # OPTIMIZATION: FAST PATH
             # ---------------------------------------------------------
@@ -2003,7 +2018,7 @@ def validate_mt5(details: MtAccountDetails):
                 if authorized:
                     info = mt5.account_info()
                     print(f"✅ FAST VALIDATION SUCCESS: Logged in to {info.login}")
-                    worker_paused = False
+                    # worker_paused = False # Handled in finally
                     return {"isValid": True}
                 else:
                     err_code, err_desc = mt5.last_error()
@@ -2020,7 +2035,7 @@ def validate_mt5(details: MtAccountDetails):
 
                     if err_code == 10014 or err_code == -6 or "Authorization failed" in err_desc or "Invalid account" in err_desc:
                          print(f"✗ Fast Login Failed (Auth Error): {user_msg}")
-                         worker_paused = False
+                         # worker_paused = False # Handled in finally
                          return {"isValid": False, "error": f"Login Failed: {user_msg}"}
                     
                     print(f"⚠ Fast Login Failed (System Error {err_code}): {user_msg}. Retrying with Clean Slate...")
@@ -2046,7 +2061,7 @@ def validate_mt5(details: MtAccountDetails):
                 timeout=10000
             ):
                 err_code, err_desc = mt5.last_error()
-                worker_paused = False
+                # worker_paused = False # Handled in finally
                 return {"isValid": False, "error": f"MT5 Launch/Login Failed: {err_desc} ({err_code})"}
             
             try:
@@ -2057,12 +2072,12 @@ def validate_mt5(details: MtAccountDetails):
             info = mt5.account_info()
             if info:
                 print(f"✅ VALIDATION SUCCESS (After Restart): Logged in to {info.login}")
-                worker_paused = False
+                # worker_paused = False # Handled in finally
                 return {"isValid": True}
             else:
                 if mt5.login(login=int(details.id), password=details.password, server=details.server):
                     print(f"✅ VALIDATION SUCCESS (Explicit Login): Logged in to {details.id}")
-                    worker_paused = False
+                    # worker_paused = False # Handled in finally
                     return {"isValid": True}
                 
                 err_code, err_desc = mt5.last_error()
@@ -2074,8 +2089,12 @@ def validate_mt5(details: MtAccountDetails):
                     10013: "Invalid Request",
                 }
                 user_msg = error_map.get(err_code, f"{err_desc} ({err_code})")
-                worker_paused = False
+                # worker_paused = False # Handled in finally
                 return {"isValid": False, "error": f"Login Failed: {user_msg}"}
+
+        finally:
+            mt5_lock.release()
+            worker_paused = False # Ensure worker resumes
 
     except Exception as e:
         worker_paused = False
