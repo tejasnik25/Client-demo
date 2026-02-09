@@ -2059,6 +2059,10 @@ async def create_subscription(sub: SubscriptionRequest):
     reload_subscriptions_if_changed() # Ensure we have latest state before adding
     print(f"➕ Starting copy from {sub.master.id} to {sub.slave.id}")
 
+    # Safety Check: Prevent Self-Copying
+    if str(sub.master.id) == str(sub.slave.id):
+        print(f"❌ Rejected self-copying subscription: {sub.master.id} -> {sub.slave.id}")
+        raise HTTPException(status_code=400, detail="Master and Slave IDs cannot be identical (Self-copying is dangerous).")
     
     with lock:
         # Check for existing identical subscription (same master+slave)
