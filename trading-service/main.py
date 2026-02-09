@@ -220,6 +220,7 @@ def get_subscriptions_from_db():
             cursor = conn.cursor(dictionary=True)
             
             # Query running strategies and join with wallet transactions/strategies
+            # UPDATED: Include 'error' and 'failed' statuses to ensure we retry them!
             query = """
             SELECT 
                 rs.id AS rs_id,
@@ -234,11 +235,12 @@ def get_subscriptions_from_db():
                 wt.mt_account_id AS slave_id,
                 wt.mt_account_password AS slave_password,
                 wt.mt_account_server AS slave_server,
-                wt.mt_account_platform AS slave_platform
+                wt.mt_account_platform AS slave_platform,
+                wt.status AS slave_status
             FROM running_strategies rs
             JOIN strategies s ON rs.strategy_id = s.id
             JOIN wallet_transactions wt ON rs.id = wt.running_strategy_id
-            WHERE rs.status = 'active' AND wt.status IN ('active', 'pending')
+            WHERE rs.status = 'active' AND wt.status IN ('active', 'pending', 'error', 'failed')
             """
             cursor.execute(query)
             rows = cursor.fetchall()
@@ -246,8 +248,11 @@ def get_subscriptions_from_db():
             mysql_subs = []
             for row in rows:
                 slave_server = row['slave_server']
-                # FIX: Handle "server:port" format if present? Usually just server name.
                 
+                # Log if we found a previously failed subscription
+                if row['slave_status'] in ['error', 'failed']:
+                     log_print(f"   ⚠ Retrying subscription for Slave {row['slave_id']} (Status was: {row['slave_status']})")
+
                 sub = {
                     "id": f"sub_{row['rs_id']}_{row['slave_id']}",
                     "externalId": row['rs_id'],
@@ -768,7 +773,18 @@ def detect_running_mt5_path():
             if os.path.exists(path):
                 return path
     except Exception as e:
-        print(f"⚠ Could not detect running MT5 path: {e}")
+        print(f"⚠ Could not detect running MT5 path (WMIC): {e}")
+        
+    # Fallback: PowerShell (More robust)
+    try:
+        cmd = "powershell \"Get-Process terminal64 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -First 1\""
+        result = subprocess.check_output(cmd, shell=True, text=True).strip()
+        if result and os.path.exists(result):
+             return result
+    except Exception as e:
+        # print(f"   (PowerShell detection failed: {e})")
+        pass
+
     return None
 
 # ---------------------------------------------------------
