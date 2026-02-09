@@ -125,7 +125,15 @@ def get_subscriptions_from_db():
         for row in rows:
             if not row['slave_id'] or not row['slave_password']:
                 continue
-                
+            
+            # SANITIZATION: Remove invisible Unicode characters (like LRM \u200e)
+            if row['slave_id']:
+                row['slave_id'] = str(row['slave_id']).replace('\u200e', '').strip()
+            if row['master_account_id']:
+                row['master_account_id'] = str(row['master_account_id']).replace('\u200e', '').strip()
+            if row['slave_server']:
+                row['slave_server'] = row['slave_server'].replace('\u200e', '').strip()
+
             # Validate Numeric IDs (MT5 requires numeric login)
             if not str(row['slave_id']).isdigit():
                 print(f"⚠ Skipping Subscription with Invalid Non-Numeric Slave ID: {row['slave_id']} (User: {row['user_id']})")
@@ -270,7 +278,9 @@ def get_subscriptions_from_db():
                 master_pass = strat.get('masterAccountPassword')
                 master_server = strat.get('masterAccountServer')
                 
-                if not master_id or not master_pass or not master_server: continue
+                # Filter out invalid Master IDs (e.g. "None", "null")
+                if not master_id or str(master_id).lower() in ['none', 'null']: continue
+                if not master_pass or not master_server: continue
 
                 slave_pass = tx.get('mt_account_password')
                 slave_server = tx.get('mt_account_server', 'MetaQuotes-Demo')
@@ -281,13 +291,13 @@ def get_subscriptions_from_db():
                     "id": f"sub_{uid}_{sid}_{slave_id}",
                     "externalId": tx.get('id'),
                     "master": {
-                        "id": str(master_id),
+                        "id": str(master_id).strip().replace('\u200e', ''),
                         "password": master_pass,
                         "server": master_server,
                         "platform": strat.get('masterPlatform', 'MT5')
                     },
                     "slave": {
-                        "id": str(slave_id),
+                        "id": str(slave_id).strip().replace('\u200e', ''),
                         "password": slave_pass,
                         "server": slave_server,
                         "platform": tx.get('platform', 'MT5')

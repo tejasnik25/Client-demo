@@ -259,23 +259,34 @@ def get_subscriptions_from_db():
                 if not row['slave_id'] or not row['slave_password']:
                     continue
 
+                # SANITIZATION: Remove invisible Unicode characters (like LRM \u200e)
+                if row['slave_id']:
+                    row['slave_id'] = str(row['slave_id']).replace('\u200e', '').strip()
+                if row['master_account_id']:
+                    row['master_account_id'] = str(row['master_account_id']).replace('\u200e', '').strip()
+                if row['slave_server']:
+                    row['slave_server'] = row['slave_server'].replace('\u200e', '').strip()
+
                 slave_server = row['slave_server']
                 
                 # Log if we found a previously failed subscription
                 if row['slave_status'] in ['error', 'failed']:
                      log_print(f"   ⚠ Retrying subscription for Slave {row['slave_id']} (Status was: {row['slave_status']})")
 
+                master_id_val = str(row['master_account_id'])
+                if not master_id_val or master_id_val.lower() in ['none', 'null']: continue
+
                 sub = {
                     "id": f"sub_{row['rs_id']}_{row['slave_id']}",
                     "externalId": row['rs_id'],
                     "master": {
-                        "id": str(row['master_account_id']),
+                        "id": master_id_val.strip().replace('\u200e', ''),
                         "password": row['master_account_password'],
                         "server": row['master_account_server'],
                         "platform": row['master_platform'] or 'MT5'
                     },
                     "slave": {
-                        "id": str(row['slave_id']),
+                        "id": str(row['slave_id']).strip().replace('\u200e', ''),
                         "password": row['slave_password'],
                         "server": slave_server,
                         "platform": row['slave_platform'] or 'MT5'
@@ -2507,6 +2518,14 @@ def reload_subscriptions_if_changed():
 
 @app.post("/subscriptions", dependencies=[Depends(verify_api_key)])
 async def create_subscription(sub: SubscriptionRequest):
+    # SANITIZATION: Remove invisible Unicode characters (like LRM \u200e)
+    if sub.slave.id:
+        sub.slave.id = str(sub.slave.id).replace('\u200e', '').strip()
+    if sub.master.id:
+        sub.master.id = str(sub.master.id).replace('\u200e', '').strip()
+    if sub.slave.server:
+        sub.slave.server = sub.slave.server.replace('\u200e', '').strip()
+
     reload_subscriptions_if_changed() # Ensure we have latest state before adding
     print(f"➕ Starting copy from {sub.master.id} to {sub.slave.id}")
 
