@@ -210,6 +210,77 @@ def get_subscriptions_from_db():
     # Path to API Cache File
     api_file = PERSISTENCE_FILE
 
+    # 0. MySQL Database (Ultimate Source of Truth)
+    # Copied from manager.py to ensure standalone main.py can fetch data
+    try:
+        if mysql:
+            conn = mysql.connector.connect(
+                host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME, connection_timeout=5
+            )
+            cursor = conn.cursor(dictionary=True)
+            
+            # Query running strategies and join with wallet transactions/strategies
+            query = """
+            SELECT 
+                rs.id AS rs_id,
+                rs.user_id,
+                rs.strategy_id,
+                rs.plan,
+                rs.status,
+                s.master_account_id,
+                s.master_account_password,
+                s.master_account_server,
+                s.master_platform,
+                wt.mt_account_id AS slave_id,
+                wt.mt_account_password AS slave_password,
+                wt.mt_account_server AS slave_server,
+                wt.mt_account_platform AS slave_platform
+            FROM running_strategies rs
+            JOIN strategies s ON rs.strategy_id = s.id
+            JOIN wallet_transactions wt ON rs.id = wt.running_strategy_id
+            WHERE rs.status = 'active' AND wt.status IN ('active', 'pending')
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            
+            mysql_subs = []
+            for row in rows:
+                slave_server = row['slave_server']
+                # FIX: Handle "server:port" format if present? Usually just server name.
+                
+                sub = {
+                    "id": f"sub_{row['rs_id']}_{row['slave_id']}",
+                    "externalId": row['rs_id'],
+                    "master": {
+                        "id": str(row['master_account_id']),
+                        "password": row['master_account_password'],
+                        "server": row['master_account_server'],
+                        "platform": row['master_platform'] or 'MT5'
+                    },
+                    "slave": {
+                        "id": str(row['slave_id']),
+                        "password": row['slave_password'],
+                        "server": slave_server,
+                        "platform": row['slave_platform'] or 'MT5'
+                    },
+                    "settings": {"riskType": "balance_multiplier", "riskValue": 1.0}
+                }
+                mysql_subs.append(sub)
+                
+            conn.close()
+            
+            if mysql_subs:
+                log_print(f"✅ Loaded {len(mysql_subs)} subscriptions from MySQL.")
+                # Sync to Cache File
+                try:
+                    with open(api_file, 'w') as f:
+                        json.dump(mysql_subs, f, indent=2)
+                except: pass
+                return mysql_subs
+                
+    except Exception as e:
+        log_print(f"⚠ MySQL Fetch Failed: {e}")
+
     # 1. Try Local Database (Preferred Source of Truth)
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -609,8 +680,10 @@ def kill_all_mt5_terminals():
     try:
         if os.name == 'nt':
             # Redirect output to prevent console clutter
-            subprocess.run("taskkill /F /IM terminal64.exe", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            log_print("   💀 Aggressively killed all stuck terminal64.exe processes.")
+            # REMOVED: Aggressive kill prevents attaching to existing terminals.
+            # subprocess.run("taskkill /F /IM terminal64.exe", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # log_print("   💀 Aggressively killed all stuck terminal64.exe processes.")
+            pass
     except Exception as e:
         log_print(f"   ⚠ Failed to kill terminals: {e}")
 
