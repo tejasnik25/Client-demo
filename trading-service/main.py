@@ -97,6 +97,7 @@ def log_print(msg):
 STATUS_FILE_PREFIX = "status_"
 PERSISTENCE_FILE = "subscriptions_v2.json"
 CACHE_FILE = "trade_history_cache.json"
+COPY_TRADE_MAGIC_NUMBER = 123456 # Unique ID for copied trades to prevent self-copy loops
 
 # Persistent Cache for Trade History (Prevents Re-Copying closed trades)
 processed_orders_cache = {}
@@ -391,6 +392,7 @@ def ensure_view_visible():
     """
     try:
         import ctypes
+        from ctypes import wintypes
         import MetaTrader5 as mt5
         
         # 1. Select All Symbols (Fix for "No Symbols/Charts")
@@ -560,8 +562,21 @@ def force_enable_algo_trading(account_id=None):
         print("   ⚠ ctypes injection failed. Trying PyAutoGUI fallback...")
         try:
             import pyautogui
-            # Attempt to click center of screen or just send keys (safer)
-            # If we found the window, we might want to click it first, but let's just try hotkey
+            
+            # ATTEMPT TO FOCUS CLICK
+            if found_hwnd:
+                try:
+                    rect = wintypes.RECT()
+                    ctypes.windll.user32.GetWindowRect(found_hwnd, ctypes.byref(rect))
+                    # Click center of window
+                    center_x = rect.left + (rect.right - rect.left) // 2
+                    center_y = rect.top + (rect.bottom - rect.top) // 2
+                    pyautogui.click(center_x, center_y)
+                    time.sleep(0.2)
+                except Exception as click_err:
+                    print(f"   ⚠ Focus Click Failed: {click_err}")
+
+            # Send Hotkey
             pyautogui.hotkey('ctrl', 'e')
             time.sleep(1)
             
@@ -807,15 +822,21 @@ def safe_mt5_login(account_id, password, server):
     except Exception as e:
         return False, f"Login Exception: {str(e)}"
 
-def process_slave_sync(slave_sub, master_positions, safe_mode=False):
+def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=False):
     """
     Handles the synchronization for a single slave subscription.
     safe_mode: If True, only validates credentials and does NOT close/open trades.
     """
     import MetaTrader5 as mt5
     slave = slave_sub['slave']
+    master = slave_sub['master']
     sub_id = slave_sub['id']
     
+    # 0. ISOLATION CHECK
+    if str(master['id']) != str(master_origin_id):
+        log_print(f"   ⛔ SECURITY ALERT: Isolation Breach! Slave {slave['id']} expects Master {master['id']} but received positions from {master_origin_id}. Aborting Sync.")
+        return
+
     # Helper to safely get attributes
     def get_attr(obj, attr):
         return obj.get(attr) if isinstance(obj, dict) else getattr(obj, attr)
@@ -999,7 +1020,7 @@ def process_slave_sync(slave_sub, master_positions, safe_mode=False):
                                                 "position": s['ticket'],
                                                 "price": price_op,
                                                 "deviation": 20,
-                                                "magic": 123456,
+                                                "magic": COPY_TRADE_MAGIC_NUMBER,
                                                 "comment": "Partial Close",
                                                 "type_time": mt5.ORDER_TIME_GTC,
                                                 "type_filling": mt5.ORDER_FILLING_IOC,
@@ -1222,7 +1243,7 @@ def process_slave_sync(slave_sub, master_positions, safe_mode=False):
     # Re-enabled Close Logic with Strict Checks
     
     for s_pos in s_pos_list:
-        if s_pos['magic'] == 123456:
+        if s_pos['magic'] == COPY_TRADE_MAGIC_NUMBER:
             # Check if this slave trade was matched to a master trade above
             if s_pos['ticket'] in matched_slave_tickets:
                  continue
@@ -1463,9 +1484,11 @@ def copy_trade_worker():
                                                 
                                                 if m_launch.get('id') and m_launch.get('password'):
                                                     log_print(f"     -> Injecting Credentials for Auto-Login: {m_launch.get('id')}")
+                                                    # Quote the password to handle special chars safely
+                                                    safe_pass = m_launch.get('password')
                                                     cmd.extend([
                                                         f"/login:{m_launch.get('id')}",
-                                                        f"/password:{m_launch.get('password')}",
+                                                        f'/password:"{safe_pass}"', 
                                                         f"/server:{m_launch.get('server')}"
                                                     ])
                                             
@@ -1752,7 +1775,7 @@ def copy_trade_worker():
                             # DANGER: If master login failed, we shouldn't close slave trades!
                             # FIX: Modify process_slave_sync to accept a 'safe_mode' flag.
                             
-                            process_slave_sync(sub, master_positions, safe_mode=validation_only)
+                            process_slave_sync(sub, master_positions, m_id, safe_mode=validation_only)
                         
                         # Update Cache
                         sync_cache[sub_id] = {'hash': m_pos_hash, 'ts': time.time()}
