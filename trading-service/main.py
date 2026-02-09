@@ -235,7 +235,7 @@ def get_subscriptions_from_db():
                 wt.mt_account_id AS slave_id,
                 wt.mt_account_password AS slave_password,
                 wt.mt_account_server AS slave_server,
-                wt.mt_account_platform AS slave_platform,
+                wt.platform AS slave_platform,
                 wt.status AS slave_status
             FROM running_strategies rs
             JOIN strategies s ON rs.strategy_id = s.id
@@ -777,13 +777,24 @@ def detect_running_mt5_path():
         
     # Fallback: PowerShell (More robust)
     try:
-        cmd = "powershell \"Get-Process terminal64 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -First 1\""
+        # Try finding 'terminal64' or 'terminal' (32-bit)
+        cmd = "powershell \"Get-Process | Where-Object {$_.Name -like '*terminal*'} | Select-Object -ExpandProperty Path | Select-Object -First 1\""
         result = subprocess.check_output(cmd, shell=True, text=True).strip()
         if result and os.path.exists(result):
+             log_print(f"   🔍 Auto-detected running MT5 Terminal: {result}")
              return result
     except Exception as e:
-        # print(f"   (PowerShell detection failed: {e})")
-        pass
+        log_print(f"   ⚠ PowerShell detection failed: {e}")
+
+    # Fallback: PowerShell via Window Title (Best for custom broker executables)
+    try:
+        # Search for any process with "MetaTrader" or "MT5" in the window title
+        cmd = "powershell \"Get-Process | Where-Object {$_.MainWindowTitle -like '*MetaTrader*' -or $_.MainWindowTitle -like '*MT5*'} | Select-Object -ExpandProperty Path | Select-Object -First 1\""
+        result = subprocess.check_output(cmd, shell=True, text=True).strip()
+        if result and os.path.exists(result):
+             log_print(f"   🔍 Auto-detected running MT5 Terminal (via Title): {result}")
+             return result
+    except Exception: pass
 
     return None
 
@@ -841,7 +852,11 @@ def safe_mt5_login(account_id, password, server):
             if term_info:
                 # Always sync to Data Path (AppData) as that's where MT5 looks for Config
                 target_path = term_info.data_path if hasattr(term_info, 'data_path') else term_info.path
-                if sync_server_definitions(target_path):
+                
+                # Check if server definition exists (Force sync if missing)
+                srv_exists = os.path.exists(os.path.join(target_path, "Config", f"{server}.srv"))
+                
+                if sync_server_definitions(target_path, force=not srv_exists):
                      log_print("   🔄 New server definitions detected. Restarting terminal interface to apply...")
                      mt5.shutdown()
                      # Re-init with global path if set
