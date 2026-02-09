@@ -822,6 +822,12 @@ def safe_mt5_login(account_id, password, server):
         else:
             user_msg = error_map.get(err_code, f"Login Failed: {err_desc} ({err_code})")
             
+        # FAST FAIL: Authorization Failed
+        # Do not retry if the credentials are clearly wrong
+        if err_code == 10014:
+            log_print(f"   ⛔ Auth Failed for {account_id}: {user_msg}")
+            return False, f"AUTH_FAILED: {user_msg}"
+            
         return False, user_msg
 
     except Exception as e:
@@ -874,6 +880,11 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
     for attempt in range(1, 4):
         log_print(f"   🔄 Switching to Slave {s_id} for sync (Attempt {attempt}/3)...")
         is_logged_in, login_err = safe_mt5_login(s_id, s_pass, s_server)
+        
+        # FAIL FAST: Check for Auth Failure
+        if not is_logged_in and "AUTH_FAILED" in str(login_err):
+            log_print(f"   ⛔ Aborting retries for Slave {s_id} due to Auth Failure.")
+            break
         
         if is_logged_in:
             # Force Enable Algo Trading (Fix for 'Disable on Account Change')
@@ -1702,6 +1713,15 @@ def copy_trade_worker():
                             ensure_view_visible()
                             
                             pos = mt5.positions_get()
+                            
+                            # DIAGNOSTIC: Check for Pending Orders (Limit/Stop)
+                            # Users often confuse Pending Orders with Open Positions
+                            orders = mt5.orders_get()
+                            if orders:
+                                log_print(f"      ℹ Pending Orders Found: {len(orders)} (These will be copied when they trigger/activate)")
+                                for o in orders:
+                                    log_print(f"         - Order {o.ticket}: {o.symbol} {o.volume} {o.type} (Price: {o.price_open})")
+                            
                             if pos is not None:
                                 log_print(f"      ℹ Raw Positions Found: {len(pos)}")
                                 for p in pos:
@@ -1735,7 +1755,10 @@ def copy_trade_worker():
                                             log_print(f"   � Recent History (Last 5 mins): {len(history)} deals found.")
                                             for deal in history[-3:]: # Show last 3
                                                  log_print(f"      - Deal {deal.ticket}: {deal.symbol} {deal.volume} {deal.type} (Profit: {deal.profit})")
-                                    except: pass
+                                        else:
+                                            log_print("   ℹ No recent history (deals) found in last 5 minutes.")
+                                    except Exception as hist_e: 
+                                        log_print(f"   ⚠ History check failed: {hist_e}")
                             else:
                                 log_print(f"⚠ Could not get positions for Master {m_id}")
                         else:
