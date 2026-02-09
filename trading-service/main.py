@@ -551,15 +551,33 @@ def force_enable_algo_trading(account_id=None):
         
         time.sleep(0.5) # Wait for UI update
         
+        # VERIFY & FALLBACK TO PYAUTOGUI
         term_info = mt5.terminal_info()
         if term_info and term_info.trade_allowed:
-            print("AUTO-FIX SUCCESS: 'Algo Trading' is now ENABLED!")
+            print("AUTO-FIX SUCCESS: 'Algo Trading' is now ENABLED (via ctypes)!")
             return True
-        else:
-            print("AUTO-FIX FAILED: Could not enable 'Algo Trading'.") 
-            print("  -> CHECK: Is the MT5 window visible?")
-            print("  -> CHECK: Go to Tools > Options > Expert Advisors and UNCHECK 'Disable automated trading when the account has been changed'.")
-            return False
+            
+        print("   ⚠ ctypes injection failed. Trying PyAutoGUI fallback...")
+        try:
+            import pyautogui
+            # Attempt to click center of screen or just send keys (safer)
+            # If we found the window, we might want to click it first, but let's just try hotkey
+            pyautogui.hotkey('ctrl', 'e')
+            time.sleep(1)
+            
+            term_info = mt5.terminal_info()
+            if term_info and term_info.trade_allowed:
+                print("AUTO-FIX SUCCESS: 'Algo Trading' is now ENABLED (via PyAutoGUI)!")
+                return True
+        except ImportError:
+            print("   ⚠ PyAutoGUI not installed. Skipping fallback.")
+        except Exception as e:
+             print(f"   ⚠ PyAutoGUI error: {e}")
+
+        print("AUTO-FIX FAILED: Could not enable 'Algo Trading'.") 
+        print("  -> CHECK: Is the MT5 window visible?")
+        print("  -> CHECK: Go to Tools > Options > Expert Advisors and UNCHECK 'Disable automated trading when the account has been changed'.")
+        return False
             
     except Exception as e:
         print(f"AUTO-FIX ERROR: {e}")
@@ -823,11 +841,33 @@ def process_slave_sync(slave_sub, master_positions, safe_mode=False):
                  if sub_id in subscription_states:
                      del subscription_states[sub_id]
 
-    # 1. LOGIN SLAVE
-    log_print(f"   🔄 Switching to Slave {s_id} for sync...")
-    is_logged_in, login_err = safe_mt5_login(s_id, s_pass, s_server)
+    # 1. LOGIN SLAVE (With Retry & IPC Recovery)
+    is_logged_in = False
+    login_err = "Unknown Error"
+    
+    for attempt in range(1, 4):
+        log_print(f"   🔄 Switching to Slave {s_id} for sync (Attempt {attempt}/3)...")
+        is_logged_in, login_err = safe_mt5_login(s_id, s_pass, s_server)
+        
+        if is_logged_in:
+            break
+            
+        # Check for IPC Timeout (-10005) or Connection Issues
+        if "IPC timeout" in str(login_err) or "-10005" in str(login_err):
+             log_print("      ↪ IPC Timeout detected during Slave Login. Re-initializing MT5...")
+             try:
+                 mt5.shutdown()
+                 time.sleep(1)
+                 # Re-init using global settings if available
+                 path_arg = {'path': MT5_PATH} if MT5_PATH else {}
+                 mt5.initialize(**path_arg)
+             except Exception as e:
+                 log_print(f"      ⚠ Re-init failed: {e}")
+        
+        time.sleep(2)
+
     if not is_logged_in:
-        log_print(f"✗ Slave {s_id} Login Error: {login_err}")
+        log_print(f"✗ Slave {s_id} Login Error (After Retries): {login_err}")
         with lock:
             subscription_states[sub_id] = {
                 "status": "error", 
