@@ -112,11 +112,31 @@ def load_master_history():
             log_print(f"⚠ Failed to load master history: {e}")
     return {}
 
-def save_master_history(history_data):
+def save_master_history(history_data, open_positions=None):
     try:
         # Load existing to merge
         existing = load_master_history()
-        existing.update(history_data)
+        
+        # history_data is a dict {master_id: [deals]}
+        # We store it under "history" key for that master_id
+        for m_id, deals in history_data.items():
+            if m_id not in existing:
+                existing[m_id] = {"history": [], "open_positions": []}
+            
+            # If it's a dict structure already, handle it, otherwise wrap it
+            if not isinstance(existing[m_id], dict):
+                existing[m_id] = {"history": existing[m_id], "open_positions": []}
+                
+            existing[m_id]["history"] = deals
+            
+        if open_positions:
+            for m_id, positions in open_positions.items():
+                if m_id not in existing:
+                    existing[m_id] = {"history": [], "open_positions": []}
+                if not isinstance(existing[m_id], dict):
+                    existing[m_id] = {"history": existing[m_id], "open_positions": []}
+                existing[m_id]["open_positions"] = positions
+
         with open(MASTER_HISTORY_FILE, 'w') as f:
             json.dump(existing, f, indent=2)
     except Exception as e:
@@ -2102,6 +2122,11 @@ def copy_trade_worker():
                                 # This prevents infinite loops if we accidentally read Slave positions as Master
                                 master_positions = [p for p in pos if p.magic != 123456]
                                 
+                                # [NEW] Save open positions for display
+                                # Convert to dict list for JSON serialization
+                                open_positions_list = [p._asdict() for p in master_positions]
+                                save_master_history({}, open_positions={str(m_id): open_positions_list})
+                                
                                 master_valid = True
                                 
                                 # UPDATE CACHE
@@ -2124,12 +2149,23 @@ def copy_trade_worker():
                                         if should_refresh_history:
                                             log_print(f"🕒 Periodic history update for Master {m_id}...")
                                             from_date_hist = datetime.now() - timedelta(days=30)
+                                            # Fetch closed positions (not just deals) for the History page
+                                            history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
                                             history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
+                                            
+                                            # In MT5, "History" tab usually shows positions. 
+                                            # To reconstruct positions from deals/orders is complex, 
+                                            # but we can fetch history_deals and filter for those that close positions.
+                                            # However, the user specifically asked for "Position" page data from history.
+                                            # MT5 doesn't have a direct 'history_positions_get'. 
+                                            # We use history_deals and provide fields that represent the closed position.
+                                            
                                             if history_deals:
-                                                deals_list = [d._asdict() for d in history_deals]
-                                                save_master_history({str(m_id): deals_list})
+                                                # Filter out balance operations etc, keep only trade deals
+                                                trade_deals = [d._asdict() for d in history_deals if d.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]]
+                                                save_master_history({str(m_id): trade_deals})
                                                 master_last_check[f"{m_id}_history"] = now
-                                                log_print(f"✅ Saved {len(deals_list)} history deals for Master {m_id}")
+                                                log_print(f"✅ Saved {len(trade_deals)} closed position deals for Master {m_id}")
                                         
                                         from_date = datetime.now() - timedelta(minutes=5)
                                         history = mt5.history_deals_get(from_date, datetime.now())
@@ -2523,14 +2559,71 @@ async def list_server_definitions():
         print(f"❌ Failed to list files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
 
+def aggregate_deals_to_positions(deals):
+    """
+    Groups MT5 history deals into an aggregated 'Positions' view.
+    """
+    positions = {}
+    for d in deals:
+        pid = d.get('position_id')
+        if not pid: continue
+        
+        if pid not in positions:
+            positions[pid] = {
+                'position_id': pid,
+                'symbol': d.get('symbol'),
+                'type': d.get('type'), # 0=Buy, 1=Sell
+                'volume': d.get('volume'),
+                'time_open': d.get('time'),
+                'time_close': d.get('time'),
+                'price_open': d.get('price'),
+                'price_close': d.get('price'),
+                'profit': d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0),
+                'magic': d.get('magic'),
+                'comment': d.get('comment')
+            }
+        else:
+            p = positions[pid]
+            # Update times
+            if d.get('time') < p['time_open']:
+                p['time_open'] = d.get('time')
+                p['price_open'] = d.get('price')
+            if d.get('time') > p['time_close']:
+                p['time_close'] = d.get('time')
+                p['price_close'] = d.get('price')
+            
+            # Accumulate profit/comm/swap
+            p['profit'] += (d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0))
+            
+            # Type might change in netting, but for hedging it stays same for the position ID
+            # Volume might also change (partial closes), but usually position ID represents the lifecycle.
+    
+    # Convert to list and sort by close time descending
+    result = list(positions.values())
+    result.sort(key=lambda x: x['time_close'], reverse=True)
+    return result
+
 @app.get("/master/{master_id}/history", dependencies=[Depends(verify_api_key)])
 async def get_master_history(master_id: str):
     """
-    Returns the cached trade history for a specific master account.
+    Returns the cached trade history (Positions and Open Trades) for a specific master account.
     """
-    history = load_master_history()
-    master_data = history.get(str(master_id), [])
-    return {"master_id": master_id, "history": master_data}
+    history_data = load_master_history()
+    master_data = history_data.get(str(master_id), {"history": [], "open_positions": []})
+    
+    # If history is just a list (old format), wrap it
+    if isinstance(master_data, list):
+        master_data = {"history": master_data, "open_positions": []}
+        
+    # Aggregate deals to positions for the "History" tab
+    deals = master_data.get("history", [])
+    aggregated_positions = aggregate_deals_to_positions(deals)
+    
+    return {
+        "master_id": master_id, 
+        "history": aggregated_positions, # This now contains aggregated positions
+        "open_positions": master_data.get("open_positions", [])
+    }
 
 @app.get("/system/debug-files")
 async def debug_files_system():

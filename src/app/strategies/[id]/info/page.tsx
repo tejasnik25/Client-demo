@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import Button from "@/components/ui/Button";
 import {
+  FiActivity,
   FiArrowLeft,
   FiHelpCircle,
   FiInfo,
@@ -39,6 +40,7 @@ const StrategyInfoPage: React.FC = () => {
   const [selectedPlan, setSelectedPlan] = useState<'Premium' | 'Expert' | 'Pro' | null>(null);
 
   const [history, setHistory] = useState<any[]>([]);
+  const [openPositions, setOpenPositions] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Removed auth redirect to allow public access to info page
@@ -77,9 +79,10 @@ const StrategyInfoPage: React.FC = () => {
           const res = await fetch(`/api/strategies/${strategy.id}/master-history`);
           const data = await res.json();
           if (data.history) {
-            // Sort by time descending
-            const sorted = [...data.history].sort((a: any, b: any) => b.time - a.time);
-            setHistory(sorted);
+            setHistory(data.history);
+          }
+          if (data.open_positions) {
+            setOpenPositions(data.open_positions);
           }
         } catch (e) {
           console.error("Failed to fetch history:", e);
@@ -415,12 +418,72 @@ const StrategyInfoPage: React.FC = () => {
             )}
           </div>
 
-          {/* Master Trade History Section */}
+          {/* Open Positions Section */}
+          <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <FiActivity className="text-green-600" />
+                Open Positions (MT5)
+              </h3>
+              <span className="text-xs text-gray-500">Real-time update from server</span>
+            </div>
+            
+            <div className="overflow-x-auto">
+              {historyLoading ? (
+                <div className="p-12 flex justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
+                </div>
+              ) : openPositions.length > 0 ? (
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
+                    <tr>
+                      <th className="px-6 py-3">Time</th>
+                      <th className="px-6 py-3">Symbol</th>
+                      <th className="px-6 py-3">Type</th>
+                      <th className="px-6 py-3">Volume</th>
+                      <th className="px-6 py-3">Price Open</th>
+                      <th className="px-6 py-3">Price Current</th>
+                      <th className="px-6 py-3">Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {openPositions.map((pos: any, idx: number) => (
+                      <tr key={pos.ticket || idx} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                          {new Date(pos.time * 1000).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            pos.type === 0 || pos.type === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {pos.type === 0 ? 'BUY' : pos.type === 1 ? 'SELL' : pos.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
+                        <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
+                        <td className="px-6 py-4 text-gray-600">{pos.price_current}</td>
+                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {pos.profit > 0 ? '+' : ''}{pos.profit.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500 text-xs">
+                  No currently open trades.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Master Trade History (Positions) Section */}
           <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
                 <FiMessageCircle className="text-blue-600" />
-                Master Trade History (MT5)
+                Closed Positions History (MT5)
               </h3>
               <span className="text-xs text-gray-500">Updates every 15-20 mins</span>
             </div>
@@ -434,32 +497,38 @@ const StrategyInfoPage: React.FC = () => {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
                     <tr>
-                      <th className="px-6 py-3">Time</th>
+                      <th className="px-6 py-3">Open Time</th>
+                      <th className="px-6 py-3">Close Time</th>
                       <th className="px-6 py-3">Symbol</th>
                       <th className="px-6 py-3">Type</th>
                       <th className="px-6 py-3">Volume</th>
-                      <th className="px-6 py-3">Price</th>
+                      <th className="px-6 py-3">Open Price</th>
+                      <th className="px-6 py-3">Close Price</th>
                       <th className="px-6 py-3">Profit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {history.slice(0, 50).map((deal: any, idx: number) => (
-                      <tr key={deal.ticket || idx} className="hover:bg-gray-50 transition-colors">
+                    {history.slice(0, 50).map((pos: any, idx: number) => (
+                      <tr key={pos.position_id || idx} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {new Date(deal.time * 1000).toLocaleString()}
+                          {new Date(pos.time_open * 1000).toLocaleString()}
                         </td>
-                        <td className="px-6 py-4 font-medium text-gray-900">{deal.symbol}</td>
+                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                          {new Date(pos.time_close * 1000).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            deal.type === 0 || deal.type === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            pos.type === 0 || pos.type === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                           }`}>
-                            {deal.type === 0 ? 'BUY' : deal.type === 1 ? 'SELL' : deal.type}
+                            {pos.type === 0 ? 'BUY' : pos.type === 1 ? 'SELL' : pos.type}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-gray-600">{deal.volume}</td>
-                        <td className="px-6 py-4 text-gray-600">{deal.price}</td>
-                        <td className={`px-6 py-4 font-bold ${deal.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
+                        <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
+                        <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
+                        <td className="px-6 py-4 text-gray-600">{pos.price_close}</td>
+                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {pos.profit > 0 ? '+' : ''}{pos.profit.toFixed(2)}
                         </td>
                       </tr>
                     ))}
