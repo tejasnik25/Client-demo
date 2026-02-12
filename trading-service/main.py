@@ -101,6 +101,26 @@ COPY_TRADE_MAGIC_NUMBER = 123456 # Unique ID for copied trades to prevent self-c
 
 # Persistent Cache for Trade History (Prevents Re-Copying closed trades)
 processed_orders_cache = {}
+MASTER_HISTORY_FILE = "master_history.json"
+
+def load_master_history():
+    if os.path.exists(MASTER_HISTORY_FILE):
+        try:
+            with open(MASTER_HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            log_print(f"⚠ Failed to load master history: {e}")
+    return {}
+
+def save_master_history(history_data):
+    try:
+        # Load existing to merge
+        existing = load_master_history()
+        existing.update(history_data)
+        with open(MASTER_HISTORY_FILE, 'w') as f:
+            json.dump(existing, f, indent=2)
+    except Exception as e:
+        log_print(f"⚠ Failed to save master history: {e}")
 
 def load_trade_cache():
     global processed_orders_cache
@@ -1808,7 +1828,7 @@ def copy_trade_worker():
                             # IMPORTANT: Must shutdown first to clear stale handles
                             mt5.shutdown()
                             
-                            if mt5.initialize(timeout=30000, **path_arg):
+                            if mt5.initialize(timeout=60000, **path_arg):
                                 init_success = True
                                 log_print("   ✓ mt5.initialize() Success")
                                 break
@@ -1819,7 +1839,7 @@ def copy_trade_worker():
                                 # FAIL-SAFE: Try connecting without path (Active Terminal)
                                 if err[0] in [-10005, -10004]:
                                      log_print("     ⚠ IPC Error. Trying fallback: Connect to ANY active terminal...")
-                                     if mt5.initialize(timeout=30000):
+                                     if mt5.initialize(timeout=60000):
                                           log_print("     ✅ Fallback Success: Connected to active terminal!")
                                           init_success = True
                                           break
@@ -1987,6 +2007,12 @@ def copy_trade_worker():
 
                 # A. LOGIN MASTER & GET POSITIONS
                 use_cache = False
+                
+                # [NEW] Check if we need to refresh history (every 10-20 mins)
+                now = time.time()
+                last_hist_update = master_last_check.get(f"{m_id}_history", 0)
+                should_refresh_history = (now - last_hist_update) > 900 # 15 mins
+                
                 if m_platform != 'MT4':
                      # Check Cache
                      cached = master_positions_cache.get(m_id)
@@ -2094,6 +2120,17 @@ def copy_trade_worker():
                                     # Helps verify if trades are opening/closing instantly
                                     try:
                                         from datetime import datetime, timedelta
+                                        # [NEW] Check if we should refresh history for display
+                                        if should_refresh_history:
+                                            log_print(f"🕒 Periodic history update for Master {m_id}...")
+                                            from_date_hist = datetime.now() - timedelta(days=30)
+                                            history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
+                                            if history_deals:
+                                                deals_list = [d._asdict() for d in history_deals]
+                                                save_master_history({str(m_id): deals_list})
+                                                master_last_check[f"{m_id}_history"] = now
+                                                log_print(f"✅ Saved {len(deals_list)} history deals for Master {m_id}")
+                                        
                                         from_date = datetime.now() - timedelta(minutes=5)
                                         history = mt5.history_deals_get(from_date, datetime.now())
                                         if history:
@@ -2485,6 +2522,15 @@ async def list_server_definitions():
     except Exception as e:
         print(f"❌ Failed to list files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
+
+@app.get("/master/{master_id}/history", dependencies=[Depends(verify_api_key)])
+async def get_master_history(master_id: str):
+    """
+    Returns the cached trade history for a specific master account.
+    """
+    history = load_master_history()
+    master_data = history.get(str(master_id), [])
+    return {"master_id": master_id, "history": master_data}
 
 @app.get("/system/debug-files")
 async def debug_files_system():

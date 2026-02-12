@@ -38,6 +38,9 @@ const StrategyInfoPage: React.FC = () => {
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'Premium' | 'Expert' | 'Pro' | null>(null);
 
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   // Removed auth redirect to allow public access to info page
   // useEffect(() => {
   //   if (status === "unauthenticated") {
@@ -65,6 +68,28 @@ const StrategyInfoPage: React.FC = () => {
     };
     fetchStrategy();
   }, [params.id]);
+
+  useEffect(() => {
+    if (strategy?.id) {
+      const fetchHistory = async () => {
+        try {
+          setHistoryLoading(true);
+          const res = await fetch(`/api/strategies/${strategy.id}/master-history`);
+          const data = await res.json();
+          if (data.history) {
+            // Sort by time descending
+            const sorted = [...data.history].sort((a: any, b: any) => b.time - a.time);
+            setHistory(sorted);
+          }
+        } catch (e) {
+          console.error("Failed to fetch history:", e);
+        } finally {
+          setHistoryLoading(false);
+        }
+      };
+      fetchHistory();
+    }
+  }, [strategy?.id]);
 
   const getPlanPrices = (s: Strategy | null) => {
     if (!s) return { Premium: 5000, Expert: 10000, Pro: 20000 };
@@ -388,6 +413,66 @@ const StrategyInfoPage: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Master Trade History Section */}
+          <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <FiMessageCircle className="text-blue-600" />
+                Master Trade History (MT5)
+              </h3>
+              <span className="text-xs text-gray-500">Updates every 15-20 mins</span>
+            </div>
+            
+            <div className="overflow-x-auto">
+              {historyLoading ? (
+                <div className="p-12 flex justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
+                </div>
+              ) : history.length > 0 ? (
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
+                    <tr>
+                      <th className="px-6 py-3">Time</th>
+                      <th className="px-6 py-3">Symbol</th>
+                      <th className="px-6 py-3">Type</th>
+                      <th className="px-6 py-3">Volume</th>
+                      <th className="px-6 py-3">Price</th>
+                      <th className="px-6 py-3">Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {history.slice(0, 50).map((deal: any, idx: number) => (
+                      <tr key={deal.ticket || idx} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                          {new Date(deal.time * 1000).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 font-medium text-gray-900">{deal.symbol}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            deal.type === 0 || deal.type === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {deal.type === 0 ? 'BUY' : deal.type === 1 ? 'SELL' : deal.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">{deal.volume}</td>
+                        <td className="px-6 py-4 text-gray-600">{deal.price}</td>
+                        <td className={`px-6 py-4 font-bold ${deal.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-12 text-center text-gray-500">
+                  <FiInfo className="mx-auto mb-2 h-8 w-8 opacity-20" />
+                  <p>No trade history available yet.</p>
+                  <p className="text-xs mt-1">History appears after the master account logs in and starts trading.</p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Footer disclaimer as in FusionX pages */}
