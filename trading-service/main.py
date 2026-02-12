@@ -135,6 +135,12 @@ def save_master_history(history_data, open_positions=None):
                     existing[m_id] = {"history": [], "open_positions": []}
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
+                
+                # Add server_time string to each open position for frontend consistency
+                for pos in positions:
+                    if 'time' in pos and 'server_time' not in pos:
+                        pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
+                
                 existing[m_id]["open_positions"] = positions
 
         with open(MASTER_HISTORY_FILE, 'w') as f:
@@ -2124,7 +2130,13 @@ def copy_trade_worker():
                                 
                                 # [NEW] Save open positions for display
                                 # Convert to dict list for JSON serialization
-                                open_positions_list = [p._asdict() for p in master_positions]
+                                # Add server_time string to preserve MT5 server timing
+                                open_positions_list = []
+                                for p in master_positions:
+                                    pd = p._asdict()
+                                    pd['server_time'] = datetime.fromtimestamp(pd.get('time', time.time())).strftime('%Y.%m.%d %H:%M:%S')
+                                    open_positions_list.append(pd)
+                                    
                                 save_master_history({}, open_positions={str(m_id): open_positions_list})
                                 
                                 master_valid = True
@@ -2562,17 +2574,22 @@ async def list_server_definitions():
 def aggregate_deals_to_positions(deals):
     """
     Groups MT5 history deals into an aggregated 'Positions' view.
+    Ensures server timing is preserved and values match MT5.
     """
     positions = {}
     for d in deals:
         pid = d.get('position_id')
         if not pid: continue
         
+        # MT5 Deal types for ENTRY: 0=Entry In, 1=Entry Out, 2=Entry In/Out
+        # We focus on the timing and prices associated with the position ID
+        
         if pid not in positions:
+            # First deal for this position ID in history
             positions[pid] = {
                 'position_id': pid,
                 'symbol': d.get('symbol'),
-                'type': d.get('type'), # 0=Buy, 1=Sell
+                'type': d.get('type'), # Initial type (Buy/Sell)
                 'volume': d.get('volume'),
                 'time_open': d.get('time'),
                 'time_close': d.get('time'),
@@ -2580,23 +2597,30 @@ def aggregate_deals_to_positions(deals):
                 'price_close': d.get('price'),
                 'profit': d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0),
                 'magic': d.get('magic'),
-                'comment': d.get('comment')
+                'comment': d.get('comment'),
+                'server_time': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
+                # Add formatted server strings to avoid client-side timezone shifts
+                'server_time_open': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
+                'server_time_close': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
             }
         else:
             p = positions[pid]
-            # Update times
+            # Update lifecycle based on entry time
             if d.get('time') < p['time_open']:
                 p['time_open'] = d.get('time')
                 p['price_open'] = d.get('price')
+                p['server_time_open'] = datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
             if d.get('time') > p['time_close']:
                 p['time_close'] = d.get('time')
                 p['price_close'] = d.get('price')
+                p['server_time_close'] = datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
             
-            # Accumulate profit/comm/swap
+            # Accumulate values exactly as MT5 does
             p['profit'] += (d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0))
             
-            # Type might change in netting, but for hedging it stays same for the position ID
-            # Volume might also change (partial closes), but usually position ID represents the lifecycle.
+            # Use the largest volume seen for the position as the display volume
+            if d.get('volume') > p['volume']:
+                p['volume'] = d.get('volume')
     
     # Convert to list and sort by close time descending
     result = list(positions.values())

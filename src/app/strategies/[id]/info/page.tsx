@@ -42,6 +42,8 @@ const StrategyInfoPage: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);
   const [openPositions, setOpenPositions] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const entriesPerPage = 10;
 
   // Removed auth redirect to allow public access to info page
   // useEffect(() => {
@@ -170,6 +172,12 @@ const StrategyInfoPage: React.FC = () => {
   const commissionVal = strategyParams.commission || strategyParams.Commission || "";
   const withUsVal = strategyParams.withUs || strategyParams.WithUs || strategyParams.withUsDays || strategyParams.WithUsDays || "";
   const chatLink = strategyParams.chatLink || strategyParams.telegram || strategyParams.Telegram || strategyParams.Chat || "";
+
+  // Pagination logic for closed positions
+  const startIndex = (currentPage - 1) * entriesPerPage;
+  const endIndex = startIndex + entriesPerPage;
+  const currentHistory = history.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(history.length / entriesPerPage);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 relative overflow-x-hidden">
@@ -450,7 +458,7 @@ const StrategyInfoPage: React.FC = () => {
                     {openPositions.map((pos: any, idx: number) => (
                       <tr key={pos.ticket || idx} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {new Date(pos.time * 1000).toLocaleString()}
+                          {pos.server_time || new Date(pos.time * 1000).toLocaleString()}
                         </td>
                         <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                         <td className="px-6 py-4">
@@ -508,13 +516,13 @@ const StrategyInfoPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {history.slice(0, 50).map((pos: any, idx: number) => (
+                    {currentHistory.map((pos: any, idx: number) => (
                       <tr key={pos.position_id || idx} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {new Date(pos.time_open * 1000).toLocaleString()}
+                          {pos.server_time_open || new Date(pos.time_open * 1000).toLocaleString()}
                         </td>
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {new Date(pos.time_close * 1000).toLocaleString()}
+                          {pos.server_time_close || new Date(pos.time_close * 1000).toLocaleString()}
                         </td>
                         <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                         <td className="px-6 py-4">
@@ -542,6 +550,38 @@ const StrategyInfoPage: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Pagination Controls */}
+            {history.length > entriesPerPage && (
+              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+                <div className="text-xs text-gray-500">
+                  Showing <span className="font-medium">{startIndex + 1}</span> to <span className="font-medium">{Math.min(endIndex, history.length)}</span> of <span className="font-medium">{history.length}</span> entries
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1 px-2 text-xs font-medium text-gray-600">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer disclaimer as in FusionX pages */}
