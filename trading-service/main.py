@@ -954,11 +954,9 @@ def safe_mt5_login(account_id, password, server):
         log_print(f"   🔑 Attempting Login: ID={account_id} Server='{server}'")
         
         if mt5.login(login=login_id_int, password=password, server=server):
-            # WAIT FOR CONNECTION
-            # log_print(f"   ⌛ Waiting for connection for {account_id}...")
-            for _ in range(40): # Wait up to 4 seconds (faster checks)
+            # WAIT FOR CONNECTION (reduced to target sub-2s switch time)
+            for _ in range(20): # ~2 seconds
                 if mt5.terminal_info().connected:
-                    # VERIFY LOGIN ID
                     curr = mt5.account_info()
                     if curr and str(curr.login) == str(account_id):
                         return True, None
@@ -1025,18 +1023,17 @@ def safe_mt5_login(account_id, password, server):
              except Exception as diag_err:
                  log_print(f"      (Diagnostic failed: {diag_err})")
              
-        time.sleep(0.5) # Increased wait before retry
+        time.sleep(0.2) # Reduced wait before retry to cut latency
         log_print(f"   ↻ Retrying Login for {account_id}...")
         
         if mt5.login(login=login_id_int, password=password, server=server):
-             # Wait for connection again (Increased timeout to 10s)
-             for i in range(50):
+             # Wait for connection again (reduced for faster recovery)
+             for _ in range(30): # ~3 seconds
                  if mt5.terminal_info().connected:
-                     # VERIFY LOGIN ID
                      curr = mt5.account_info()
                      if curr and str(curr.login) == str(account_id):
                          return True, None
-                 time.sleep(0.2)
+                 time.sleep(0.1)
              
              # Final check
              curr = mt5.account_info()
@@ -1250,31 +1247,15 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
             break
         
         if is_logged_in:
-            # Force Enable Algo Trading (Fix for 'Disable on Account Change')
-            # This setting in MT5 often disables Algo Trading when switching accounts.
-            # We proactively check and fix it IMMEDIATELY after login.
+            # Enable Algo Trading only if disabled (reduce overhead)
             try:
-                # AGGRESSIVE ALGO ENABLEMENT
-                # We do this BLINDLY and REPEATEDLY because term_info might be stale
-                # or the UI might take a moment to update after login.
-                
-                log_print(f"      🔧 Aggressively Enabling Algo Trading for {s_id}...")
-                
-                # 1. Immediate Attempt
-                force_enable_algo_trading(s_id)
-                
-                # 2. Short wait for UI to settle
-                time.sleep(0.5)
-                
-                # 3. Verify and Retry if needed
                 term_info = mt5.terminal_info()
                 if term_info and not term_info.trade_allowed:
-                     log_print(f"      ⚠ Algo Trading still disabled. Retrying force-enable...")
-                     force_enable_algo_trading(s_id)
-                     
+                    log_print(f"      🔧 Enabling Algo Trading for {s_id}...")
+                    if force_enable_algo_trading(s_id):
+                        time.sleep(0.1)  # brief settle
             except Exception as e:
                 log_print(f"      ⚠ Algo Fix Error: {e}")
-                
             break
             
         # Check for IPC Timeout (-10005) or Connection Issues
@@ -1334,8 +1315,8 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
         update_slave_db_status(s_id, "active", None) # Clear errors
         return
 
-    # Wait a bit for Slave to sync positions/symbols
-    time.sleep(0.2)
+    # Brief wait for Slave to sync positions/symbols (reduced)
+    time.sleep(0.05)
 
     # 2. GET SLAVE POSITIONS
     slave_positions = mt5.positions_get()
@@ -1566,7 +1547,7 @@ def process_slave_sync(slave_sub, master_positions, master_origin_id, safe_mode=
                 # Enable symbol if not visible
                 if not symbol_info.visible:
                     mt5.symbol_select(slave_symbol, True)
-                    time.sleep(0.1)
+                    time.sleep(0.05)
                 
                 volume = normalize_volume(slave_symbol, m_vol)
                 
@@ -2070,7 +2051,7 @@ def copy_trade_worker():
                         if is_logged:
                             # Wait a tiny bit for positions to sync after login (only if we switched)
                             if not already_on_master:
-                                time.sleep(0.5)
+                                time.sleep(0.2)
                             
                             # CRITICAL: Verify we are actually on Master
                             curr_m = mt5.account_info()
@@ -2173,8 +2154,16 @@ def copy_trade_worker():
                                             # We use history_deals and provide fields that represent the closed position.
                                             
                                             if history_deals:
-                                                # Filter out balance operations etc, keep only trade deals
-                                                trade_deals = [d._asdict() for d in history_deals if d.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]]
+                                                # Include both opening and closing deals for each position
+                                                # so we can reconstruct accurate open/close times.
+                                                trade_deals = []
+                                                for d in history_deals:
+                                                    try:
+                                                        if getattr(d, "position_id", 0):
+                                                            if d.entry in [mt5.DEAL_ENTRY_IN, mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
+                                                                trade_deals.append(d._asdict())
+                                                    except Exception:
+                                                        pass
                                                 save_master_history({str(m_id): trade_deals})
                                                 master_last_check[f"{m_id}_history"] = now
                                                 log_print(f"✅ Saved {len(trade_deals)} closed position deals for Master {m_id}")
