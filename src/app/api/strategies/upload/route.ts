@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
     const planProPercent = formData.get('planProPercent') ? Number(formData.get('planProPercent') as string) : undefined;
     const planExpertPercent = formData.get('planExpertPercent') ? Number(formData.get('planExpertPercent') as string) : undefined;
     const planPremiumPercent = formData.get('planPremiumPercent') ? Number(formData.get('planPremiumPercent') as string) : undefined;
+    const lotPricing = (formData.get('lotPricing') as string) || '';
 
     // Sensible defaults for deprecated fields
     const performance = 0;
@@ -225,7 +226,12 @@ export async function POST(req: NextRequest) {
       iconBlob,
       iconMime,
       enabled,
-      parameters: countryFlag ? { countryFlag } : {}
+      parameters: (() => {
+        const params: Record<string, string> = {};
+        if (countryFlag) params.countryFlag = countryFlag;
+        if (lotPricing) params.lotPricing = lotPricing;
+        return params;
+      })()
     });
 
     if (!result.success) {
@@ -286,6 +292,7 @@ export async function PUT(req: NextRequest) {
     const file = formData.get('file') as File;
     const icon = formData.get('icon') as File | null;
     const countryFlag = (formData.get('countryFlag') as string) || '';
+    const lotPricing = (formData.get('lotPricing') as string) || '';
 
     // New metrics and tag
     const roi = formData.get('roi') ? Number(formData.get('roi') as string) : undefined;
@@ -447,7 +454,6 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Include metrics/tag/prices if provided
     if (roi !== undefined) updates.roi = roi;
     if (profit !== undefined) updates.profit = profit;
     if (maxDdi !== undefined) updates.maxDdi = maxDdi;
@@ -460,8 +466,10 @@ export async function PUT(req: NextRequest) {
       Expert: { priceLabel: planExpertLabel, percent: planExpertPercent },
       Premium: { priceLabel: planPremiumLabel, percent: planPremiumPercent },
     };
-    if (countryFlag) {
-      updates.parameters = { countryFlag };
+    if (countryFlag || lotPricing) {
+      updates.parameters = {};
+      if (countryFlag) (updates.parameters as any).countryFlag = countryFlag;
+      if (lotPricing) (updates.parameters as any).lotPricing = lotPricing;
     }
 
     // Update strategy in database

@@ -71,6 +71,10 @@ parser.add_argument("--api-only", action="store_true", help="Run only the API se
 parser.add_argument("--worker", action="store_true", help="Run as a worker process")
 parser.add_argument("--master-id", type=str, help="Master ID to handle (Worker Mode)")
 parser.add_argument("--mt5-path", type=str, default="", help="Path to MT5 Terminal")
+# Validation (Subprocess) Mode
+parser.add_argument("--validate-id", type=str, help="Account ID to validate (MT5)")
+parser.add_argument("--validate-password", type=str, help="Password for validation")
+parser.add_argument("--validate-server", type=str, help="Server for validation")
 args, unknown = parser.parse_known_args()
 
 # Logging Setup
@@ -2272,130 +2276,38 @@ def copy_trade_worker():
 # ---------------------------------------------------------
 
 def validate_mt5(details: MtAccountDetails):
-    global worker_paused
+    """
+    Runs MT5 account validation in a separate Python subprocess to avoid
+    disrupting the main worker's MT5 connection. Returns a dict with isValid/error.
+    """
     try:
-        import MetaTrader5 as mt5
-        
-        # 1. PAUSE WORKER
-        print(f"🔍 Validation Request for {details.id}. Pausing worker...")
-        worker_paused = True
-        time.sleep(0.2) # Brief pause to let worker finish current iteration
-        
-        # 2. ACQUIRE LOCK WITH TIMEOUT
-        # Prevent Vercel Timeout (30s) by failing fast if worker is stuck
-        if not mt5_lock.acquire(timeout=5):
-             worker_paused = False # Resume worker if we can't grab it
-             print(f"⚠ Validation Timeout: Could not acquire lock for {details.id} (Worker is busy)")
-             return {
-                 "isValid": False, 
-                 "error": "System is busy processing trades. Please try again in 10 seconds."
-             }
-        
-        try:
-            # ---------------------------------------------------------
-            # OPTIMIZATION: FAST PATH
-            # ---------------------------------------------------------
-            path_arg = {}
-            # Use Global Path or Detect Running
-            if MT5_PATH:
-                path_arg['path'] = MT5_PATH
-            else:
-                detected = detect_running_mt5_path()
-                if detected:
-                     path_arg['path'] = detected
-                     print(f"   -> Using detected path: {detected}")
-
-            # Try to connect without re-initializing if possible
-            is_initialized = mt5.initialize(
-                **path_arg,
-                login=int(details.id),
-                password=details.password,
-                server=details.server,
-                timeout=5000 # 5s timeout
-            )
-            
-            if is_initialized:
-                print(f"✓ MT5 running. Verifying login for {details.id}...")
-                authorized = mt5.login(login=int(details.id), password=details.password, server=details.server)
-                
-                if authorized:
-                    info = mt5.account_info()
-                    print(f"✅ FAST VALIDATION SUCCESS: Logged in to {info.login}")
-                    return {"isValid": True}
-                else:
-                    err_code, err_desc = mt5.last_error()
-                    
-                    # Enhanced Error Mapping
-                    error_map = {
-                        10014: "Wrong Password or Invalid Account",
-                        10015: "Connection Failed (Check Server/Internet)",
-                        10027: "AutoTrading Disabled by Server",
-                        10004: "Requote",
-                        10013: "Invalid Request",
-                    }
-                    user_msg = error_map.get(err_code, f"{err_desc} ({err_code})")
-
-                    if err_code == 10014 or err_code == -6 or "Authorization failed" in err_desc or "Invalid account" in err_desc:
-                         print(f"✗ Fast Login Failed (Auth Error): {user_msg}")
-                         return {"isValid": False, "error": f"Login Failed: {user_msg}"}
-                    
-                    print(f"⚠ Fast Login Failed (System Error {err_code}): {user_msg}. Retrying with Clean Slate...")
-
-            # ---------------------------------------------------------
-            # SLOW PATH: CLEAN SLATE RECOVERY
-            # ---------------------------------------------------------
-            print(f"🔧 Starting Clean-Slate Validation for {details.id}...")
-            
+        script_path = os.path.abspath(__file__)
+        py = sys.executable or "python"
+        cmd = [
+            py, script_path,
+            "--api-only",
+            "--validate-id", str(details.id),
+            "--validate-password", str(details.password),
+            "--validate-server", str(details.server),
+        ]
+        print(f"🔍 Spawning validation subprocess for {details.id}...")
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+        if stdout:
             try:
-                # Only shutdown if we suspect a hung terminal, but for validation we want speed.
-                # If we shutdown, we kill the worker's connection too.
-                # Since we paused the worker, it's okay.
-                mt5.shutdown()
-                time.sleep(1)
-            except:
+                result = json.loads(stdout)
+                # Ensure schema
+                if isinstance(result, dict) and ("isValid" in result or "error" in result):
+                    return result
+            except Exception:
                 pass
-
-            if not mt5.initialize(
-                **path_arg,
-                login=int(details.id),
-                password=details.password,
-                server=details.server,
-                timeout=8000 # 8s timeout
-            ):
-                err_code, err_desc = mt5.last_error()
-                return {"isValid": False, "error": f"MT5 Launch/Login Failed: {err_desc} ({err_code})"}
-            
-            try:
-                print(f"✓ MT5 Running from: {mt5.terminal_info().path}")
-            except:
-                pass
-
-            info = mt5.account_info()
-            if info:
-                print(f"✅ VALIDATION SUCCESS (After Restart): Logged in to {info.login}")
-                return {"isValid": True}
-            else:
-                if mt5.login(login=int(details.id), password=details.password, server=details.server):
-                    print(f"✅ VALIDATION SUCCESS (Explicit Login): Logged in to {details.id}")
-                    return {"isValid": True}
-                
-                err_code, err_desc = mt5.last_error()
-                error_map = {
-                    10014: "Wrong Password or Invalid Account",
-                    10015: "Connection Failed (Check Server/Internet)",
-                    10027: "AutoTrading Disabled by Server",
-                    10004: "Requote",
-                    10013: "Invalid Request",
-                }
-                user_msg = error_map.get(err_code, f"{err_desc} ({err_code})")
-                return {"isValid": False, "error": f"Login Failed: {user_msg}"}
-
-        finally:
-            mt5_lock.release()
-            worker_paused = False # Ensure worker resumes
-
+        # Fallback if JSON missing
+        err = stderr or stdout or "Unknown validation error"
+        return {"isValid": False, "error": err}
+    except subprocess.TimeoutExpired:
+        return {"isValid": False, "error": "Validation timed out (60s)"}
     except Exception as e:
-        worker_paused = False
         return {"isValid": False, "error": str(e)}
 
 def validate_mt4(details: MtAccountDetails):
@@ -2807,6 +2719,36 @@ async def reset_system():
 if __name__ == "__main__":
     # Unified Entry Point
     # Args are already parsed at the top level as 'args'
+    
+    # Standalone Validation Mode (Subprocess target)
+    if args.validate_id:
+        try:
+            import MetaTrader5 as mt5
+            # Prefer attaching to a running terminal for fastest IPC
+            path_arg = {}
+            if MT5_PATH:
+                path_arg['path'] = MT5_PATH
+            else:
+                detected = detect_running_mt5_path()
+                if detected:
+                    path_arg['path'] = detected
+            
+            # Initialize (short timeout)
+            mt5.initialize(timeout=5000, **path_arg)
+            ok = mt5.login(login=int(args.validate_id), password=args.validate_password, server=args.validate_server)
+            if ok:
+                info = mt5.account_info()
+                print(json.dumps({"isValid": True, "login": int(info.login) if info else int(args.validate_id)}))
+                sys.exit(0)
+            else:
+                err = mt5.last_error()
+                code = err[0] if isinstance(err, tuple) and len(err) > 0 else "unknown"
+                msg = err[1] if isinstance(err, tuple) and len(err) > 1 else str(err)
+                print(json.dumps({"isValid": False, "error": f"MT5 Launch/Login Failed: {msg} ({code})"}))
+                sys.exit(2)
+        except Exception as e:
+            print(json.dumps({"isValid": False, "error": str(e)}))
+            sys.exit(3)
     
     if args.worker:
         print("════════════════════════════════════════════════════════════")

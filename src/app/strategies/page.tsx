@@ -9,14 +9,13 @@ import Button from '@/components/ui/Button';
 import Tabs, { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FiSettings, FiGrid, FiList, FiRefreshCw, FiActivity } from 'react-icons/fi';
+import { FiGrid, FiList } from 'react-icons/fi';
 import UserLayout from '@/components/UserLayout';
 import { FiInfo, FiPlay, FiX } from 'react-icons/fi';
 import { Strategy } from "@/types/strategy";
 import { useAuth } from '@/hooks/use-auth';
 import Badge from '@/components/ui/Badge';
 import { useSearchParams } from 'next/navigation';
-import { Label } from '@/components/ui/label';
 import { Inter } from 'next/font/google';
 
 const octaInter = Inter({
@@ -42,27 +41,13 @@ const StrategiesPageInner: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<any[]>([]);
   const [loadingRunning, setLoadingRunning] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsItem, setSettingsItem] = useState<any | null>(null);
   const [pendingIds, setPendingIds] = useState<string[]>([]);
-  const [mtType, setMtType] = useState<'MT4' | 'MT5' | ''>('');
-  const [mtId, setMtId] = useState('');
-  const [mtPwd, setMtPwd] = useState('');
-  const [mtServer, setMtServer] = useState('');
-  const [saving, setSaving] = useState(false);
   const [ads, setAds] = useState<any[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addMtType, setAddMtType] = useState<'MT4' | 'MT5' | ''>('');
-  const [addMtId, setAddMtId] = useState('');
-  const [addMtPwd, setAddMtPwd] = useState('');
-  const [addMtServer, setAddMtServer] = useState('');
-  const [addSaving, setAddSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'tiles' | 'list'>('tiles');
   const [searchNick, setSearchNick] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 9;
-  const [renewalDialogOpen, setRenewalDialogOpen] = useState(false);
-  const [renewalItem, setRenewalItem] = useState<any | null>(null);
+  
 
   useEffect(() => {
     const view = searchParams.get('view') === 'deployed' ? 'deployed' : 'explore';
@@ -141,42 +126,7 @@ const StrategiesPageInner: React.FC = () => {
     return running;
   }, [running, user]);
 
-  const checkLiveStatus = async (r: any) => {
-    const rsId = (r as any)?.rsId || r?.id;
-    if (!rsId) return;
-    
-    // Add loading state for this specific item if desired, or just use toast
-    try {
-      const res = await fetch(`/api/running-strategies/${rsId}/check-status`);
-      if (res.ok) {
-        const data = await res.json();
-        // Force refresh running list to show potential updates if backend updated DB
-        // But mainly we want to show the user the result
-        if (data.status === 'active' || data.status === 'running') {
-            alert(`Connection Healthy!
-Last Check: ${new Date().toLocaleTimeString()}
-Master Positions: ${data.master_positions ?? '?'}
-Slave Positions: ${data.slave_positions ?? '?'}
-Last Action: ${data.last_action ?? 'Monitoring'}
-Detail: ${data.detail || 'Connected'}`);
-        } else {
-            alert(`Connection Issue Detected!\nStatus: ${data.status}\nError: ${data.detail || data.error || 'Unknown Error'}`);
-        }
-        
-        // Refresh list to update badge if changed
-        const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
-        const runData = await runRes.json();
-        setRunning(runData?.strategies || []);
-      }
-    } catch (e) {
-      alert('Failed to check status. Service might be unreachable.');
-    }
-  };
-
-  const openRenewalDialog = (r: any) => {
-    setRenewalItem(r);
-    setRenewalDialogOpen(true);
-  };
+ 
 
   const renderAdminStatusBadge = (s: string, r?: any) => {
     const k = (s || '').toLowerCase();
@@ -194,31 +144,7 @@ Detail: ${data.detail || 'Connected'}`);
     return (
       <div className="flex items-center gap-2">
         {content}
-        {r && (
-          <div className="flex items-center gap-1">
-            {/* Renew Button - Mainly for running strategies */}
-            {(k === 'running' || k === 'active' || k === 'in-process') && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); openRenewalDialog(r); }}
-                className="text-gray-400 hover:text-green-500 transition-colors"
-                title="Renew Strategy"
-              >
-                <FiRefreshCw size={14} />
-              </button>
-            )}
-            
-            {/* Check Status Button - Available for debugging connection issues */}
-            {(k !== 'disconnected' && k !== 'stopped') && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); checkLiveStatus(r); }}
-                className="text-gray-400 hover:text-blue-500 transition-colors"
-                title="Check Live Connection"
-              >
-                <FiActivity size={14} />
-              </button>
-            )}
-          </div>
-        )}
+        
       </div>
     );
   };
@@ -289,52 +215,6 @@ Detail: ${data.detail || 'Connected'}`);
     }
   };
 
-  const openSettings = (r: any) => {
-    setSettingsItem(r);
-    setMtType((r.platform as any) || '');
-    setMtId((r.mtAccountId as any) || '');
-    setMtPwd((r.mtAccountPassword as any) || '');
-    setMtServer((r.mtAccountServer as any) || '');
-    setSettingsOpen(true);
-  };
-
-  const submitSettings = async () => {
-    if (!settingsItem) return;
-    try {
-      setSaving(true);
-      const body: any = {};
-      const adminStatus = (settingsItem.adminStatus || settingsItem.status || '').toLowerCase();
-      // Always allow editing, just send what we have
-      body.platform = mtType || undefined;
-      body.mt_account_id = mtId || undefined;
-      body.mt_account_password = mtPwd || undefined;
-      body.mt_account_server = mtServer || undefined;
-
-      const res = await fetch(`/api/running-strategies/${(settingsItem as any).rsId || settingsItem.id}/modification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error('Failed to submit update');
-      setSettingsOpen(false);
-      const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
-      const runData = await runRes.json();
-      setRunning(runData?.strategies || []);
-    } catch (e) {
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAddAccount = async () => {
-    if (!settingsItem) return;
-    setAddMtType('');
-    setAddMtId('');
-    setAddMtPwd('');
-    setAddMtServer('');
-    setAddOpen(true);
-  };
-
   const handleViewInfo = (s: Strategy) => {
     router.push(`/strategies/${s.id}/info`);
   };
@@ -401,14 +281,7 @@ Detail: ${data.detail || 'Connected'}`);
     }
   };
 
-  const handleRenewal = (s: Strategy) => {
-    if (!session || (session.user as any)?.role !== 'USER') {
-      return router.push('/login?redirect=/strategies');
-    }
-    setSelectedStrategy(s);
-    setInfoDialogOpen(false);
-    setPlanDialogOpen(true);
-  };
+  
 
   const filtered = useMemo(() => {
     let filteredStrategies = activeTab === 'all'
@@ -692,19 +565,9 @@ Detail: ${data.detail || 'Connected'}`);
                           <span className="text-sm text-gray-600 font-normal">Status</span>
                           <div className="flex items-center justify-start gap-3">
                             {renderAdminStatusBadge((((r as any).adminStatus || (r as any).status || 'in-process') as string).toLowerCase(), r)}
-                            <button className="text-gray-400 hover:text-gray-600 transition-colors p-1" title="Settings" onClick={() => openSettings(r)}>
-                              <FiSettings size={20} />
-                            </button>
-                            <button 
-                              className="text-gray-400 hover:text-gray-600 transition-colors p-1" 
-                              title="Renew Strategy" 
-                              onClick={() => {
-                                setRenewalItem(r);
-                                setRenewalDialogOpen(true);
-                              }}
-                            >
-                              <FiRefreshCw size={20} />
-                            </button>
+                            <Link href={`/strategies/running/${s.id}/history`} className="text-gray-600 hover:text-gray-900 text-xs font-medium underline">
+                              View History
+                            </Link>
                           </div>
                           <div className="w-full mt-2">
                             {(() => {
@@ -743,20 +606,9 @@ Detail: ${data.detail || 'Connected'}`);
                             {renderAdminStatusBadge((((r as any).adminStatus || (r as any).status || 'in-process') as string).toLowerCase(), r)}
                           </div>
 
-                          <button className="text-gray-400 hover:text-gray-600 transition-colors p-1" title="Settings" onClick={() => openSettings(r)}>
-                            <FiSettings size={20} />
-                          </button>
-
-                          <button 
-                            className="text-gray-400 hover:text-gray-600 transition-colors p-1" 
-                            title="Renew Strategy" 
-                            onClick={() => {
-                              setRenewalItem(r);
-                              setRenewalDialogOpen(true);
-                            }}
-                          >
-                            <FiRefreshCw size={20} />
-                          </button>
+                          <Link href={`/strategies/running/${s.id}/history`} className="text-gray-600 hover:text-gray-900 text-xs font-medium underline">
+                            View History
+                          </Link>
 
                           <div className="w-auto">
                             {(() => {
@@ -1268,113 +1120,7 @@ Detail: ${data.detail || 'Connected'}`);
             </div>
           </DialogContent>
         </Dialog>
-        {/* Settings Dialog for Deployed Strategies */}
-        <Dialog open={settingsOpen} onOpenChange={(o) => setSettingsOpen(o)}>
-          <DialogContent className="max-w-lg bg-[#161d31] text-white border-[#283046]">
-            <DialogHeader>
-              <DialogTitle className="text-xl">Strategy Settings</DialogTitle>
-              <DialogDescription className="text-gray-400">Update your MT4/MT5 account details</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="mtType">MT Type</Label>
-                  <select
-                    id="mtType"
-                    className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                    value={mtType}
-                    onChange={(e) => setMtType(e.target.value as any)}
-                  >
-                    <option value="">Select Platform</option>
-                    <option value="MT4">MT4</option>
-                    <option value="MT5">MT5</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="mtId">Account ID</Label>
-                  <input
-                    id="mtId"
-                    className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                    placeholder="Account ID"
-                    value={mtId}
-                    onChange={(e) => setMtId(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="mtPwd">Account Password</Label>
-                <input
-                  id="mtPwd"
-                  className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                  placeholder="Account Password"
-                  value={mtPwd}
-                  onChange={(e) => setMtPwd(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="mtServer">Server Name</Label>
-                <input
-                  id="mtServer"
-                  className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                  placeholder="Server Name"
-                  value={mtServer}
-                  onChange={(e) => setMtServer(e.target.value)}
-                />
-              </div>
-            </div>
-            <DialogFooter className="flex justify-between">
-              <Button onClick={handleAddAccount} disabled={saving} className="bg-green-600 hover:bg-green-700 mr-auto">
-                {saving ? 'Adding...' : 'Add Account'}
-              </Button>
-              <Button onClick={submitSettings} disabled={saving} className="bg-[#7367f0] hover:bg-[#5e50ee]">
-                {saving ? 'Saving...' : 'Submit'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        {/* Renewal Confirmation Dialog */}
-        <Dialog open={renewalDialogOpen} onOpenChange={(o) => setRenewalDialogOpen(o)}>
-          <DialogContent className="max-w-md bg-white text-gray-900 border-gray-200">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-semibold">Renew Strategy</DialogTitle>
-              <DialogDescription className="text-gray-600 mt-2">
-                Do you want to renew this signal?
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              {renewalItem && stratById.get(renewalItem.id) && (
-                <div className="mb-4">
-                  <p className="text-sm text-gray-600 mb-2">Strategy: <span className="font-semibold">{stratById.get(renewalItem.id)?.name}</span></p>
-                  <p className="text-sm text-gray-600">Account: <span className="font-semibold">{(renewalItem as any).mtAccountId || 'N/A'}</span></p>
-                </div>
-              )}
-              <p className="text-sm text-gray-500">
-                You will be redirected to the payment page to complete the renewal. After payment, the status will change to "In-process" until admin approval.
-              </p>
-            </div>
-            <DialogFooter className="flex gap-3">
-              <Button
-                onClick={() => setRenewalDialogOpen(false)}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  if (renewalItem) {
-                    const rsId = (renewalItem as any).rsId || renewalItem.id;
-                    const strategyId = renewalItem.id;
-                    setRenewalDialogOpen(false);
-                    router.push(`/payment?strategy=${strategyId}&renewal=true&runningStrategyId=${rsId}`);
-                  }
-                }}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                Yes, Renew
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        
 
         {/* Become a Strategy Provider Ad (same as Dashboard) */}
         <div className="my-10 md:my-16 lg:my-28 px-4 md:px-6">
@@ -1409,106 +1155,7 @@ Detail: ${data.detail || 'Connected'}`);
           </div>
         </div>
 
-        <Dialog open={addOpen} onOpenChange={(o) => setAddOpen(o)}>
-          <DialogContent className="max-w-lg bg-[#161d31] text-white border-[#283046]">
-            <DialogHeader>
-              <DialogTitle className="text-xl">Add Account</DialogTitle>
-              <DialogDescription className="text-gray-400">Provide MT4/MT5 account details</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="addMtType">MT Type</Label>
-                  <select
-                    id="addMtType"
-                    className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                    value={addMtType}
-                    onChange={(e) => setAddMtType(e.target.value as any)}
-                  >
-                    <option value="">Select Platform</option>
-                    <option value="MT4">MT4</option>
-                    <option value="MT5">MT5</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="addMtId">Account ID</Label>
-                  <input
-                    id="addMtId"
-                    className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                    placeholder="Account ID"
-                    value={addMtId}
-                    onChange={(e) => setAddMtId(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="addMtPwd">Account Password</Label>
-                <input
-                  id="addMtPwd"
-                  className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                  placeholder="Account Password"
-                  value={addMtPwd}
-                  onChange={(e) => setAddMtPwd(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="addMtServer">Server Name</Label>
-                <input
-                  id="addMtServer"
-                  className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-                  placeholder="Server Name"
-                  value={addMtServer}
-                  onChange={(e) => setAddMtServer(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-              </div>
-            </div>
-            <DialogFooter className="flex justify-end">
-              <Button
-                onClick={async () => {
-                  if (!settingsItem) return;
-                  try {
-                    setAddSaving(true);
-                    const rsId = (settingsItem as any).rsId || (settingsItem as any).id;
-                    const body: any = {
-                      action: 'add-account',
-                      platform: addMtType || undefined,
-                      mt_account_id: addMtId || undefined,
-                      mt_account_password: addMtPwd || undefined,
-                      mt_account_server: addMtServer || undefined,
-                    };
-                    const res = await fetch(`/api/running-strategies/${rsId}/modification`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(body),
-                    });
-                    if (!res.ok) throw new Error('Failed to submit add account');
-                    setAddOpen(false);
-                    setRunning((prev: any[]) => prev.map(p => {
-                      if (((p as any).id || (p as any).rsId) === rsId) {
-                        return { ...p, adminStatus: 'in-process' };
-                      }
-                      return p;
-                    }));
-                    const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
-                    const runData = await runRes.json();
-                    setRunning(runData?.strategies || []);
-                  } catch (e) {
-                    console.error(e);
-                    alert('Failed to add account');
-                  } finally {
-                    setAddSaving(false);
-                  }
-                }}
-                disabled={addSaving}
-                className="bg-[#7367f0] hover:bg-[#5e50ee]"
-              >
-                {addSaving ? 'Submitting...' : 'Submit'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        
       </div>
     </UserLayout>
   );

@@ -12,11 +12,10 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { strategyId, plan, payable, method, mt4mt5, usdToInrRate, capital, isRenewal, runningStrategyId } = body;
+    const { strategyId, payable, method, usdToInrRate } = body;
 
     const { createWalletTransaction } = await import('@/db/dbService');
 
-    const plan_level = plan as 'Premium' | 'Expert' | 'Pro';
     const inr_to_usd_rate = typeof usdToInrRate === 'number' ? usdToInrRate : parseFloat(process.env.NEXT_PUBLIC_USD_TO_INR_RATE || '83');
     const inr_amount = typeof payable === 'number' ? payable * inr_to_usd_rate : undefined;
 
@@ -37,17 +36,15 @@ export async function POST(req: Request) {
       user_name: session.user.name ?? undefined,
       user_email: session.user.email ?? undefined,
       amount: payable,
-      // store entered account capital when available
-      capital: typeof capital === 'number' ? capital : undefined,
       transaction_type: 'deposit',
       payment_method: method,
-      platform: mt4mt5?.type,
-      mt_account_id: (mt4mt5?.id || '').toString().trim(),
-      mt_account_password: (mt4mt5?.password || '').toString().trim(),
-      mt_account_server: (mt4mt5?.server || '').toString().trim(),
+      platform: undefined,
+      mt_account_id: undefined,
+      mt_account_password: undefined,
+      mt_account_server: undefined,
       terms_accepted: true,
       strategy_id: strategyId,
-      plan_level,
+      plan_level: undefined,
       inr_amount,
       inr_to_usd_rate,
       crypto_network,

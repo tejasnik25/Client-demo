@@ -7,7 +7,6 @@ import UserLayout from "@/components/UserLayout";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { FiSettings, FiRefreshCw, FiActivity } from "react-icons/fi";
 
 type RunningItem = { id: string; name: string };
 
@@ -31,20 +30,8 @@ const RunningStrategiesPageInner: React.FC = () => {
   const [running, setRunning] = useState<RunningItem[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsItem, setSettingsItem] = useState<any | null>(null);
   const [pendingIds, setPendingIds] = useState<string[]>([]);
-  const [mtType, setMtType] = useState<'MT4' | 'MT5' | ''>('');
-  const [mtId, setMtId] = useState('');
-  const [mtPwd, setMtPwd] = useState('');
-  const [mtServer, setMtServer] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addMtType, setAddMtType] = useState<'MT4' | 'MT5' | ''>('');
-  const [addMtId, setAddMtId] = useState('');
-  const [addMtPwd, setAddMtPwd] = useState('');
-  const [addMtServer, setAddMtServer] = useState('');
-  const [addSaving, setAddSaving] = useState(false);
+  
 
   useEffect(() => {
     const load = async () => {
@@ -74,38 +61,7 @@ const RunningStrategiesPageInner: React.FC = () => {
     return map;
   }, [strategies]);
 
-  const checkLiveStatus = async (r: any) => {
-    const rsId = (r as any)?.rsId || r?.id;
-    if (!rsId) return;
-    
-    try {
-      const res = await fetch(`/api/running-strategies/${rsId}/check-status`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'active' || data.status === 'running') {
-            alert(`Connection Healthy! \nLast Check: ${new Date().toLocaleTimeString()}\nDetail: ${data.detail || 'Connected'}`);
-        } else {
-            alert(`Connection Issue Detected!\nStatus: ${data.status}\nError: ${data.detail || 'Unknown Error'}`);
-        }
-        
-        const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
-        const runData = await runRes.json();
-        setRunning(runData?.strategies || []);
-      } else {
-        // Handle HTTP errors (e.g. 500, 404)
-        const errorText = await res.text();
-        try {
-            const errorJson = JSON.parse(errorText);
-            alert(`Service Error (${res.status}):\n${errorJson.error || errorJson.detail || 'Unknown Error'}`);
-        } catch {
-            alert(`Service Error (${res.status}):\n${res.statusText}`);
-        }
-      }
-    } catch (e: any) {
-      alert(`Failed to check status.\nError: ${e.message || 'Service might be unreachable'}`);
-    }
-  };
-
+ 
   const renderAdminStatusBadge = (s: string, r?: any) => {
     const k = (s || '').toLowerCase();
     const content = (() => {
@@ -122,15 +78,6 @@ const RunningStrategiesPageInner: React.FC = () => {
     return (
       <div className="flex items-center gap-2">
         {content}
-        {r && (k === 'running' || k === 'active') && (
-          <button 
-            onClick={(e) => { e.stopPropagation(); checkLiveStatus(r); }}
-            className="text-gray-400 hover:text-blue-500 transition-colors"
-            title="Check Live Connection"
-          >
-            <FiActivity size={14} />
-          </button>
-        )}
       </div>
     );
   };
@@ -199,90 +146,7 @@ const RunningStrategiesPageInner: React.FC = () => {
     }
   };
 
-  const openSettings = (r: any) => {
-    setSettingsItem(r);
-    setMtType((r.platform as any) || '');
-    setMtId((r.mtAccountId as any) || '');
-    setMtPwd((r.mtAccountPassword as any) || '');
-    setMtServer((r.mtAccountServer as any) || '');
-    setSettingsOpen(true);
-  };
-
-  const openAddAccount = (r: any) => {
-    setSettingsItem(r);
-    setAddMtType('');
-    setAddMtId('');
-    setAddMtPwd('');
-    setAddMtServer('');
-    setAddOpen(true);
-  };
-
-  const handleAddAccount = async () => {
-    if (!settingsItem) return;
-    openAddAccount(settingsItem);
-  };
-
-  const submitSettings = async () => {
-    if (!settingsItem) return;
-    try {
-      setSaving(true);
-      const body: any = {
-        platform: mtType || undefined,
-        mt_account_id: mtId || undefined,
-        mt_account_password: mtPwd || undefined,
-        mt_account_server: mtServer || undefined,
-      };
-      const res = await fetch(`/api/running-strategies/${(settingsItem as any).rsId || settingsItem.id}/modification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error('Failed to submit update');
-      setSettingsOpen(false);
-      const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
-      const runData = await runRes.json();
-      setRunning(runData?.strategies || []);
-    } catch (e) {
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const submitAddAccount = async () => {
-    if (!settingsItem) return;
-    try {
-      setAddSaving(true);
-      const body: any = {
-        action: 'add-account',
-        platform: addMtType || undefined,
-        mt_account_id: addMtId || undefined,
-        mt_account_password: addMtPwd || undefined,
-        mt_account_server: addMtServer || undefined,
-      };
-      const rsId = (settingsItem as any).rsId || (settingsItem as any).id;
-      const res = await fetch(`/api/running-strategies/${rsId}/modification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error('Failed to submit add account');
-      setAddOpen(false);
-      setRunning((prev: any[]) => prev.map(p => {
-        if (((p as any).id || (p as any).rsId) === rsId) {
-          return { ...p, adminStatus: 'in-process' };
-        }
-        return p;
-      }));
-      const runRes = await fetch('/api/strategies/running', { cache: 'no-store' });
-      const runData = await runRes.json();
-      setRunning(runData?.strategies || []);
-    } catch (e) {
-      console.error(e);
-      alert('Failed to add account');
-    } finally {
-      setAddSaving(false);
-    }
-  };
+ 
 
   return (
     <>
@@ -366,11 +230,9 @@ const RunningStrategiesPageInner: React.FC = () => {
                         <span className="text-gray-500 text-xs font-medium">Status</span>
                         <div className="flex items-center justify-center gap-3">
                           {renderAdminStatusBadge((((r as any).adminStatus || (r as any).status || 'in-process') as string).toLowerCase(), r)}
-                          <button className="text-gray-400 hover:text-gray-600 transition-colors flex items-center" title="Settings" onClick={() => openSettings(r)}>
-                            <FiSettings size={18} />
-                          </button>
-                          <Link href={`/payment?strategy=${s.id}`} title="Renewal" className="text-gray-400 hover:text-gray-600 transition-colors flex items-center">
-                            <FiRefreshCw size={18} />
+                          
+                          <Link href={`/strategies/running/${s.id}/history`} className="text-gray-600 hover:text-gray-900 text-xs font-medium underline">
+                            View History
                           </Link>
                         </div>
                       </div>
@@ -411,97 +273,7 @@ const RunningStrategiesPageInner: React.FC = () => {
         )}
       </div>
     </UserLayout>
-    <Dialog open={settingsOpen} onOpenChange={(o) => setSettingsOpen(o)}>
-      <DialogContent className="max-w-lg bg-white text-gray-900 border-gray-200">
-        <DialogHeader>
-          <DialogTitle className="text-xl">Strategy Settings</DialogTitle>
-          <DialogDescription className="text-gray-600">Update your MT4/MT5 account details</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <select
-              className="px-3 py-2 rounded border border-gray-300 bg-white text-black"
-              value={mtType}
-              onChange={(e) => setMtType(e.target.value as any)}
-            >
-              <option value="">Select Platform</option>
-              <option value="MT4">MT4</option>
-              <option value="MT5">MT5</option>
-            </select>
-            <input
-              className="px-3 py-2 rounded border border-gray-300 bg-white text-black"
-              placeholder="Account ID"
-              value={mtId}
-              onChange={(e) => setMtId(e.target.value)}
-            />
-          </div>
-          <input
-            className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-            placeholder="Account Password"
-            value={mtPwd}
-            onChange={(e) => setMtPwd(e.target.value)}
-          />
-          <input
-            className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-            placeholder="Server Name"
-            value={mtServer}
-            onChange={(e) => setMtServer(e.target.value)}
-          />
-        </div>
-        <DialogFooter>
-          <Button onClick={handleAddAccount} className="bg-green-600 hover:bg-green-700 mr-auto">
-            Add Account
-          </Button>
-          <Button onClick={submitSettings} disabled={saving} className="bg-gradient-to-r from-[#00d09c] to-[#00b085] hover:from-[#00b085] hover:to-[#00d09c]">
-            {saving ? 'Saving...' : 'Submit' }
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    <Dialog open={addOpen} onOpenChange={(o) => setAddOpen(o)}>
-      <DialogContent className="max-w-lg bg-white text-gray-900 border-gray-200">
-        <DialogHeader>
-          <DialogTitle className="text-xl">Add Account</DialogTitle>
-          <DialogDescription className="text-gray-600">Provide MT4/MT5 account details</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <select
-              className="px-3 py-2 rounded border border-gray-300 bg-white text-black"
-              value={addMtType}
-              onChange={(e) => setAddMtType(e.target.value as any)}
-            >
-              <option value="">Select Platform</option>
-              <option value="MT4">MT4</option>
-              <option value="MT5">MT5</option>
-            </select>
-            <input
-              className="px-3 py-2 rounded border border-gray-300 bg-white text-black"
-              placeholder="Account ID"
-              value={addMtId}
-              onChange={(e) => setAddMtId(e.target.value)}
-            />
-          </div>
-          <input
-            className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-            placeholder="Account Password"
-            value={addMtPwd}
-            onChange={(e) => setAddMtPwd(e.target.value)}
-          />
-          <input
-            className="w-full px-3 py-2 rounded border border-[#283046] bg-[#0f1527]"
-            placeholder="Server Name"
-            value={addMtServer}
-            onChange={(e) => setAddMtServer(e.target.value)}
-          />
-        </div>
-        <DialogFooter>
-          <Button onClick={submitAddAccount} disabled={addSaving} className="bg-gradient-to-r from-[#00d09c] to-[#00b085] hover:from-[#00b085] hover:to-[#00d09c]">
-            {addSaving ? 'Submitting...' : 'Submit' }
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    
     </>
   );
 };

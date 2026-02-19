@@ -915,10 +915,21 @@ export const updateStrategy = async (
   updates: Partial<Strategy>
 ): Promise<{ success: boolean; strategy?: Strategy; error?: string }> => {
   try {
-    if (updates.masterAccountId) {
-      const isUsed = await isMasterAccountUsed(updates.masterAccountId, id);
-      if (isUsed) {
-        return { success: false, error: 'Master account is already assigned to another strategy' };
+    // Normalize empty-string master fields to nulls and avoid false uniqueness hits
+    if (updates.masterAccountId !== undefined && updates.masterAccountId === '') updates.masterAccountId = null as any;
+    if (updates.masterAccountPassword !== undefined && updates.masterAccountPassword === '') updates.masterAccountPassword = null as any;
+    if (updates.masterAccountServer !== undefined && updates.masterAccountServer === '') updates.masterAccountServer = null as any;
+
+    // Only enforce uniqueness if changing the master to a different non-null value
+    if (updates.masterAccountId !== undefined && updates.masterAccountId !== null) {
+      const existing = await getStrategyById(id);
+      const existingMaster = existing?.masterAccountId || null;
+      const nextMaster = updates.masterAccountId;
+      if (nextMaster && nextMaster !== existingMaster) {
+        const isUsed = await isMasterAccountUsed(nextMaster, id);
+        if (isUsed) {
+          return { success: false, error: 'Master account is already assigned to another strategy' };
+        }
       }
     }
 
@@ -949,9 +960,9 @@ export const updateStrategy = async (
     if (updates.iconBlob !== undefined) { setClause.push('icon_blob = ?'); values.push(updates.iconBlob ?? null); }
     if (updates.iconMime !== undefined) { setClause.push('icon_mime = ?'); values.push(updates.iconMime ?? null); }
     if (updates.enabled !== undefined) { setClause.push('enabled = ?'); values.push(updates.enabled); }
-    if (updates.masterAccountId !== undefined) { setClause.push('master_account_id = ?'); values.push(updates.masterAccountId); }
-    if (updates.masterAccountPassword !== undefined) { setClause.push('master_account_password = ?'); values.push(updates.masterAccountPassword); }
-    if (updates.masterAccountServer !== undefined) { setClause.push('master_account_server = ?'); values.push(updates.masterAccountServer); }
+    if (updates.masterAccountId !== undefined) { setClause.push('master_account_id = ?'); values.push(updates.masterAccountId ?? null); }
+    if (updates.masterAccountPassword !== undefined) { setClause.push('master_account_password = ?'); values.push(updates.masterAccountPassword ?? null); }
+    if (updates.masterAccountServer !== undefined) { setClause.push('master_account_server = ?'); values.push(updates.masterAccountServer ?? null); }
     if (updates.masterPlatform !== undefined) { setClause.push('master_platform = ?'); values.push(updates.masterPlatform); }
 
     if (setClause.length === 0) {

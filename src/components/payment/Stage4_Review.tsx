@@ -1,7 +1,6 @@
-'use client';
+"use client";
 
 import { useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Label } from '@/components/ui/label';
@@ -15,7 +14,6 @@ interface Stage4Props {
 
 const Stage4_Review = ({ onNext, onBack, paymentData, onEditStage }: Stage4Props) => {
   const [confirmed, setConfirmed] = useState(false);
-  const [showPass, setShowPass] = useState(false);
 
   const handleProceed = () => {
     if (!confirmed) {
@@ -37,49 +35,12 @@ const Stage4_Review = ({ onNext, onBack, paymentData, onEditStage }: Stage4Props
             <span className="text-gray-900 font-semibold">{paymentData.strategyName || 'N/A'}</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-gray-200">
-            <span className="text-gray-600 font-medium">Selected Plan:</span>
-            <span className="text-gray-900 font-semibold">{paymentData.plan}</span>
+            <span className="text-gray-600 font-medium">Selected Lot Size:</span>
+            <span className="text-gray-900 font-semibold">{paymentData.lotLabel || '-'}</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-gray-200">
             <span className="text-gray-600 font-medium">Payment Method:</span>
             <span className="text-gray-900 font-semibold">{paymentData.method}</span>
-          </div>
-          <div className="py-2 border-b border-gray-200">
-            <p className="text-gray-600 font-medium mb-2">MT4/MT5 Account Details:</p>
-            <ul className="space-y-2 pl-4">
-              <li className="flex justify-between">
-                <span className="text-gray-600">Account Type:</span>
-                <span className="text-gray-900 font-medium">{paymentData.mt4mt5.type}</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-gray-600">Account ID:</span>
-                <span className="text-gray-900 font-medium">{paymentData.mt4mt5.id}</span>
-              </li>
-              <li className="flex justify-between">
-                <span className="text-gray-600">Server Address:</span>
-                <span className="text-gray-900 font-medium">{paymentData.mt4mt5.server}</span>
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-gray-600">Password:</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-900 font-mono">
-                    {showPass ? (paymentData.mt4mt5.password || paymentData.mt4mt5.pass) : '••••••••'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowPass(v => !v)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-black bg-white text-gray-700 hover:bg-gray-100 transition-colors"
-                    aria-label={showPass ? 'Hide password' : 'Show password'}
-                  >
-                    {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </li>
-            </ul>
-          </div>
-          <div className="flex justify-between items-center py-2 border-b border-gray-200">
-            <span className="text-gray-600 font-medium">Entered Amount:</span>
-            <span className="text-gray-900 font-semibold">${paymentData.capital}</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-gray-200">
             <span className="text-gray-600 font-medium">Total Amount:</span>
@@ -94,18 +55,18 @@ const Stage4_Review = ({ onNext, onBack, paymentData, onEditStage }: Stage4Props
             <Button
               type="button"
               variant="outline"
-              onClick={() => onEditStage && onEditStage(4)}
+              onClick={() => onEditStage && onEditStage(1)}
               className="border-black text-gray-700 hover:bg-gray-100"
             >
-              Edit Account Details
+              Edit Lot Size
             </Button>
             <Button
               type="button"
               variant="outline"
-              onClick={() => onEditStage && onEditStage(3)}
+              onClick={() => onEditStage && onEditStage(2)}
               className="border-black text-gray-700 hover:bg-gray-100"
             >
-              Edit Amount
+              Edit Payment Method
             </Button>
           </div>
         </CardContent>

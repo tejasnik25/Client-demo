@@ -4,12 +4,8 @@ export interface PaymentData {
   strategyName?: string;
   profit?: number;
   method?: 'UPI' | 'USDT_TRC20' | 'USDT_ERC20';
-  mt4mt5?: {
-    type: 'MT4' | 'MT5';
-    id: string;
-    password: string;
-    server: string;
-  };
+  lotSize?: number;
+  lotLabel?: string;
   capital?: number;
   payable?: number;
   usdToInrRate?: number;

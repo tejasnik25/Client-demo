@@ -43,6 +43,9 @@ const StrategyManagement: React.FC = () => {
   // Percent values per plan for user-facing display
   const [planPercents, setPlanPercents] = useState<{ Pro?: number; Expert?: number; Premium?: number }>({});
   const [parameters, setParameters] = useState<ParameterRow[]>([{ key: '', value: '', id: `param-${Date.now()}` }]);
+  const [lotRows, setLotRows] = useState<{ amountUSD: string; lot: string; id: string }[]>([
+    { amountUSD: '', lot: '', id: `lot-${Date.now()}` },
+  ]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [expandedParameters, setExpandedParameters] = useState<Record<string, boolean>>({});
@@ -137,6 +140,27 @@ const resetAddForm = () => {
       value,
       id: `param-${Date.now()}-${key}`
     })));
+    try {
+      const lp = (strategy.parameters as any)?.lotPricing;
+      if (lp) {
+        const arr = JSON.parse(lp);
+        if (Array.isArray(arr) && arr.length > 0) {
+          setLotRows(
+            arr.map((r: any, idx: number) => ({
+              amountUSD: String(r.amountUSD ?? ''),
+              lot: String(r.lot ?? ''),
+              id: `lot-${Date.now()}-${idx}`,
+            }))
+          );
+        } else {
+          setLotRows([{ amountUSD: '', lot: '', id: `lot-${Date.now()}` }]);
+        }
+      } else {
+        setLotRows([{ amountUSD: '', lot: '', id: `lot-${Date.now()}` }]);
+      }
+    } catch {
+      setLotRows([{ amountUSD: '', lot: '', id: `lot-${Date.now()}` }]);
+    }
     setCountryFlag((strategy.parameters && (strategy.parameters as any).countryFlag) || '');
     setIsEditing(true);
     setIsAdding(false);
@@ -288,6 +312,17 @@ const resetAddForm = () => {
       if (planPercents.Pro !== undefined) formData.append('planProPercent', String(planPercents.Pro));
       if (planPercents.Expert !== undefined) formData.append('planExpertPercent', String(planPercents.Expert));
       if (planPercents.Premium !== undefined) formData.append('planPremiumPercent', String(planPercents.Premium));
+
+      // Lot pricing rows -> JSON string
+      const lotPricing = lotRows
+        .map((r) => ({
+          amountUSD: Number((r.amountUSD || '').replace(/,/g, '')),
+          lot: Number((r.lot || '').replace(/,/g, '')),
+        }))
+        .filter((r) => Number.isFinite(r.amountUSD) && r.amountUSD > 0 && Number.isFinite(r.lot) && r.lot > 0);
+      if (lotPricing.length > 0) {
+        formData.append('lotPricing', JSON.stringify(lotPricing));
+      }
 
       if (countryFlag) {
         formData.append('countryFlag', countryFlag);
@@ -982,6 +1017,65 @@ const resetAddForm = () => {
                   <p className="text-xs text-muted-foreground">Enter USD range; first number used for payments.</p>
                 </div>
               </div>
+
+          {/* Lot Size Pricing */}
+          <Separator className="my-4 bg-gray-200" />
+          <div className="space-y-2">
+            <Label className="text-gray-700">Lot Size Pricing</Label>
+            <p className="text-xs text-gray-600">Enter USD amount for each lot size. These appear as options to users.</p>
+            <div className="space-y-2">
+              {lotRows.map((row, idx) => (
+                <div key={row.id} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+                  <div className="md:col-span-2">
+                    <Label className="text-gray-700">Amount (USD)</Label>
+                    <Input
+                      value={row.amountUSD}
+                      onChange={(e) =>
+                        setLotRows((prev) =>
+                          prev.map((r) => (r.id === row.id ? { ...r, amountUSD: e.target.value } : r))
+                        )
+                      }
+                      placeholder="e.g. 1000"
+                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label className="text-gray-700">Lot Size</Label>
+                    <Input
+                      value={row.lot}
+                      onChange={(e) =>
+                        setLotRows((prev) =>
+                          prev.map((r) => (r.id === row.id ? { ...r, lot: e.target.value } : r))
+                        )
+                      }
+                      placeholder="e.g. 1"
+                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setLotRows((prev) => prev.filter((r) => r.id !== row.id))
+                      }
+                      className="border-gray-300"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button
+                type="button"
+                onClick={() =>
+                  setLotRows((prev) => [...prev, { amountUSD: '', lot: '', id: `lot-${Date.now()}` }])
+                }
+              >
+                Add Lot
+              </Button>
+            </div>
+          </div>
             </form>
           </ScrollArea>
           

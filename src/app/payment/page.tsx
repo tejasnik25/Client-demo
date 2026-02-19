@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation';
 import Timer from '@/components/payment/Timer';
 import Stage0_PlanSelection from '@/components/payment/Stage0_PlanSelection';
 import Stage1_MethodSelection from '@/components/payment/Stage1_MethodSelection';
-import Stage2_MT4Details from '@/components/payment/Stage2_MT4Details';
-import Stage3_CapitalInput from '@/components/payment/Stage3_CapitalInput';
 import Stage4_Review from '@/components/payment/Stage4_Review';
 import Stage5_FinalPayment from '@/components/payment/Stage5_FinalPayment';
 import { PaymentData } from '@/types';
@@ -64,7 +62,7 @@ const PaymentContent = () => {
   }, [searchParams]);
 
   const handleNext = () => {
-    if (stage < 6) {
+    if (stage < 4) {
       setStage(stage + 1);
     }
   };
@@ -113,45 +111,19 @@ const PaymentContent = () => {
       case 2:
         return <Stage1_MethodSelection onNext={handleNext} setPaymentData={setPaymentData} />;
       case 3:
-        return <Stage3_CapitalInput onNext={handleNext} onBack={handleBack} setPaymentData={setPaymentData} paymentData={paymentData} />;
-      case 4:
-        return <Stage2_MT4Details onNext={handleNext} onBack={handleBack} setPaymentData={setPaymentData} paymentData={paymentData} />;
-      case 5:
         return <Stage4_Review onNext={handleNext} onBack={handleBack} paymentData={paymentData} onEditStage={handleEditStage} />;
-      case 6:
+      case 4:
         return <Stage5_FinalPayment onBack={handleBack} paymentData={paymentData} onSuccess={() => setCompleted(true)} />;
       default:
         return null;
     }
   };
 
-  const getPlanPrice = () => {
-    if (!strategy || !paymentData?.plan) {
-      // If no plan selected yet, show minimum price
-      if (strategy?.planPrices) {
-        return Math.min(
-          strategy.planPrices.Pro || 20000,
-          strategy.planPrices.Expert || 10000,
-          strategy.planPrices.Premium || 5000
-        );
-      }
-      return 0;
-    }
-    const plan = paymentData.plan as 'Premium' | 'Expert' | 'Pro';
-    if (strategy.planPrices) {
-      return strategy.planPrices[plan] || 0;
-    }
-    const defaults = { Premium: 5000, Expert: 10000, Pro: 20000 };
-    return defaults[plan] || 0;
-  };
-
   const steps = [
-    { number: 1, label: 'Plan Selection' },
+    { number: 1, label: 'Lot Size' },
     { number: 2, label: 'Payment Method' },
-    { number: 3, label: 'Capital' },
-    { number: 4, label: 'MT4 Details' },
-    { number: 5, label: 'Review' },
-    { number: 6, label: 'Payment' },
+    { number: 3, label: 'Review' },
+    { number: 4, label: 'Payment' },
   ];
 
   return (
@@ -187,24 +159,22 @@ const PaymentContent = () => {
                   </span>
                 </div>
 
-                {/* Platform Info */}
-                {paymentData?.mt4mt5?.type && (
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                    <span className="text-sm text-gray-600">
-                      {paymentData.mt4mt5.type} - {paymentData.mt4mt5.server || 'Server'}
-                    </span>
-                  </div>
-                )}
-
-                {/* Plan Summary */}
+                {/* Lot Size Summary */}
                 <div className="grid grid-cols-1 gap-4 mt-4">
                   <div>
-                    <p className="text-s text-gray-600 mb-1">Subscription Plan</p>
+                    <p className="text-s text-gray-600 mb-1">Selected Lot Size</p>
                     <p className="text-lg font-semibold text-green-600">
-                      {paymentData?.plan ? String(paymentData.plan) : 'Select Plan'}
+                      {paymentData?.lotLabel ? paymentData.lotLabel : 'Select Lot Size'}
                     </p>
                   </div>
+                  {typeof paymentData?.payable === 'number' && (
+                    <div>
+                      <p className="text-s text-gray-600 mb-1">Total Amount</p>
+                      <p className="text-lg font-semibold text-gray-900">
+                        ${paymentData.payable.toFixed(2)}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
