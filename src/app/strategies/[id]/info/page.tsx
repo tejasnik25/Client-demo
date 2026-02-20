@@ -42,6 +42,7 @@ const StrategyInfoPage: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);
   const [openPositions, setOpenPositions] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const entriesPerPage = 10;
 
@@ -86,8 +87,10 @@ const StrategyInfoPage: React.FC = () => {
           if (data.open_positions) {
             setOpenPositions(data.open_positions);
           }
+          setHistoryError(data.error || null);
         } catch (e) {
           console.error("Failed to fetch history:", e);
+          setHistoryError('Failed to fetch master history');
         } finally {
           setHistoryLoading(false);
         }
@@ -545,8 +548,8 @@ const StrategyInfoPage: React.FC = () => {
               ) : (
                 <div className="p-12 text-center text-gray-500">
                   <FiInfo className="mx-auto mb-2 h-8 w-8 opacity-20" />
-                  <p>No trade history available yet.</p>
-                  <p className="text-xs mt-1">History appears after the master account logs in and starts trading.</p>
+                  <p>{historyError ? historyError : 'No trade history available yet.'}</p>
+                  {!historyError && <p className="text-xs mt-1">History appears after the master account logs in and starts trading.</p>}
                 </div>
               )}
             </div>

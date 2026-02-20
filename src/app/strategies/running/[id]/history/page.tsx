@@ -40,6 +40,7 @@ export default function CopierHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -72,6 +73,7 @@ export default function CopierHistoryPage() {
       const res = await fetch(`/api/strategies/${params.id}/master-history`, { cache: "no-store" });
       const data = await res.json();
       setHistory(data.history || []);
+      setHistoryError(data.error || null);
     };
     loadHistory();
   }, [params.id]);
@@ -198,7 +200,7 @@ export default function CopierHistoryPage() {
                 </tbody>
               </table>
             ) : (
-              <div className="p-12 text-center text-gray-500 text-sm">No closed positions yet.</div>
+              <div className="p-12 text-center text-gray-500 text-sm">{historyError ? historyError : 'No closed positions yet.'}</div>
             )}
           </div>
         </div>
