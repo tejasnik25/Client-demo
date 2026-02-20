@@ -36,9 +36,13 @@ const ApprovedPaymentsPage = () => {
   const fetchApproved = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/payments/approved`);
+      const [res, sres] = await Promise.all([
+        fetch(`/api/admin/payments/approved`),
+        fetch(`/api/strategies`, { cache: 'no-store' })
+      ]);
       if (!res.ok) throw new Error("Failed to load payments");
-      const data = await res.json();
+      const [data, sdata] = await Promise.all([res.json(), sres.ok ? sres.json() : Promise.resolve({ strategies: [] })]);
+      const strategies: any[] = Array.isArray(sdata) ? sdata : (sdata.strategies || []);
       const items = Array.isArray(data) ? data : (data.transactions ?? []);
       const normalized: Payment[] = items.map((t: any) => ({
         id: t.id,
@@ -46,8 +50,8 @@ const ApprovedPaymentsPage = () => {
         email: t.user?.email ?? '',
         txId: t.transaction_id,
         plan: t.plan_level || t.plan,
-        platform: t.platform,
-        terms: t.terms_accepted ? 'Accepted' : '—',
+        platform: '',
+        terms: '',
         strategyId: t.strategy?.name ?? t.strategy_id,
         payable: t.amount,
         method: t.payment_method,
@@ -55,7 +59,32 @@ const ApprovedPaymentsPage = () => {
         approvedAt: t.status === 'completed' ? (t.updated_at || t.created_at) : undefined,
         verifiedBy: t.admin_id || undefined,
       }));
-      setPayments(normalized);
+      // attach lot size label
+      const withLot = normalized.map((p: any) => {
+        const s = strategies.find(st => st.id === p.strategyId || st.name === p.strategyId);
+        const lp = s?.parameters?.lotPricing;
+        if (!lp) return { ...p };
+        try {
+          const arr = JSON.parse(lp);
+          if (!Array.isArray(arr)) return { ...p };
+          const rows = arr
+            .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
+            .filter((x: any) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
+          if (rows.length === 0) return { ...p };
+          const amt = Number(p.payable);
+          if (!Number.isFinite(amt)) return { ...p };
+          const exact = rows.find((r: any) => Math.abs(r.amountUSD - amt) < 1e-6);
+          const target = exact || rows.reduce((best: any, cur: any) => {
+            const dBest = Math.abs(best.amountUSD - amt);
+            const dCur = Math.abs(cur.amountUSD - amt);
+            return dCur < dBest ? cur : best;
+          }, rows[0]);
+          return { ...p, lotLabel: `${target.lot} Lot` };
+        } catch {
+          return { ...p };
+        }
+      });
+      setPayments(withLot as any);
       setError(null);
     } catch (e: any) {
       setError(e.message ?? "Unknown error");
@@ -84,12 +113,10 @@ const ApprovedPaymentsPage = () => {
       const s = `${p.userId} ${p.txId} ${p.strategyId} ${p.email}`.toLowerCase();
       const matchesSearch = s.includes(search.toLowerCase());
       const matchesMethod = methodFilter ? p.method === methodFilter : true;
-      const matchesPlatform = platformFilter ? p.platform === platformFilter : true;
-      const matchesTerms = termsFilter ? p.terms === termsFilter : true;
       const matchesDate = withinDate(p.approvedAt);
-      return matchesSearch && matchesMethod && matchesPlatform && matchesTerms && matchesDate;
+      return matchesSearch && matchesMethod && matchesDate;
     });
-  }, [payments, search, methodFilter, platformFilter, termsFilter, dateFrom, dateTo]);
+  }, [payments, search, methodFilter, dateFrom, dateTo]);
 
   const exportCSV = (rows: Payment[]) => {
     const header = [
@@ -98,8 +125,7 @@ const ApprovedPaymentsPage = () => {
       "Email",
       "Amount",
       "Payment Method",
-      "Platform",
-      "Terms",
+      "Lot Size",
       "Status",
       "Submission Date",
       "Approval Date",
@@ -115,14 +141,14 @@ const ApprovedPaymentsPage = () => {
             ? new Date(new Date(p.approvedAt).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString()
             : "";
           const status = p.approvedAt && new Date().getTime() <= new Date(expiry).getTime() ? "Completed" : "Expired";
+          const lot = (p as any).lotLabel || '';
           return [
             p.userId,
             p.txId,
             p.email,
             p.payable,
             p.method,
-            p.platform,
-            p.terms,
+            lot,
             status,
             new Date(p.createdAt).toISOString(),
             approval,
@@ -152,8 +178,7 @@ const ApprovedPaymentsPage = () => {
             <th>Email</th>
             <th>Amount</th>
             <th>Payment Method</th>
-            <th>Platform</th>
-            <th>Terms</th>
+            <th>Lot Size</th>
             <th>Status</th>
             <th>Submission Date</th>
             <th>Approval Date</th>
@@ -171,6 +196,7 @@ const ApprovedPaymentsPage = () => {
                 : undefined;
               const expiry = expiryMs ? new Date(expiryMs).toLocaleDateString() : "";
               const status = expiryMs && Date.now() <= expiryMs ? "Completed" : "Expired";
+              const lot = (p as any).lotLabel || '';
               return `
                 <tr>
                   <td>${p.userId}</td>
@@ -178,8 +204,7 @@ const ApprovedPaymentsPage = () => {
                   <td>${p.email}</td>
                   <td>${p.payable}</td>
                   <td>${p.method}</td>
-                  <td>${p.platform}</td>
-                  <td>${p.terms}</td>
+                  <td>${lot}</td>
                   <td>${status}</td>
                   <td>${new Date(p.createdAt).toLocaleString()}</td>
                   <td>${approval}</td>
@@ -201,8 +226,8 @@ const ApprovedPaymentsPage = () => {
   };
 
   const methods = Array.from(new Set(payments.map((p) => p.method).filter(Boolean)));
-  const platforms = Array.from(new Set(payments.map((p) => p.platform).filter(Boolean)));
-  const terms = Array.from(new Set(payments.map((p) => p.terms).filter(Boolean)));
+  const platforms: string[] = [];
+  const terms: string[] = [];
 
   return (
     <div className="p-4 md:p-6 text-white min-h-screen">
@@ -223,18 +248,7 @@ const ApprovedPaymentsPage = () => {
                         <option key={m} value={m}>{m}</option>
                     ))}
                 </select>
-                <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="toolbar-select">
-                    <option value="">All Platforms</option>
-                    {platforms.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                    ))}
-                </select>
-                <select value={termsFilter} onChange={(e) => setTermsFilter(e.target.value)} className="toolbar-select">
-                    <option value="">All Terms</option>
-                    {terms.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                    ))}
-                </select>
+                {/* Platform/Terms filters removed */}
                 <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="toolbar-input" />
                 <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="toolbar-input" />
                 <button onClick={() => fetchApproved()} className="toolbar-button">
@@ -260,8 +274,7 @@ const ApprovedPaymentsPage = () => {
                             <th>Email</th>
                             <th>Amount</th>
                             <th>Payment Method</th>
-                            <th>Platform</th>
-                            <th>Terms</th>
+                            <th>Lot Size</th>
                             <th>Status</th>
                             <th>Submission Date</th>
                             <th>Approval Date</th>
@@ -289,8 +302,7 @@ const ApprovedPaymentsPage = () => {
                                         <td>{p.email}</td>
                                         <td>${p.payable.toFixed(2)}</td>
                                         <td>{p.method}</td>
-                                        <td>{p.platform}</td>
-                                        <td>{p.terms}</td>
+                                        <td>{(p as any).lotLabel || '-'}</td>
                                         <td>
                                             <span className={`status-badge ${active ? "badge-approved" : "badge-expired"}`}>{
                                                 active ? "Completed" : "Expired"

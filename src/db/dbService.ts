@@ -2097,6 +2097,7 @@ export const getRunningStrategiesForUser = async (
   status: string;
   adminStatus: string;
   updatedAt: string;
+  createdAt?: string;
   plan?: string;
   capital?: number;
   platform?: 'MT4' | 'MT5' | null;
@@ -2113,6 +2114,7 @@ export const getRunningStrategiesForUser = async (
               rs.status,
               rs.admin_status AS adminStatus,
               rs.updated_at AS updatedAt,
+              rs.created_at AS createdAt,
               rs.plan,
               rs.capital,
               COALESCE(rsm.platform, wt.platform) AS platform,
@@ -2144,6 +2146,7 @@ export const getRunningStrategiesForUser = async (
       status: r.status,
       adminStatus: (r.adminStatus || r.admin_status || (r.status === 'stopped' ? 'disconnected' : '')).toLowerCase(),
       updatedAt: r.updatedAt,
+      createdAt: r.createdAt,
       platform: r.platform ?? null,
       mtAccountId: r.mtAccountId ?? null,
       mtAccountPassword: r.mtAccountPassword ?? null,

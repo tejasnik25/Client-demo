@@ -7,7 +7,6 @@ import {
   createRunningStrategy,
   updateRunningStrategyAdminStatus
 } from '@/db/dbService';
-import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
 type Params = { id: string };
 
@@ -51,67 +50,24 @@ export async function POST(
       );
     }
 
-    // New: Handle Strategy Connection and Validation
+    // New: Handle Strategy Connection WITHOUT slave account details
     if (transaction.strategy_id) {
       try {
-        const strategy = await getStrategyById(transaction.strategy_id);
-        
-        if (strategy) {
-          const slaveDetails: MtAccountDetails = {
-            id: (transaction.mt_account_id || '').toString().trim(),
-            password: (transaction.mt_account_password || '').toString().trim(),
-            server: (transaction.mt_account_server || '').toString().trim(),
-            platform: (transaction.platform as 'MT4' | 'MT5') || 'MT5'
-          };
+        // Ensure strategy exists for reference (not strictly required for this flow)
+        await getStrategyById(transaction.strategy_id);
 
-          // Validate Slave Account
-          const validation = await mt5Service.validateConnection(slaveDetails);
-          
-          // Create Running Strategy (initial state)
-          const runResult = await createRunningStrategy(
-            transaction.user_id,
-            transaction.strategy_id,
-            (transaction.plan_level as 'Premium' | 'Expert' | 'Pro') || 'Pro',
-            Number(transaction.capital) || 0,
-            {
-              platform: slaveDetails.platform,
-              mtAccountId: slaveDetails.id,
-              mtAccountPassword: slaveDetails.password,
-              mtAccountServer: slaveDetails.server
-            }
-          );
+        // Create Running Strategy with minimal details; status defaults to in-process
+        const runResult = await createRunningStrategy(
+          transaction.user_id,
+          transaction.strategy_id,
+          (transaction.plan_level as 'Premium' | 'Expert' | 'Pro') || 'Pro',
+          Number(transaction.capital) || 0,
+          {}
+        );
 
-          if (runResult.success && runResult.id) {
-            let finalStatus: 'running' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' | 'disconnected' = 'running';
-
-            if (!validation.success) {
-              // Map validation error to DB status
-              if (validation.error === 'Wrong-Password') finalStatus = 'wrong-account-password';
-              else if (validation.error === 'Wrong-Id') finalStatus = 'wrong-account-id';
-              else if (validation.error === 'Wrong-Server') finalStatus = 'wrong-account-server-name';
-              else finalStatus = 'wrong-account-id'; // Default fallback
-            } else {
-              // If validation passed, start copy trading
-              if (strategy.masterAccountId) {
-                const masterDetails: MtAccountDetails = {
-                  id: strategy.masterAccountId,
-                  password: strategy.masterAccountPassword || '',
-                  server: strategy.masterAccountServer || '',
-                  platform: strategy.masterPlatform || 'MT5'
-                };
-                try {
-                  await mt5Service.startCopyTrading(masterDetails, slaveDetails, runResult.id);
-                } catch (copyError) {
-                  console.error('Copy trading start failed:', copyError);
-                  finalStatus = 'disconnected';
-                }
-              }
-            }
-
-            // Update status in DB (updates running_strategies and the initial modification)
-            console.log(`Updating running strategy ${runResult.id} status to ${finalStatus}`);
-            await updateRunningStrategyAdminStatus(runResult.id, finalStatus);
-          }
+        // After admin approves payment, immediately mark as running (Connected)
+        if (runResult.success && runResult.id) {
+          await updateRunningStrategyAdminStatus(runResult.id, 'running');
         }
       } catch (connError) {
         console.error('Error connecting strategy:', connError);

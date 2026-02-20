@@ -65,7 +65,7 @@ const RunningStrategiesPageInner: React.FC = () => {
   const renderAdminStatusBadge = (s: string, r?: any) => {
     const k = (s || '').toLowerCase();
     const content = (() => {
-        if (k === 'running') return <Badge variant="success">Running</Badge>;
+        if (k === 'running') return <Badge variant="success">Connected</Badge>;
         if (k === 'in-process') return <Badge variant="warning">In-Process</Badge>;
         if (k === 'disconnected' || k === 'stopped') return <Badge variant="destructive">Disconnected</Badge>;
         if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
@@ -248,7 +248,7 @@ const RunningStrategiesPageInner: React.FC = () => {
                                 onClick={() => requestEnable(r)}
                                 disabled={isPending}
                               >
-                                {isPending ? 'Requested' : 'Connect'}
+                                {isPending ? 'In-Process' : 'Connect'}
                               </Button>
                             );
                           }
@@ -260,7 +260,7 @@ const RunningStrategiesPageInner: React.FC = () => {
                               onClick={() => toggleDisconnect(r)}
                               disabled={isPending || cur === 'in-process'}
                             >
-                              {isPending || cur === 'in-process' ? 'Requested' : 'Disconnect'}
+                              {isPending || cur === 'in-process' ? 'In-Process' : 'Disconnect'}
                             </Button>
                           );
                         })()}

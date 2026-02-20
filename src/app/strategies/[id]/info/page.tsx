@@ -43,6 +43,7 @@ const StrategyInfoPage: React.FC = () => {
   const [openPositions, setOpenPositions] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [connectAt, setConnectAt] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const entriesPerPage = 10;
 
@@ -79,7 +80,10 @@ const StrategyInfoPage: React.FC = () => {
       const fetchHistory = async () => {
         try {
           setHistoryLoading(true);
-          const res = await fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: 'no-store' });
+          const [res, runRes] = await Promise.all([
+            fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: 'no-store' }),
+            fetch(`/api/strategies/running`, { cache: 'no-store' })
+          ]);
           const data = await res.json();
           if (data.history) {
             setHistory(data.history);
@@ -88,6 +92,9 @@ const StrategyInfoPage: React.FC = () => {
             setOpenPositions(data.open_positions);
           }
           setHistoryError(data.error || null);
+          const runData = await runRes.json().catch(() => null);
+          const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
+          setConnectAt(me?.createdAt || null);
         } catch (e) {
           console.error("Failed to fetch history:", e);
           setHistoryError('Failed to fetch master history');
@@ -176,11 +183,20 @@ const StrategyInfoPage: React.FC = () => {
   const withUsVal = strategyParams.withUs || strategyParams.WithUs || strategyParams.withUsDays || strategyParams.WithUsDays || "";
   const chatLink = strategyParams.chatLink || strategyParams.telegram || strategyParams.Telegram || strategyParams.Chat || "";
 
-  // Pagination logic for closed positions
+  // Pagination logic for closed positions (filter by connect time)
+  const filteredHistory = (() => {
+    const startTs = connectAt ? new Date(connectAt).getTime() : 0;
+    const parseTs = (h: any) => {
+      const ts = h.time_close || h.server_time_close || h.time_open || h.server_time_open;
+      const t = ts ? new Date(ts).getTime() : NaN;
+      return Number.isFinite(t) ? t : 0;
+    };
+    return history.filter((h: any) => parseTs(h) >= startTs);
+  })();
   const startIndex = (currentPage - 1) * entriesPerPage;
   const endIndex = startIndex + entriesPerPage;
-  const currentHistory = history.slice(startIndex, endIndex);
-  const totalPages = Math.ceil(history.length / entriesPerPage);
+  const currentHistory = filteredHistory.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(filteredHistory.length / entriesPerPage);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 relative overflow-x-hidden">
@@ -504,7 +520,7 @@ const StrategyInfoPage: React.FC = () => {
                 <div className="p-12 flex justify-center">
                   <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
                 </div>
-              ) : history.length > 0 ? (
+              ) : filteredHistory.length > 0 ? (
                 <table className="w-full text-left text-sm">
                   <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
                     <tr>
@@ -555,10 +571,10 @@ const StrategyInfoPage: React.FC = () => {
             </div>
 
             {/* Pagination Controls */}
-            {history.length > entriesPerPage && (
+            {filteredHistory.length > entriesPerPage && (
               <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
                 <div className="text-xs text-gray-500">
-                  Showing <span className="font-medium">{startIndex + 1}</span> to <span className="font-medium">{Math.min(endIndex, history.length)}</span> of <span className="font-medium">{history.length}</span> entries
+                  Showing <span className="font-medium">{startIndex + 1}</span> to <span className="font-medium">{Math.min(endIndex, filteredHistory.length)}</span> of <span className="font-medium">{filteredHistory.length}</span> entries
                 </div>
                 <div className="flex gap-2">
                   <Button

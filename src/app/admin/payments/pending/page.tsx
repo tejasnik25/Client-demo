@@ -34,6 +34,7 @@ type Payment = {
 
 const PaymentsPendingPage = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [strategies, setStrategies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [messageFor, setMessageFor] = useState<string | null>(null);
@@ -41,38 +42,47 @@ const PaymentsPendingPage = () => {
 
   const load = async () => {
     try {
-      // Use admin API that returns hydrated transactions
-      const res = await fetch('/api/admin/payments/pending', { cache: 'no-store', credentials: 'include' });
+      // Load payments and strategies in parallel
+      const [res, sres] = await Promise.all([
+        fetch('/api/admin/payments/pending', { cache: 'no-store', credentials: 'include' }),
+        fetch('/api/strategies', { cache: 'no-store' })
+      ]);
       if (!res.ok) {
         // Gracefully handle API failure: keep table visible with no rows
         setPayments([]);
         setError('Failed to load payments');
-        return;
+      } else {
+        const data = await res.json();
+        // Normalize to expected client shape
+        const items = Array.isArray(data) ? data : (data.transactions ?? []);
+        setPayments(items.map((t: any) => ({
+          id: t.id,
+          userId: t.user_id,
+          userName: t.user?.name,
+          strategyId: t.strategy_id,
+          strategyName: t.strategy?.name,
+          plan: t.plan_level || t.plan,
+          capital: t.capital ?? t.amount ?? 0,
+          payable: t.amount,
+          method: t.payment_method,
+          txId: t.transaction_id,
+          proofUrl: t.receipt_path,
+          status: t.status,
+          createdAt: t.created_at,
+          approvedAt: undefined,
+          expiresAt: undefined,
+          verifiedBy: undefined,
+          admin_message: t.admin_message,
+          admin_message_status: t.admin_message_status,
+        })));
+        setError(null);
       }
-      const data = await res.json();
-      // Normalize to expected client shape
-      const items = Array.isArray(data) ? data : (data.transactions ?? []);
-      setPayments(items.map((t: any) => ({
-        id: t.id,
-        userId: t.user_id,
-        userName: t.user?.name,
-        strategyId: t.strategy_id,
-        strategyName: t.strategy?.name,
-        plan: t.plan_level || t.plan,
-        capital: t.capital ?? t.amount ?? 0,
-        payable: t.amount,
-        method: t.payment_method,
-        txId: t.transaction_id,
-        proofUrl: t.receipt_path,
-        status: t.status,
-        createdAt: t.created_at,
-        approvedAt: undefined,
-        expiresAt: undefined,
-        verifiedBy: undefined,
-        admin_message: t.admin_message,
-        admin_message_status: t.admin_message_status,
-      })));
-      setError(null);
+      if (sres.ok) {
+        const sdata = await sres.json();
+        setStrategies(Array.isArray(sdata) ? sdata : (sdata.strategies || []));
+      } else {
+        setStrategies([]);
+      }
     } catch (e) {
       // Network or parsing error: show empty table but keep UI intact
       setPayments([]);
@@ -91,6 +101,36 @@ const PaymentsPendingPage = () => {
   }, []);
 
   const pending = useMemo(() => payments.filter(p => ['pending','in_process','in-process'].includes(p.status)), [payments]);
+
+  const lotLabelFor = (p: Payment) => {
+    const s = strategies.find((st: any) => st.id === p.strategyId || st.name === p.strategyName);
+    const lp = s?.parameters?.lotPricing;
+    if (!lp) return '—';
+    let rows: Array<{ amountUSD: number; lot: number }> = [];
+    try {
+      const arr = JSON.parse(lp);
+      if (Array.isArray(arr)) {
+        rows = arr
+          .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
+          .filter((x) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
+      }
+    } catch {}
+    if (rows.length === 0) return '—';
+    const amt = Number(p.payable);
+    if (!Number.isFinite(amt)) return '—';
+    const exact = rows.find((r) => Math.abs(r.amountUSD - amt) < 1e-6);
+    if (exact) return `${exact.lot} Lot`;
+    let best = rows[0];
+    let diff = Math.abs(rows[0].amountUSD - amt);
+    for (let i = 1; i < rows.length; i++) {
+      const d = Math.abs(rows[i].amountUSD - amt);
+      if (d < diff) {
+        diff = d;
+        best = rows[i];
+      }
+    }
+    return `${best.lot} Lot`;
+  };
 
   const updateStatus = async (paymentId: string, status: 'approved' | 'rejected') => {
     try {
@@ -149,6 +189,7 @@ const PaymentsPendingPage = () => {
               <th className="p-2">User Name</th>
               <th className="p-2">Strategy</th>
               <th className="p-2">Plan</th>
+              <th className="p-2">Lot Size</th>
               <th className="p-2">Entered Amount</th>
               <th className="p-2">Paid Amount</th>
               <th className="p-2">Payment Method</th>
@@ -169,6 +210,7 @@ const PaymentsPendingPage = () => {
                 <td className="p-2">{p.userName ?? '-'}</td>
                 <td className="p-2">{p.strategyName ?? '-'}</td>
                 <td className="p-2">{p.plan}</td>
+              <td className="p-2">{lotLabelFor(p)}</td>
                 <td className="p-2">{p.capital}</td>
                 <td className="p-2">{p.payable}</td>
                 <td className="p-2">{p.method}</td>

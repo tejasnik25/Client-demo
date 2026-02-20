@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
-import { updateRunningStrategyAdminStatus, deleteRunningStrategyModification, countRunningStrategyModificationsForRun, getRunningStrategyModificationById, updateRunningStrategyMtDetails, getPendingModificationsForStrategy, getRunningStrategyById, getStrategyById } from '@/db/dbService'
-import { mt5Service, MtAccountDetails } from '@/lib/mt5-service'
+import { updateRunningStrategyAdminStatus, deleteRunningStrategyModification, countRunningStrategyModificationsForRun, getRunningStrategyModificationById, updateRunningStrategyMtDetails, getPendingModificationsForStrategy } from '@/db/dbService'
 
 export async function PATCH(
   req: NextRequest,
@@ -58,35 +57,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
   }
 
-  // If status is set to running, attempt to start copy trading
-  if (finalStatus === 'running') {
-    try {
-      const runningStrategy = await getRunningStrategyById(params.id)
-      if (runningStrategy) {
-        const strategy = await getStrategyById(runningStrategy.strategyId)
-        if (strategy && strategy.masterAccountId) {
-             const masterDetails: MtAccountDetails = {
-                 id: strategy.masterAccountId,
-                 password: strategy.masterAccountPassword || '',
-                 server: strategy.masterAccountServer || '',
-                 platform: strategy.masterPlatform || 'MT5'
-             };
-             const slaveDetails: MtAccountDetails = {
-                 id: runningStrategy.mtAccountId || '',
-                 password: runningStrategy.mtAccountPassword || '',
-                 server: runningStrategy.mtAccountServer || '',
-                 platform: (runningStrategy.platform as 'MT4'|'MT5') || 'MT5'
-             };
-             
-             await mt5Service.startCopyTrading(masterDetails, slaveDetails, params.id)
-        }
-      }
-    } catch (e) {
-      console.error('Failed to auto-start copy trading after admin approval:', e)
-      // Optional: Revert status if start fails? 
-      // For now, we log it. The frontend will show connection error if it persists.
-    }
-  }
+  // No auto-start of copy trading; approval only updates statuses
 
   return NextResponse.json({ success: true })
 }

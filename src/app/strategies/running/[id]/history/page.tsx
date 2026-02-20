@@ -41,6 +41,7 @@ export default function CopierHistoryPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [connectAt, setConnectAt] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -70,10 +71,16 @@ export default function CopierHistoryPage() {
   useEffect(() => {
     const loadHistory = async () => {
       if (!params.id) return;
-      const res = await fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" });
-      const data = await res.json();
+      const [hRes, runRes] = await Promise.all([
+        fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" }),
+        fetch(`/api/strategies/running`, { cache: "no-store" })
+      ]);
+      const data = await hRes.json();
       setHistory(data.history || []);
       setHistoryError(data.error || null);
+      const runData = await runRes.json().catch(() => null);
+      const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
+      setConnectAt(me?.createdAt || null);
     };
     loadHistory();
   }, [params.id]);
@@ -121,13 +128,21 @@ export default function CopierHistoryPage() {
     return best.lot;
   }, [strategy?.parameters, payments, params.id, sessionUserId]);
 
-  const adjusted = useMemo(() => {
-    const mult = Number(lotSize) || 1;
-    return history.map((h) => ({
-      ...h,
-      profit: Number(h.profit) * mult,
-    }));
-  }, [history, lotSize]);
+        const adjusted = useMemo(() => {
+          const mult = Number(lotSize) || 1;
+          const startTs = connectAt ? new Date(connectAt).getTime() : 0;
+          const parseTs = (h: any) => {
+            const ts = h.time_close || h.server_time_close || h.time_open || h.server_time_open;
+            const t = ts ? new Date(ts).getTime() : NaN;
+            return Number.isFinite(t) ? t : 0;
+          };
+          return history
+            .filter((h) => parseTs(h) >= startTs)
+            .map((h) => ({
+              ...h,
+              profit: Number(h.profit) * mult,
+            }));
+        }, [history, lotSize, connectAt]);
 
   if (loading) {
     return (

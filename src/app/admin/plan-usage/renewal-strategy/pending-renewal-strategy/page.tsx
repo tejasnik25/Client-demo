@@ -26,27 +26,30 @@ type RunningStrategy = {
 const PendingRenewalStrategyPage = () => {
   const [strategies, setStrategies] = useState<RunningStrategy[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [allStrats, setAllStrats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [planFilter, setPlanFilter] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
   const load = async () => {
     try {
-      const [strategiesRes, paymentsRes] = await Promise.all([
+      const [strategiesRes, paymentsRes, sres] = await Promise.all([
         fetch('/api/admin/running-strategies', { cache: 'no-store' }),
         fetch('/api/payments'),
+        fetch('/api/strategies', { cache: 'no-store' }),
       ]);
 
       const strategiesData = await strategiesRes.json();
       const paymentsData = await paymentsRes.json();
+      const sdata = sres.ok ? await sres.json() : { strategies: [] };
 
       if (!strategiesRes.ok) throw new Error('Failed to load strategies');
 
       const allPayments = Array.isArray(paymentsData.payments) ? paymentsData.payments : [];
       setPayments(allPayments);
+      setAllStrats(Array.isArray(sdata) ? sdata : (sdata.strategies || []));
 
       // Get running strategies
       const allStrategies = (strategiesData.strategies || []).map((r: any) => ({
@@ -162,11 +165,10 @@ const PendingRenewalStrategyPage = () => {
         s.userName?.toLowerCase().includes(search.toLowerCase()) ||
         s.strategyName?.toLowerCase().includes(search.toLowerCase());
       const matchesPlan = !planFilter || s.plan === planFilter;
-      const matchesPlatform = !platformFilter || s.platform === platformFilter;
       const matchesStatus = !statusFilter || s.adminStatus === statusFilter;
-      return matchesSearch && matchesPlan && matchesPlatform && matchesStatus;
+      return matchesSearch && matchesPlan && matchesStatus;
     });
-  }, [strategies, search, planFilter, platformFilter, statusFilter]);
+  }, [strategies, search, planFilter, statusFilter]);
 
   const updateStatus = async (id: string, status: string) => {
     try {
@@ -209,7 +211,6 @@ const PendingRenewalStrategyPage = () => {
   };
 
   const plans = Array.from(new Set(strategies.map((s) => s.plan).filter(Boolean)));
-  const platforms = Array.from(new Set(strategies.map((s) => s.platform).filter(Boolean)));
   const statuses = Array.from(new Set(strategies.map((s) => s.adminStatus).filter(Boolean)));
 
   return (
@@ -251,12 +252,7 @@ const PendingRenewalStrategyPage = () => {
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
-          <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Platforms</option>
-            {platforms.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+          {/* Platform filter removed */}
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="toolbar-select">
             <option value="">All Statuses</option>
             {statuses.map((s) => (
@@ -274,9 +270,7 @@ const PendingRenewalStrategyPage = () => {
                 <th>Strategy</th>
                 <th>Plan</th>
                 <th>Account Capital</th>
-                <th>MT Type</th>
-                <th>MT Password</th>
-                <th>MT Server</th>
+                <th>Lot Size</th>
                 <th>Status</th>
                 <th>Expiry Date</th>
               </tr>
@@ -295,31 +289,30 @@ const PendingRenewalStrategyPage = () => {
                     <td>{s.plan}</td>
                     <td>${s.capital}</td>
                     <td>
-                      <select
-                        value={s.platform || ''}
-                        onChange={(e) => updateDetails(s.id, { platform: (e.target.value || undefined) as any })}
-                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
-                      >
-                        <option value="">-</option>
-                        <option value="MT4">MT4</option>
-                        <option value="MT5">MT5</option>
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        defaultValue={s.mtAccountPassword || ''}
-                        placeholder="Password"
-                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
-                        onBlur={(e) => updateDetails(s.id, { mt_account_password: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        defaultValue={s.mtAccountServer || ''}
-                        placeholder="Server"
-                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
-                        onBlur={(e) => updateDetails(s.id, { mt_account_server: e.target.value })}
-                      />
+                      {(() => {
+                        const strat = allStrats.find((st: any) => st.id === s.strategyId || st.name === s.strategyName);
+                        const lp = strat?.parameters?.lotPricing || null;
+                        if (!lp) return '-';
+                        try {
+                          const arr = JSON.parse(lp);
+                          if (!Array.isArray(arr)) return '-';
+                          const rows = arr
+                            .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
+                            .filter((x: any) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
+                          if (rows.length === 0) return '-';
+                          const amt = Number(s.capital);
+                          if (!Number.isFinite(amt)) return '-';
+                          const exact = rows.find((r: any) => Math.abs(r.amountUSD - amt) < 1e-6);
+                          const target = exact || rows.reduce((best: any, cur: any) => {
+                            const dBest = Math.abs(best.amountUSD - amt);
+                            const dCur = Math.abs(cur.amountUSD - amt);
+                            return dCur < dBest ? cur : best;
+                          }, rows[0]);
+                          return `${target.lot} Lot`;
+                        } catch {
+                          return '-';
+                        }
+                      })()}
                     </td>
                     <td>
                       <div className="space-y-2">

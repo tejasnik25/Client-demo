@@ -45,6 +45,7 @@ export async function GET() {
           adminStatus: r.adminStatus,
           status: r.status,
           updatedAt: r.updatedAt,
+          createdAt: r.createdAt,
           plan: r.plan,
           capital: r.capital,
           platform: r.platform ?? null,

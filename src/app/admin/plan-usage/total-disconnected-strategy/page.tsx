@@ -9,12 +9,9 @@ type Item = {
   userId: string;
   userName: string;
   strategyName: string;
-  plan: 'Pro' | 'Expert' | 'Premium';
+  plan: string;
   capital: number;
-  platform?: 'MT4' | 'MT5' | null;
-  mtAccountId?: string | null;
-  mtAccountPassword?: string | null;
-  mtAccountServer?: string | null;
+  lotSize?: string | null;
   adminStatus: string;
   status?: string;
   createdAt?: string;
@@ -23,19 +20,28 @@ type Item = {
 const TotalDisconnectedStrategyPage = () => {
   const [rows, setRows] = useState<Item[]>([]);
   const [paymentMap, setPaymentMap] = useState<Record<string, any>>({});
+  const [strategies, setStrategies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [planFilter, setPlanFilter] = useState<string>('');
-  const [platformFilter, setPlatformFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
 
   const load = async () => {
     try {
-      const [res, paysRes] = await Promise.all([fetch('/api/admin/running-strategies', { cache: 'no-store' }), fetch('/api/admin/payments/approved', { cache: 'no-store' })]);
+      const [res, paysRes, sres] = await Promise.all([
+        fetch('/api/admin/running-strategies', { cache: 'no-store' }),
+        fetch('/api/admin/payments/approved', { cache: 'no-store' }),
+        fetch('/api/strategies', { cache: 'no-store' }),
+      ]);
       const data = await res.json();
       const paysData = await paysRes.json().catch(() => []);
       if (!res.ok) throw new Error(data.error || 'Failed to load');
+      if (sres.ok) {
+        const sdata = await sres.json();
+        setStrategies(Array.isArray(sdata) ? sdata : (sdata.strategies || []));
+      } else {
+        setStrategies([]);
+      }
       const items = (data.strategies || []).map((r: any) => ({
         id: r.id,
         userId: r.userId,
@@ -43,10 +49,7 @@ const TotalDisconnectedStrategyPage = () => {
         strategyName: r.strategyName,
         plan: r.plan,
         capital: r.capital,
-        platform: r.platform ?? null,
-        mtAccountId: r.mtAccountId ?? null,
-        mtAccountPassword: r.mtAccountPassword ?? null,
-        mtAccountServer: r.mtAccountServer ?? null,
+        lotSize: null,
         adminStatus: (r.adminStatus || r.admin_status || 'in-process')?.toLowerCase(),
         status: (r.status || '')?.toLowerCase(),
         createdAt: r.createdAt,
@@ -94,12 +97,10 @@ const TotalDisconnectedStrategyPage = () => {
         r.userId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         r.userName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         r.strategyName?.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesPlan = !planFilter || r.plan === planFilter;
-      const matchesPlatform = !platformFilter || r.platform === platformFilter;
       const matchesStatus = !statusFilter || r.adminStatus === statusFilter;
-      return matchesSearch && matchesPlan && matchesPlatform && matchesStatus;
+      return matchesSearch && matchesStatus;
     });
-  }, [rows, searchTerm, planFilter, platformFilter, statusFilter]);
+  }, [rows, searchTerm, statusFilter]);
 
   const renderStatusBadge = (status: string) => {
     const k = (status || '').toLowerCase();
@@ -116,15 +117,9 @@ const TotalDisconnectedStrategyPage = () => {
       "User ID",
       "User Name",
       "Strategy Name",
-      "Plan",
-      "Capital",
-      "Platform",
-      "MT Account ID",
-      "MT Account Password",
-      "MT Account Server",
+      "Lot Size",
       "Status",
-      "Created At",
-      "Expiry Date"
+      "Created At"
     ];
     const csv = [header.join(",")]
       .concat(
@@ -133,15 +128,9 @@ const TotalDisconnectedStrategyPage = () => {
             r.userId || '',
             r.userName || '',
             r.strategyName || '',
-            r.plan || '',
-            r.capital || 0,
-            r.platform || '',
-            r.mtAccountId || '',
-            r.mtAccountPassword || '',
-            r.mtAccountServer || '',
+            r.lotSize || '',
             r.adminStatus || '',
-            r.createdAt ? new Date(r.createdAt).toISOString() : '',
-            (function(){ const k = `${r.userId}::${r.strategyName}`; const pay = paymentMap[k]; const approval = pay ? (pay.updated_at || pay.created_at) : undefined; const expiry = approval ? new Date(new Date(approval).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString() : ''; return expiry; })()
+            r.createdAt ? new Date(r.createdAt).toISOString() : ''
           ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(",");
         })
       )
@@ -190,31 +179,8 @@ const TotalDisconnectedStrategyPage = () => {
             className="w-full px-3 py-2 rounded bg-white border border-gray-200 text-gray-900"
           />
         </div>
-        <div className="min-w-[150px]">
-          <label className="block text-sm font-medium mb-1">Plan</label>
-          <select
-            value={planFilter}
-            onChange={(e) => setPlanFilter(e.target.value)}
-            className="w-full px-3 py-2 rounded bg-white border border-gray-200 text-gray-900"
-          >
-            <option value="">All Plans</option>
-            <option value="Pro">Pro</option>
-            <option value="Expert">Expert</option>
-            <option value="Premium">Premium</option>
-          </select>
-        </div>
-        <div className="min-w-[150px]">
-          <label className="block text-sm font-medium mb-1">Platform</label>
-          <select
-            value={platformFilter}
-            onChange={(e) => setPlatformFilter(e.target.value)}
-            className="w-full px-3 py-2 rounded bg-white border border-gray-200 text-gray-900"
-          >
-            <option value="">All Platforms</option>
-            <option value="MT4">MT4</option>
-            <option value="MT5">MT5</option>
-          </select>
-        </div>
+        {/* Plan filter removed */}
+        {/* Platform filter removed */}
         <div className="min-w-[150px]">
           <label className="block text-sm font-medium mb-1 text-gray-700">Status</label>
           <select
@@ -249,15 +215,9 @@ const TotalDisconnectedStrategyPage = () => {
               <th className="py-2 px-4 border-b">User ID</th>
               <th className="py-2 px-4 border-b">User Name</th>
               <th className="py-2 px-4 border-b">Strategy</th>
-              <th className="py-2 px-4 border-b">Plan</th>
-              <th className="py-2 px-4 border-b">Account Capital</th>
-              <th className="py-2 px-4 border-b">Platform</th>
-              <th className="py-2 px-4 border-b">MT Account ID</th>
-              <th className="py-2 px-4 border-b">MT Account Password</th>
-              <th className="py-2 px-4 border-b">MT Server</th>
+              <th className="py-2 px-4 border-b">Lot Size</th>
               <th className="py-2 px-4 border-b">Status</th>
               <th className="py-2 px-4 border-b">Created At</th>
-              <th className="py-2 px-4 border-b">Expiry Date</th>
             </tr>
           </thead>
           <tbody>
@@ -273,27 +233,40 @@ const TotalDisconnectedStrategyPage = () => {
                   <td className="py-2 px-4 border-b">{r.userId}</td>
                   <td className="py-2 px-4 border-b">{r.userName}</td>
                   <td className="py-2 px-4 border-b">{r.strategyName}</td>
-                  <td className="py-2 px-4 border-b">{r.plan}</td>
-                  <td className="py-2 px-4 border-b">{r.capital}</td>
-                  <td className="py-2 px-4 border-b">{r.platform || '-'}</td>
-              <td className="py-2 px-4 border-b">{r.mtAccountId || '-'}</td>
-              <td className="py-2 px-4 border-b">{r.mtAccountPassword || '-'}</td>
-              <td className="py-2 px-4 border-b">{r.mtAccountServer || '-'}</td>
+                  <td className="py-2 px-4 border-b">
+                    {(() => {
+                      const s = strategies.find((st: any) => st.name === r.strategyName || st.id === r.id);
+                      const lp = s?.parameters?.lotPricing;
+                      if (!lp) return '-';
+                      try {
+                        const arr = JSON.parse(lp);
+                        if (!Array.isArray(arr)) return '-';
+                        const rows = arr
+                          .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
+                          .filter((x) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
+                        if (rows.length === 0) return '-';
+                        const k = `${r.userId}::${r.strategyName}`;
+                        const pay = paymentMap[k];
+                        const amt = Number(pay?.amount);
+                        if (!Number.isFinite(amt)) return '-';
+                        const exact = rows.find((rr) => Math.abs(rr.amountUSD - amt) < 1e-6);
+                        const target = exact || rows.reduce((best, cur) => {
+                          const dBest = Math.abs(best.amountUSD - amt);
+                          const dCur = Math.abs(cur.amountUSD - amt);
+                          return dCur < dBest ? cur : best;
+                        }, rows[0]);
+                        return `${target.lot} Lot`;
+                      } catch {
+                        return '-';
+                      }
+                    })()}
+                  </td>
                   <td className="py-2 px-4 border-b">
                     {renderStatusBadge(r.adminStatus)}
                   </td>
                   <td className="py-2 px-4 border-b">
                     {r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'}
                   </td>
-                  <td className="py-2 px-4 border-b">{
-                    (() => {
-                      const k = `${r.userId}::${r.strategyName}`;
-                      const pay = paymentMap[k];
-                      const approval = pay ? (pay.updated_at || pay.created_at) : undefined;
-                      const expiry = approval ? new Date(new Date(approval).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString() : undefined;
-                      return expiry ? new Date(expiry).toLocaleDateString() : '-';
-                    })()
-                  }</td>
                 </tr>
               ))
             )}
