@@ -30,7 +30,6 @@ const PendingRenewalStrategyPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [planFilter, setPlanFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
   const load = async () => {
@@ -164,11 +163,10 @@ const PendingRenewalStrategyPage = () => {
         s.userId?.toLowerCase().includes(search.toLowerCase()) ||
         s.userName?.toLowerCase().includes(search.toLowerCase()) ||
         s.strategyName?.toLowerCase().includes(search.toLowerCase());
-      const matchesPlan = !planFilter || s.plan === planFilter;
       const matchesStatus = !statusFilter || s.adminStatus === statusFilter;
-      return matchesSearch && matchesPlan && matchesStatus;
+      return matchesSearch && matchesStatus;
     });
-  }, [strategies, search, planFilter, statusFilter]);
+  }, [strategies, search, statusFilter]);
 
   const updateStatus = async (id: string, status: string) => {
     try {
@@ -246,13 +244,7 @@ const PendingRenewalStrategyPage = () => {
             placeholder="Search..."
             className="toolbar-input"
           />
-          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Plans</option>
-            {plans.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-          {/* Platform filter removed */}
+          {/* Plan filter removed */}
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="toolbar-select">
             <option value="">All Statuses</option>
             {statuses.map((s) => (
@@ -268,11 +260,9 @@ const PendingRenewalStrategyPage = () => {
                 <th>User ID</th>
                 <th>User Name</th>
                 <th>Strategy</th>
-                <th>Plan</th>
-                <th>Account Capital</th>
                 <th>Lot Size</th>
                 <th>Status</th>
-                <th>Expiry Date</th>
+                <th>Created At</th>
               </tr>
             </thead>
             <tbody>
@@ -286,8 +276,6 @@ const PendingRenewalStrategyPage = () => {
                     <td>{s.userId}</td>
                     <td>{s.userName}</td>
                     <td>{s.strategyName}</td>
-                    <td>{s.plan}</td>
-                    <td>${s.capital}</td>
                     <td>
                       {(() => {
                         const strat = allStrats.find((st: any) => st.id === s.strategyId || st.name === s.strategyName);
@@ -331,9 +319,7 @@ const PendingRenewalStrategyPage = () => {
                         </select>
                       </div>
                     </td>
-                    <td>
-                      {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString() : '-'}
-                    </td>
+                    <td>{s.createdAt ? new Date(s.createdAt).toLocaleString() : '-'}</td>
                   </tr>
                 ))
               ) : (

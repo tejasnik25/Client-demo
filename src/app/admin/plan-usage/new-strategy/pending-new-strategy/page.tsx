@@ -29,8 +29,6 @@ const PendingNewStrategyPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [planFilter, setPlanFilter] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
   const load = async () => {
@@ -173,12 +171,10 @@ const PendingNewStrategyPage = () => {
         s.userId?.toLowerCase().includes(search.toLowerCase()) ||
         s.userName?.toLowerCase().includes(search.toLowerCase()) ||
         s.strategyName?.toLowerCase().includes(search.toLowerCase());
-      const matchesPlan = !planFilter || s.plan === planFilter;
-      const matchesPlatform = !platformFilter || s.platform === platformFilter;
       const matchesStatus = !statusFilter || s.adminStatus === statusFilter;
-      return matchesSearch && matchesPlan && matchesPlatform && matchesStatus;
+      return matchesSearch && matchesStatus;
     });
-  }, [strategies, search, planFilter, platformFilter, statusFilter]);
+  }, [strategies, search, statusFilter]);
 
   const updateStatus = async (id: string, status: string) => {
     try {
@@ -195,19 +191,7 @@ const PendingNewStrategyPage = () => {
     }
   };
 
-  const updateDetails = async (id: string, payload: Partial<{ platform: 'MT4' | 'MT5'; mt_account_id: string; mt_account_password: string; mt_account_server: string }>) => {
-    try {
-      const res = await fetch(`/api/admin/running-strategies/${id}/details`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error('Failed to update details');
-      await load();
-    } catch (e) {
-      console.error('Failed to update details:', e);
-    }
-  };
+  // MT account details removed
 
   const renderStatusBadge = (status: string) => {
     const k = (status || '').toLowerCase();
@@ -220,8 +204,6 @@ const PendingNewStrategyPage = () => {
     return <Badge variant="outline">{status}</Badge>;
   };
 
-  const plans = Array.from(new Set(strategies.map((s) => s.plan).filter(Boolean)));
-  const platforms = Array.from(new Set(strategies.map((s) => s.platform).filter(Boolean))).map((p) => String(p));
   const statuses = Array.from(new Set(strategies.map((s) => s.adminStatus).filter(Boolean)));
 
   return (
@@ -257,18 +239,6 @@ const PendingNewStrategyPage = () => {
             placeholder="Search..."
             className="toolbar-input"
           />
-          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Plans</option>
-            {plans.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-          <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Platforms</option>
-            {platforms.map((p) => (
-              <option key={String(p)} value={String(p)}>{String(p)}</option>
-            ))}
-          </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="toolbar-select">
             <option value="">All Statuses</option>
             {statuses.map((s) => (
@@ -284,14 +254,7 @@ const PendingNewStrategyPage = () => {
               <th>User ID</th>
               <th>User Name</th>
               <th>Strategy</th>
-              <th>Plan</th>
-              <th>Account Capital</th>
-              <th>MT Type</th>
-              <th>MT Account ID</th>
-              <th>MT Password</th>
-              <th>MT Server</th>
               <th>Status</th>
-              <th>Expiry Date</th>
             </tr>
           </thead>
             <tbody>
@@ -305,43 +268,6 @@ const PendingNewStrategyPage = () => {
                     <td>{s.userId}</td>
                     <td>{s.userName}</td>
                     <td>{s.strategyName}</td>
-                    <td>{s.plan}</td>
-                    <td>${s.capital}</td>
-                    <td>
-                      <select
-                        value={String(s.platform ?? '')}
-                        onChange={(e) => updateDetails(s.id, { platform: (e.target.value || undefined) as any })}
-                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
-                      >
-                        <option value="-">-</option>
-                        <option value="MT4">MT4</option>
-                        <option value="MT5">MT5</option>
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        defaultValue={s.mtAccountId || ''}
-                        placeholder="Account ID"
-                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
-                        onBlur={(e) => updateDetails(s.id, { mt_account_id: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        defaultValue={s.mtAccountPassword || ''}
-                        placeholder="Password"
-                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
-                        onBlur={(e) => updateDetails(s.id, { mt_account_password: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        defaultValue={s.mtAccountServer || ''}
-                        placeholder="Server"
-                        className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white"
-                        onBlur={(e) => updateDetails(s.id, { mt_account_server: e.target.value })}
-                      />
-                    </td>
                     <td>
                       <div className="space-y-2">
                         {renderStatusBadge(s.adminStatus)}
@@ -351,16 +277,10 @@ const PendingNewStrategyPage = () => {
                           className="px-3 py-2 rounded border border-[#283046] bg-[#0f1527] text-white w-full"
                         >
                           <option value="in-process">In-Process</option>
-                          <option value="wrong-account-password">Wrong-Account Password</option>
-                          <option value="wrong-account-id">Wrong-Account Id</option>
-                          <option value="wrong-account-server-name">Wrong-Account Server-Name</option>
-                          <option value="running">Running</option>
+                          <option value="running">Completed</option>
                           <option value="disconnected">Disconnected</option>
                         </select>
                       </div>
-                    </td>
-                    <td>
-                      {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString() : '-'}
                     </td>
                   </tr>
                 ))

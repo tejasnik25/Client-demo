@@ -29,8 +29,6 @@ const ApprovedRenewalStrategyPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [planFilter, setPlanFilter] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -115,28 +113,9 @@ const ApprovedRenewalStrategyPage = () => {
         return false;
       });
 
-      // Add expiry date from payment
+      // Previously added expiry; no expiry now required
       const strategiesWithExpiry = approvedStrategies.map((s: RunningStrategy) => {
-        const key = `${String(s.userId || '').trim()}::${String(s.strategyId || '').trim()}`;
-        let payment = paymentMapByKey.get(key);
-        
-        // If no direct match, try to find by comparing IDs
-        if (!payment) {
-          for (const [_, p] of paymentMapByKey.entries()) {
-            if (String(p.userId).trim() === String(s.userId).trim() && 
-                String(p.strategyId).trim() === String(s.strategyId).trim()) {
-              payment = p;
-              break;
-            }
-          }
-        }
-        
-        let expiresAt = undefined;
-        if (payment && (payment.updated_at || payment.created_at)) {
-          const approvalDate = new Date(payment.updated_at || payment.created_at);
-          expiresAt = new Date(approvalDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
-        }
-        return { ...s, expiresAt };
+        return { ...s };
       });
 
       setStrategies(strategiesWithExpiry);
@@ -162,14 +141,12 @@ const ApprovedRenewalStrategyPage = () => {
         s.userId?.toLowerCase().includes(search.toLowerCase()) ||
         s.userName?.toLowerCase().includes(search.toLowerCase()) ||
         s.strategyName?.toLowerCase().includes(search.toLowerCase());
-      const matchesPlan = !planFilter || s.plan === planFilter;
-      const matchesPlatform = !platformFilter || s.platform === platformFilter;
       const createdAt = s.createdAt ? new Date(s.createdAt).getTime() : 0;
       const fromOk = !dateFrom || createdAt >= new Date(dateFrom).getTime();
       const toOk = !dateTo || createdAt <= new Date(dateTo).getTime() + 24 * 60 * 60 * 1000;
-      return matchesSearch && matchesPlan && matchesPlatform && fromOk && toOk;
+      return matchesSearch && fromOk && toOk;
     });
-  }, [strategies, search, planFilter, platformFilter, dateFrom, dateTo]);
+  }, [strategies, search, dateFrom, dateTo]);
 
   const updateStatus = async (id: string, status: string) => {
     try {
@@ -188,7 +165,7 @@ const ApprovedRenewalStrategyPage = () => {
 
   const exportCSV = () => {
     const header = [
-      "User ID", "User Name", "Strategy", "Plan", "Account Capital", "MT Type", "MT Password", "MT Server", "Status", "Expiry Date"
+      "User ID", "User Name", "Strategy", "Status"
     ];
     const csv = [header.join(",")]
       .concat(
@@ -197,13 +174,7 @@ const ApprovedRenewalStrategyPage = () => {
             s.userId || '',
             s.userName || '',
             s.strategyName || '',
-            s.plan || '',
-            s.capital || 0,
-            s.platform || '',
-            s.mtAccountPassword || '',
-            s.mtAccountServer || '',
-            s.adminStatus || '',
-            s.expiresAt ? new Date(s.expiresAt).toISOString() : ''
+            s.adminStatus || ''
           ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(",");
         })
       )
@@ -219,8 +190,7 @@ const ApprovedRenewalStrategyPage = () => {
 
   // Note: Export Excel removed — CSV export covers same functionality
 
-  const plans = Array.from(new Set(strategies.map((s) => s.plan).filter(Boolean)));
-  const platforms = Array.from(new Set(strategies.map((s) => s.platform).filter(Boolean)));
+  // Removed plan/platform filters
 
   return (
     <div className="p-4 md:p-6 text-white min-h-screen">
@@ -255,18 +225,7 @@ const ApprovedRenewalStrategyPage = () => {
             placeholder="Search..."
             className="toolbar-input"
           />
-          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Plans</option>
-            {plans.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-          <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Platforms</option>
-            {platforms.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+          {/* Filters for Plan/Platform removed */}
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="toolbar-input" />
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="toolbar-input" />
           <button onClick={load} className="toolbar-button">
@@ -282,13 +241,7 @@ const ApprovedRenewalStrategyPage = () => {
                 <th>User ID</th>
                 <th>User Name</th>
                 <th>Strategy</th>
-                <th>Plan</th>
-                <th>Account Capital</th>
-                <th>MT Type</th>
-                <th>MT Password</th>
-                <th>MT Server</th>
                 <th>Status</th>
-                <th>Expiry Date</th>
               </tr>
             </thead>
             <tbody>
@@ -302,11 +255,6 @@ const ApprovedRenewalStrategyPage = () => {
                     <td>{s.userId}</td>
                     <td>{s.userName}</td>
                     <td>{s.strategyName}</td>
-                    <td>{s.plan}</td>
-                    <td>${s.capital}</td>
-                    <td>{s.platform || '-'}</td>
-                    <td>{s.mtAccountPassword || '-'}</td>
-                    <td>{s.mtAccountServer || '-'}</td>
                     <td>
                       <div className="space-y-2">
                         <Badge variant="success">Running</Badge>
@@ -317,15 +265,9 @@ const ApprovedRenewalStrategyPage = () => {
                         >
                           <option value="running">Running</option>
                           <option value="in-process">In-Process</option>
-                          <option value="wrong-account-password">Wrong-Account Password</option>
-                          <option value="wrong-account-id">Wrong-Account Id</option>
-                          <option value="wrong-account-server-name">Wrong-Account Server-Name</option>
                           <option value="disconnected">Disconnected</option>
                         </select>
                       </div>
-                    </td>
-                    <td>
-                      {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString() : '-'}
                     </td>
                   </tr>
                 ))

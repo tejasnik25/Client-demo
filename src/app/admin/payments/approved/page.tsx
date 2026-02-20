@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowPathIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon } from "@heroicons/react/24/outline";
 import "../../../../styles/themes.css";
 
 type Payment = {
@@ -129,7 +129,6 @@ const ApprovedPaymentsPage = () => {
       "Status",
       "Submission Date",
       "Approval Date",
-      "Expiry Date",
       "Approved By",
       "Strategy Name",
     ];
@@ -137,10 +136,7 @@ const ApprovedPaymentsPage = () => {
       .concat(
         rows.map((p) => {
           const approval = p.approvedAt ? new Date(p.approvedAt).toISOString() : "";
-          const expiry = p.approvedAt
-            ? new Date(new Date(p.approvedAt).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString()
-            : "";
-          const status = p.approvedAt && new Date().getTime() <= new Date(expiry).getTime() ? "Completed" : "Expired";
+          const status = p.approvedAt ? "Completed" : "";
           const lot = (p as any).lotLabel || '';
           return [
             p.userId,
@@ -152,7 +148,6 @@ const ApprovedPaymentsPage = () => {
             status,
             new Date(p.createdAt).toISOString(),
             approval,
-            expiry,
             p.verifiedBy ?? "",
             p.strategyId,
           ].join(",");
@@ -182,7 +177,6 @@ const ApprovedPaymentsPage = () => {
             <th>Status</th>
             <th>Submission Date</th>
             <th>Approval Date</th>
-            <th>Expiry Date</th>
             <th>Approved By</th>
             <th>Strategy Name</th>
           </tr>
@@ -191,11 +185,7 @@ const ApprovedPaymentsPage = () => {
           ${rows
             .map((p) => {
               const approval = p.approvedAt ? new Date(p.approvedAt).toLocaleString() : "";
-              const expiryMs = p.approvedAt
-                ? new Date(p.approvedAt).getTime() + 365 * 24 * 60 * 60 * 1000
-                : undefined;
-              const expiry = expiryMs ? new Date(expiryMs).toLocaleDateString() : "";
-              const status = expiryMs && Date.now() <= expiryMs ? "Completed" : "Expired";
+              const status = p.approvedAt ? "Completed" : "";
               const lot = (p as any).lotLabel || '';
               return `
                 <tr>
@@ -208,7 +198,6 @@ const ApprovedPaymentsPage = () => {
                   <td>${status}</td>
                   <td>${new Date(p.createdAt).toLocaleString()}</td>
                   <td>${approval}</td>
-                  <td>${expiry}</td>
                   <td>${p.verifiedBy ?? ""}</td>
                   <td>${p.strategyId}</td>
                 </tr>`;
@@ -278,7 +267,6 @@ const ApprovedPaymentsPage = () => {
                             <th>Status</th>
                             <th>Submission Date</th>
                             <th>Approval Date</th>
-                            <th>Expiry Date</th>
                             <th>Approved By</th>
                             <th>Strategy Name</th>
                         </tr>
@@ -291,12 +279,9 @@ const ApprovedPaymentsPage = () => {
                         ) : filtered.length > 0 ? (
                             filtered.map((p) => {
                                 const approval = p.approvedAt ? new Date(p.approvedAt) : undefined;
-                                const expiryMs = approval ? approval.getTime() + 365 * 24 * 60 * 60 * 1000 : undefined;
-                                const expiryDate = expiryMs ? new Date(expiryMs) : undefined;
-                                const daysLeft = expiryMs ? Math.ceil((expiryMs - Date.now()) / (1000 * 60 * 60 * 24)) : undefined;
-                                const active = expiryMs ? Date.now() <= expiryMs : false;
+                                const active = !!approval;
                                 return (
-                                    <tr key={p.id} className={daysLeft !== undefined && daysLeft <= 15 ? "bg-yellow-900/50" : ""}>
+                                    <tr key={p.id}>
                                         <td>{p.userId}</td>
                                         <td>{p.txId}</td>
                                         <td>{p.email}</td>
@@ -304,18 +289,12 @@ const ApprovedPaymentsPage = () => {
                                         <td>{p.method}</td>
                                         <td>{(p as any).lotLabel || '-'}</td>
                                         <td>
-                                            <span className={`status-badge ${active ? "badge-approved" : "badge-expired"}`}>{
-                                                active ? "Completed" : "Expired"
+                                            <span className={`status-badge ${active ? "badge-approved" : "badge-outline"}`}>{
+                                                active ? "Completed" : ""
                                             }</span>
                                         </td>
                                         <td>{new Date(p.createdAt).toLocaleString()}</td>
                                         <td>{approval ? approval.toLocaleString() : "-"}</td>
-                                        <td className="flex items-center gap-2">
-                                            {expiryDate ? expiryDate.toLocaleDateString() : "-"}
-                                            {daysLeft !== undefined && daysLeft <= 15 ? (
-                                                <ExclamationTriangleIcon className="h-4 w-4 text-yellow-400" />
-                                            ) : null}
-                                        </td>
                                         <td>{p.verifiedBy ?? "-"}</td>
                                         <td>{p.strategyId}</td>
                                     </tr>

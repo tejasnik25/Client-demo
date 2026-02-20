@@ -29,8 +29,6 @@ const ApprovedNewStrategyPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [planFilter, setPlanFilter] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -132,7 +130,7 @@ const ApprovedNewStrategyPage = () => {
         return true;
       });
 
-      // Add expiry date from payment with robust matching (by id or name)
+      // Previously added expiry; no expiry now required but we keep fetch logic
       const strategiesWithExpiry = approvedStrategies.map((s: RunningStrategy) => {
         const userId = String(s.userId || '').trim();
         const stratId = String(s.strategyId || '').trim();
@@ -153,12 +151,7 @@ const ApprovedNewStrategyPage = () => {
           }
         }
 
-        let expiresAt = undefined;
-        if (payment && (payment.updated_at || payment.created_at)) {
-          const approvalDate = new Date(payment.updated_at || payment.created_at);
-          expiresAt = new Date(approvalDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
-        }
-        return { ...s, expiresAt };
+        return { ...s };
       });
 
       setStrategies(strategiesWithExpiry);
@@ -194,14 +187,12 @@ const ApprovedNewStrategyPage = () => {
         s.userId?.toLowerCase().includes(search.toLowerCase()) ||
         s.userName?.toLowerCase().includes(search.toLowerCase()) ||
         s.strategyName?.toLowerCase().includes(search.toLowerCase());
-      const matchesPlan = !planFilter || s.plan === planFilter;
-      const matchesPlatform = !platformFilter || s.platform === platformFilter;
       const createdAt = s.createdAt ? new Date(s.createdAt).getTime() : 0;
       const fromOk = !dateFrom || createdAt >= new Date(dateFrom).getTime();
       const toOk = !dateTo || createdAt <= new Date(dateTo).getTime() + 24 * 60 * 60 * 1000;
-      return matchesSearch && matchesPlan && matchesPlatform && fromOk && toOk;
+      return matchesSearch && fromOk && toOk;
     });
-  }, [strategies, search, planFilter, platformFilter, dateFrom, dateTo]);
+  }, [strategies, search, dateFrom, dateTo]);
 
   const updateStatus = async (id: string, status: string) => {
     try {
@@ -220,7 +211,7 @@ const ApprovedNewStrategyPage = () => {
 
   const exportCSV = () => {
     const header = [
-      "User ID", "User Name", "Strategy", "Plan", "Account Capital", "MT Type", "MT Password", "MT Server", "Status", "Expiry Date"
+      "User ID", "User Name", "Strategy", "Status"
     ];
     const csv = [header.join(",")]
       .concat(
@@ -229,13 +220,7 @@ const ApprovedNewStrategyPage = () => {
             s.userId || '',
             s.userName || '',
             s.strategyName || '',
-            s.plan || '',
-            s.capital || 0,
-            s.platform || '',
-            s.mtAccountPassword || '',
-            s.mtAccountServer || '',
-            s.adminStatus || '',
-            s.expiresAt ? new Date(s.expiresAt).toISOString() : ''
+            s.adminStatus || ''
           ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(",");
         })
       )
@@ -251,8 +236,7 @@ const ApprovedNewStrategyPage = () => {
 
   // Note: Export Excel removed — CSV export covers same functionality
 
-  const plans = Array.from(new Set(strategies.map((s) => s.plan).filter(Boolean)));
-  const platforms = Array.from(new Set(strategies.map((s) => s.platform).filter(Boolean)));
+  // Removed plan/platform filters
 
   return (
     <div className="p-4 md:p-6 text-white min-h-screen">
@@ -287,18 +271,7 @@ const ApprovedNewStrategyPage = () => {
             placeholder="Search..."
             className="toolbar-input"
           />
-          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Plans</option>
-            {plans.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-          <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} className="toolbar-select">
-            <option value="">All Platforms</option>
-            {platforms.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+          {/* Filters for Plan/Platform removed */}
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="toolbar-input" />
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="toolbar-input" />
           <button onClick={load} className="toolbar-button">
@@ -314,13 +287,7 @@ const ApprovedNewStrategyPage = () => {
                 <th>User ID</th>
                 <th>User Name</th>
                 <th>Strategy</th>
-                <th>Plan</th>
-                <th>Account Capital</th>
-                <th>MT Type</th>
-                <th>MT Password</th>
-                <th>MT Server</th>
                 <th>Status</th>
-                <th>Expiry Date</th>
               </tr>
             </thead>
             <tbody>
@@ -334,11 +301,6 @@ const ApprovedNewStrategyPage = () => {
                     <td>{s.userId}</td>
                     <td>{s.userName}</td>
                     <td>{s.strategyName}</td>
-                    <td>{s.plan}</td>
-                    <td>${s.capital}</td>
-                    <td>{s.platform || '-'}</td>
-                    <td>{s.mtAccountPassword || '-'}</td>
-                    <td>{s.mtAccountServer || '-'}</td>
                     <td>
                       <div className="space-y-2">
                         <Badge variant="success">Running</Badge>
@@ -349,15 +311,9 @@ const ApprovedNewStrategyPage = () => {
                         >
                           <option value="running">Running</option>
                           <option value="in-process">In-Process</option>
-                          <option value="wrong-account-password">Wrong-Account Password</option>
-                          <option value="wrong-account-id">Wrong-Account Id</option>
-                          <option value="wrong-account-server-name">Wrong-Account Server-Name</option>
                           <option value="disconnected">Disconnected</option>
                         </select>
                       </div>
-                    </td>
-                    <td>
-                      {s.expiresAt ? new Date(s.expiresAt).toLocaleDateString() : '-'}
                     </td>
                   </tr>
                 ))
