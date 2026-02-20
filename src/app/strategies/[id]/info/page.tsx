@@ -75,11 +75,11 @@ const StrategyInfoPage: React.FC = () => {
   }, [params.id]);
 
   useEffect(() => {
-    if (strategy?.id) {
+    if (params.id) {
       const fetchHistory = async () => {
         try {
           setHistoryLoading(true);
-          const res = await fetch(`/api/strategies/${strategy.id}/master-history`);
+          const res = await fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: 'no-store' });
           const data = await res.json();
           if (data.history) {
             setHistory(data.history);
@@ -97,7 +97,7 @@ const StrategyInfoPage: React.FC = () => {
       };
       fetchHistory();
     }
-  }, [strategy?.id]);
+  }, [params.id]);
 
   const getPlanPrices = (s: Strategy | null) => {
     if (!s) return { Premium: 5000, Expert: 10000, Pro: 20000 };

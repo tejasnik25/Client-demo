@@ -70,7 +70,7 @@ export default function CopierHistoryPage() {
   useEffect(() => {
     const loadHistory = async () => {
       if (!params.id) return;
-      const res = await fetch(`/api/strategies/${params.id}/master-history`, { cache: "no-store" });
+      const res = await fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
       setHistory(data.history || []);
       setHistoryError(data.error || null);
