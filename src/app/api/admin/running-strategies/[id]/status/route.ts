@@ -12,7 +12,11 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const body = await req.json().catch(() => ({}))
-  const { status } = body as { status?: string }
+  let { status } = body as { status?: string }
+  // Accept synonyms and map them to canonical values
+  if (status && (status.toLowerCase() === 'completed' || status.toLowerCase() === 'connected')) {
+    status = 'running'
+  }
   const allowed = ['in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running','disconnected']
   if (!status || !allowed.includes(status)) {
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 })

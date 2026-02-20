@@ -540,23 +540,7 @@ const StrategiesPageInner: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Middle: Slave Section */}
-                        <div className="flex items-center gap-4 flex-[0_0_auto] w-full md:w-auto">
-                          <div className="relative w-16 h-16 flex items-center justify-center flex-shrink-0">
-                            <Image src="/strategy-icon.svg" alt="Strategy Icon" width={64} height={64} className="rounded-full" />
-                          </div>
-                          <div>
-                            <Badge className="bg-green-600 hover:bg-green-700 text-white border-0 mb-1 text-xs">Slave</Badge>
-                            <div className="text-lg font-semibold text-gray-900">
-                              {(r as any).mtAccountId || 'No ID'} ({(r as any).platform || 'MT4'})
-                            </div>
-                            {s.tag && (
-                              <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-600 rounded-full inline-block mt-1">
-                                {s.tag}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        {/* Middle section removed: no slave account details displayed */}
 
                         {/* Right: Status and Actions */}
                         

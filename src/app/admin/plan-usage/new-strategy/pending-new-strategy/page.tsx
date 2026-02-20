@@ -12,15 +12,9 @@ type RunningStrategy = {
   userName: string;
   strategyId: string;
   strategyName: string;
-  plan: 'Pro' | 'Expert' | 'Premium';
-  capital: number;
-  platform?: 'MT4' | 'MT5' | null;
-  mtAccountId?: string | null;
-  mtAccountPassword?: string | null;
-  mtAccountServer?: string | null;
   adminStatus: string;
   createdAt?: string;
-  expiresAt?: string;
+  lotLabel?: string;
 };
 
 const PendingNewStrategyPage = () => {
@@ -33,32 +27,34 @@ const PendingNewStrategyPage = () => {
 
   const load = async () => {
     try {
-      const [strategiesRes, paymentsRes] = await Promise.all([
+      const [strategiesRes, paymentsRes, allStratsRes] = await Promise.all([
         fetch('/api/admin/running-strategies', { cache: 'no-store' }),
         fetch('/api/payments'),
+        fetch('/api/strategies', { cache: 'no-store' }),
       ]);
 
       const strategiesData = await strategiesRes.json();
       const paymentsData = await paymentsRes.json();
+      const allStratsData = await allStratsRes.json().catch(() => ({ strategies: [] }));
 
       if (!strategiesRes.ok) throw new Error('Failed to load strategies');
 
       const allPayments = Array.isArray(paymentsData.payments) ? paymentsData.payments : [];
       setPayments(allPayments);
 
-      // Get running strategies
+      const stratMap = new Map<string, any>();
+      (allStratsData.strategies || []).forEach((s: any) => {
+        stratMap.set(String(s.id), s);
+        if (s.name) stratMap.set(String(s.name), s);
+      });
+
+      // Get running strategies (strip legacy MT fields)
       const allStrategies = (strategiesData.strategies || []).map((r: any) => ({
         id: r.id,
         userId: r.userId,
         userName: r.userName,
         strategyId: r.strategyId,
         strategyName: r.strategyName,
-        plan: r.plan,
-        capital: r.capital,
-        platform: r.platform ?? null,
-        mtAccountId: r.mtAccountId ?? null,
-        mtAccountPassword: r.mtAccountPassword ?? null,
-        mtAccountServer: r.mtAccountServer ?? null,
         adminStatus: r.adminStatus || 'in-process',
         createdAt: r.createdAt,
       }));
@@ -124,8 +120,8 @@ const PendingNewStrategyPage = () => {
         return true;
       });
 
-      // Add expiry date from payment
-      const strategiesWithExpiry = pendingStrategies.map((s: RunningStrategy) => {
+      // Attach lot label from strategy lotPricing and payment amount
+      const strategiesWithLot = pendingStrategies.map((s: RunningStrategy) => {
         const key = `${String(s.userId || '').trim()}::${String(s.strategyId || '').trim()}`;
         let payment = paymentMapByKey.get(key);
         
@@ -139,16 +135,35 @@ const PendingNewStrategyPage = () => {
             }
           }
         }
-        
-        let expiresAt = undefined;
-        if (payment && (payment.updated_at || payment.created_at)) {
-          const approvalDate = new Date(payment.updated_at || payment.created_at);
-          expiresAt = new Date(approvalDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+        let lotLabel: string | undefined = undefined;
+        const strat = stratMap.get(s.strategyId) || stratMap.get(s.strategyName);
+        const lp = strat?.parameters?.lotPricing || null;
+        if (lp) {
+          try {
+            const rows = JSON.parse(lp);
+            if (Array.isArray(rows)) {
+              const parsed = rows
+                .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
+                .filter((x: any) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
+              const amt = Number(payment?.payable ?? payment?.amount ?? NaN);
+              if (parsed.length > 0 && Number.isFinite(amt)) {
+                const exact = parsed.find((r: any) => Math.abs(r.amountUSD - amt) < 1e-6);
+                const target = exact || parsed.reduce((best: any, cur: any) => {
+                  const dBest = Math.abs(best.amountUSD - amt);
+                  const dCur = Math.abs(cur.amountUSD - amt);
+                  return dCur < dBest ? cur : best;
+                }, parsed[0]);
+                lotLabel = `${target.lot} Lot`;
+              }
+            }
+          } catch { /* ignore */ }
         }
-        return { ...s, expiresAt };
+
+        return { ...s, lotLabel };
       });
 
-      setStrategies(strategiesWithExpiry);
+      setStrategies(strategiesWithLot);
       setError(null);
     } catch (e: any) {
       setError(e.message || 'Failed to load strategies');
@@ -254,6 +269,7 @@ const PendingNewStrategyPage = () => {
               <th>User ID</th>
               <th>User Name</th>
               <th>Strategy</th>
+              <th>Lot Size</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -268,6 +284,7 @@ const PendingNewStrategyPage = () => {
                     <td>{s.userId}</td>
                     <td>{s.userName}</td>
                     <td>{s.strategyName}</td>
+                    <td>{s.lotLabel || '-'}</td>
                     <td>
                       <div className="space-y-2">
                         {renderStatusBadge(s.adminStatus)}

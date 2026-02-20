@@ -12,15 +12,9 @@ type RunningStrategy = {
   userName: string;
   strategyId: string;
   strategyName: string;
-  plan: 'Pro' | 'Expert' | 'Premium';
-  capital: number;
-  platform?: 'MT4' | 'MT5' | null;
-  mtAccountId?: string | null;
-  mtAccountPassword?: string | null;
-  mtAccountServer?: string | null;
   adminStatus: string;
   createdAt?: string;
-  expiresAt?: string;
+  lotLabel?: string;
 };
 
 const ApprovedNewStrategyPage = () => {
@@ -34,32 +28,33 @@ const ApprovedNewStrategyPage = () => {
 
   const load = async () => {
     try {
-      const [strategiesRes, paymentsRes] = await Promise.all([
+      const [strategiesRes, paymentsRes, allStratsRes] = await Promise.all([
         fetch('/api/admin/running-strategies', { cache: 'no-store' }),
         fetch('/api/payments'),
+        fetch('/api/strategies', { cache: 'no-store' }),
       ]);
 
       const strategiesData = await strategiesRes.json();
       const paymentsData = await paymentsRes.json();
+      const allStratsData = await allStratsRes.json().catch(() => ({ strategies: [] }));
 
       if (!strategiesRes.ok) throw new Error('Failed to load strategies');
 
       const allPayments = Array.isArray(paymentsData.payments) ? paymentsData.payments : [];
       setPayments(allPayments);
 
-      // Get running strategies
+      const stratMap = new Map<string, any>();
+      (allStratsData.strategies || []).forEach((s: any) => {
+        if (s.id) stratMap.set(String(s.id), s);
+        if (s.name) stratMap.set(String(s.name), s);
+      });
+
       const allStrategies = (strategiesData.strategies || []).map((r: any) => ({
         id: r.id,
         userId: r.userId,
         userName: r.userName,
         strategyId: r.strategyId,
         strategyName: r.strategyName,
-        plan: r.plan,
-        capital: r.capital,
-        platform: r.platform ?? null,
-        mtAccountId: r.mtAccountId ?? null,
-        mtAccountPassword: r.mtAccountPassword ?? null,
-        mtAccountServer: r.mtAccountServer ?? null,
         adminStatus: r.adminStatus || 'in-process',
         createdAt: r.createdAt,
       }));
@@ -130,8 +125,7 @@ const ApprovedNewStrategyPage = () => {
         return true;
       });
 
-      // Previously added expiry; no expiry now required but we keep fetch logic
-      const strategiesWithExpiry = approvedStrategies.map((s: RunningStrategy) => {
+      const strategiesWithLot = approvedStrategies.map((s: RunningStrategy) => {
         const userId = String(s.userId || '').trim();
         const stratId = String(s.strategyId || '').trim();
         const stratName = String(s.strategyName || '').trim();
@@ -151,10 +145,34 @@ const ApprovedNewStrategyPage = () => {
           }
         }
 
-        return { ...s };
+        let lotLabel: string | undefined = undefined;
+        const strat = stratMap.get(stratId) || stratMap.get(stratName);
+        const lp = strat?.parameters?.lotPricing || null;
+        if (lp) {
+          try {
+            const rows = JSON.parse(lp);
+            if (Array.isArray(rows)) {
+              const parsed = rows
+                .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
+                .filter((x: any) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
+              const amt = Number(payment?.payable ?? payment?.amount ?? NaN);
+              if (parsed.length > 0 && Number.isFinite(amt)) {
+                const exact = parsed.find((r: any) => Math.abs(r.amountUSD - amt) < 1e-6);
+                const target = exact || parsed.reduce((best: any, cur: any) => {
+                  const dBest = Math.abs(best.amountUSD - amt);
+                  const dCur = Math.abs(cur.amountUSD - amt);
+                  return dCur < dBest ? cur : best;
+                }, parsed[0]);
+                lotLabel = `${target.lot} Lot`;
+              }
+            }
+          } catch {}
+        }
+
+        return { ...s, lotLabel };
       });
 
-      setStrategies(strategiesWithExpiry);
+      setStrategies(strategiesWithLot);
       setError(null);
       
       // Debug logging (remove in production)
@@ -163,7 +181,7 @@ const ApprovedNewStrategyPage = () => {
           totalStrategies: allStrategies.length,
           runningStrategies: allStrategies.filter((s: RunningStrategy) => s.adminStatus === 'running').length,
           approvedNewPayments: approvedNewPayments.length,
-          finalApprovedStrategies: strategiesWithExpiry.length,
+          finalApprovedStrategies: strategiesWithLot.length,
         });
       }
     } catch (e: any) {
@@ -211,7 +229,7 @@ const ApprovedNewStrategyPage = () => {
 
   const exportCSV = () => {
     const header = [
-      "User ID", "User Name", "Strategy", "Status"
+      "User ID", "User Name", "Strategy", "Lot Size", "Status"
     ];
     const csv = [header.join(",")]
       .concat(
@@ -220,6 +238,7 @@ const ApprovedNewStrategyPage = () => {
             s.userId || '',
             s.userName || '',
             s.strategyName || '',
+            s.lotLabel || '',
             s.adminStatus || ''
           ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(",");
         })
@@ -287,6 +306,7 @@ const ApprovedNewStrategyPage = () => {
                 <th>User ID</th>
                 <th>User Name</th>
                 <th>Strategy</th>
+                <th>Lot Size</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -301,6 +321,7 @@ const ApprovedNewStrategyPage = () => {
                     <td>{s.userId}</td>
                     <td>{s.userName}</td>
                     <td>{s.strategyName}</td>
+                    <td>{s.lotLabel || '-'}</td>
                     <td>
                       <div className="space-y-2">
                         <Badge variant="success">Running</Badge>
