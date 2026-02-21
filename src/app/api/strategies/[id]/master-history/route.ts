@@ -52,18 +52,28 @@ export async function GET(
       `/master/${masterId}/history`,
       `/masters/${masterId}/history`,
       `/master/${masterId}/positions/closed`,
-      `/master/history?id=${masterId}`
+      `/masters/${masterId}/positions/closed`,
+      `/master/${masterId}/trades/closed`,
+      `/masters/${masterId}/trades/closed`,
+      `/master/${masterId}/trades`,
+      `/masters/${masterId}/trades`,
+      `/master/history?id=${masterId}`,
+      `/masters/history?id=${masterId}`
     ];
     const pathsOpen = [
       `/master/${masterId}/open`,
       `/masters/${masterId}/open`,
       `/master/${masterId}/positions/open`,
+      `/masters/${masterId}/positions/open`,
+      `/master/${masterId}/positions/current`,
+      `/masters/${masterId}/positions/current`,
       `/master/${masterId}/positions`
     ];
 
     let history: any[] = [];
     let open_positions: any[] = [];
     const errors: string[] = [];
+    const non404Errors: string[] = [];
 
     for (const p of pathsClosed) {
       try {
@@ -71,10 +81,13 @@ export async function GET(
         if (!res.ok) {
           try {
             const ej = await res.json().catch(() => null);
-            if (ej?.detail) errors.push(`${p}: ${ej.detail}`);
-            else errors.push(`${p}: ${res.status} ${res.statusText}`);
+            const msg = ej?.detail ? `${p}: ${ej.detail}` : `${p}: ${res.status} ${res.statusText}`;
+            errors.push(msg);
+            if (res.status !== 404) non404Errors.push(msg);
           } catch {
-            errors.push(`${p}: ${res.status} ${res.statusText}`);
+            const msg = `${p}: ${res.status} ${res.statusText}`;
+            errors.push(msg);
+            if (res.status !== 404) non404Errors.push(msg);
           }
           continue;
         }
@@ -104,10 +117,13 @@ export async function GET(
           if (!res.ok) {
             try {
               const ej = await res.json().catch(() => null);
-              if (ej?.detail) errors.push(`${p}: ${ej.detail}`);
-              else errors.push(`${p}: ${res.status} ${res.statusText}`);
+              const msg = ej?.detail ? `${p}: ${ej.detail}` : `${p}: ${res.status} ${res.statusText}`;
+              errors.push(msg);
+              if (res.status !== 404) non404Errors.push(msg);
             } catch {
-              errors.push(`${p}: ${res.status} ${res.statusText}`);
+              const msg = `${p}: ${res.status} ${res.statusText}`;
+              errors.push(msg);
+              if (res.status !== 404) non404Errors.push(msg);
             }
             continue;
           }
@@ -123,7 +139,9 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ history, open_positions, error: errors.length ? errors.join(' | ') : undefined });
+    // Only surface non-404 errors so UI doesn't show long "Not Found" chains
+    const errorStr = non404Errors.length ? non404Errors.join(' | ') : undefined;
+    return NextResponse.json({ history, open_positions, error: errorStr });
   } catch (error: any) {
     console.error('Error fetching master history:', error);
     return NextResponse.json({ history: [], open_positions: [], error: 'Connection to trading service failed' });
