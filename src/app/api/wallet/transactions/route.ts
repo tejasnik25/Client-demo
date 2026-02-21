@@ -32,27 +32,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Debug payload for diagnosis
-    console.log('Create wallet transaction payload', {
-      user_id,
-      user_name,
-      user_email,
-      amount,
-      transaction_type,
-      payment_method,
-      transaction_id,
-      receipt_path,
-      platform,
-      mt_account_id,
-      terms_accepted,
-      strategy_id,
-      plan_level,
-      inr_amount,
-      inr_to_usd_rate,
-      crypto_network,
-      crypto_wallet_address,
-      wallet_app_deeplink,
-    });
+    // Do not log sensitive payloads
 
     const { createWalletTransaction } = await import('@/db/dbService');
 
@@ -109,9 +89,7 @@ export async function GET() {
       transaction_id: t.transaction_id,
       receipt_path: t.receipt_path,
       platform: t.platform,
-      mt_account_id: t.mt_account_id,
-      mt_account_password: t.mt_account_password,
-      mt_account_server: t.mt_account_server,
+      // Redact all account credentials from API responses
       terms_accepted: t.terms_accepted,
       strategy_id: t.strategy_id,
       plan_level: t.plan_level,

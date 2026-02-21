@@ -2647,6 +2647,95 @@ export const deleteRunningStrategyModification = async (id: string) => {
   }
 };
 
+// Admin maintenance: deduplicate running_strategies by (user_id, strategy_id)
+export const dedupeRunningStrategies = async (
+  userId?: string
+): Promise<{
+  totalRemoved: number;
+  groups: Array<{ userId: string; strategyId: string; keptId: string; removedIds: string[] }>;
+}> => {
+  // Try MySQL first
+  try {
+    const where = userId ? 'WHERE user_id = ?' : '';
+    const params = userId ? [userId] : [];
+    const [dupRows] = await pool.execute(
+      `
+      SELECT user_id, strategy_id, COUNT(*) AS cnt
+      FROM running_strategies
+      ${where}
+      GROUP BY user_id, strategy_id
+      HAVING cnt > 1
+      `,
+      params
+    );
+    const dups = dupRows as Array<{ user_id: string; strategy_id: string; cnt: number }>;
+    const result: Array<{ userId: string; strategyId: string; keptId: string; removedIds: string[] }> = [];
+    let totalRemoved = 0;
+
+    for (const g of dups) {
+      const [rows] = await pool.execute(
+        `SELECT id FROM running_strategies WHERE user_id = ? AND strategy_id = ? ORDER BY created_at DESC, id DESC`,
+        [g.user_id, g.strategy_id]
+      );
+      const ids = (rows as any[]).map(r => r.id);
+      if (ids.length <= 1) continue;
+      const keptId = ids[0];
+      const removedIds = ids.slice(1);
+      if (removedIds.length > 0) {
+        const placeholders = removedIds.map(() => '?').join(',');
+        await pool.execute(`DELETE FROM running_strategies WHERE id IN (${placeholders})`, removedIds);
+        totalRemoved += removedIds.length;
+        result.push({ userId: g.user_id, strategyId: g.strategy_id, keptId, removedIds });
+      }
+    }
+    return { totalRemoved, groups: result };
+  } catch (error) {
+    // Fallback to JSON database
+    try {
+      const db: any = readDatabase();
+      const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      const map = new Map<string, any[]>();
+      for (const r of runs) {
+        if (userId && r.user_id !== userId) continue;
+        const key = `${r.user_id}::${r.strategy_id}`;
+        const arr = map.get(key) || [];
+        arr.push(r);
+        map.set(key, arr);
+      }
+      let totalRemoved = 0;
+      const result: Array<{ userId: string; strategyId: string; keptId: string; removedIds: string[] }> = [];
+      const toRemove = new Set<string>();
+
+      for (const [key, arr] of map.entries()) {
+        if (arr.length <= 1) continue;
+        // Sort newest first by created_at then id
+        arr.sort((a: any, b: any) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          if (tb !== ta) return tb - ta;
+          return String(b.id).localeCompare(String(a.id));
+        });
+        const kept = arr[0];
+        const removed = arr.slice(1);
+        const removedIds = removed.map((x: any) => x.id);
+        removedIds.forEach((id: string) => toRemove.add(id));
+        totalRemoved += removedIds.length;
+        const [u, s] = key.split('::');
+        result.push({ userId: u, strategyId: s, keptId: kept.id, removedIds });
+      }
+
+      if (toRemove.size > 0) {
+        const newRuns = runs.filter((r: any) => !toRemove.has(r.id));
+        const newMods = mods.filter((m: any) => !toRemove.has(m.running_strategy_id));
+        writeDatabase({ ...db, running_strategies: newRuns, running_strategy_modifications: newMods });
+      }
+      return { totalRemoved, groups: result };
+    } catch {
+      return { totalRemoved: 0, groups: [] };
+    }
+  }
+};
 export type RunningStrategyModificationRow = {
   id: string;
   running_strategy_id: string;

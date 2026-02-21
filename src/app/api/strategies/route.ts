@@ -13,7 +13,16 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const strategies = await getAllStrategies();
-    return NextResponse.json({ strategies });
+    const sanitized = (strategies || []).map((s: any) => {
+      const {
+        masterAccountId,
+        masterAccountPassword,
+        masterAccountServer,
+        ...rest
+      } = s || {};
+      return rest;
+    });
+    return NextResponse.json({ strategies: sanitized });
   } catch (error) {
     console.error('Error fetching strategies:', error);
     return NextResponse.json(

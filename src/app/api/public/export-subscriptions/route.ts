@@ -1,10 +1,16 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/db/db';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/lib/auth-options';
 
 export const dynamic = 'force-dynamic'; // Prevent caching
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session || (session.user as any)?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     // Test DB Connection first
     try {
         await pool.query('SELECT 1');
@@ -60,15 +66,15 @@ export async function GET(req: Request) {
             externalId: tx.id,
             master: {
                 // Use snake_case fields from DB
-                id: String(strat.master_account_id),
-                password: strat.master_account_password,
-                server: strat.master_account_server,
+                id: null, // Redacted
+                password: null, // Redacted
+                server: null, // Redacted
                 platform: strat.master_platform || 'MT5'
             },
             slave: {
-                id: String(tx.mt_account_id),
-                password: tx.mt_account_password,
-                server: tx.mt_account_server || 'MetaQuotes-Demo',
+                id: null, // Redacted
+                password: null, // Redacted
+                server: null,
                 platform: tx.platform || 'MT5'
             },
             settings: {

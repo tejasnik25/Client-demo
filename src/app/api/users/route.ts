@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/lib/auth-options';
 
 // GET /api/users - Get all users or a specific user
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session || (session.user as any)?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     // Get the user ID from the URL if provided
     const url = new URL(request.url);
     const userId = url.searchParams.get('id');
@@ -17,19 +23,21 @@ export async function GET(request: NextRequest) {
       if (!user) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
+      // Redact sensitive fields
+      const { password, ...safeUser } = user as any;
       // Merge enabled from JSON DB if present
       try {
         const db = readDatabase();
         const jsonUser = db.users.find((u: any) => u.id === userId);
         if (jsonUser && typeof jsonUser.enabled !== 'undefined') {
-          (user as any).enabled = !!jsonUser.enabled;
+          (safeUser as any).enabled = !!jsonUser.enabled;
         } else {
-          (user as any).enabled = (user as any).enabled ?? true;
+          (safeUser as any).enabled = (safeUser as any).enabled ?? true;
         }
       } catch (_) {
-        (user as any).enabled = (user as any).enabled ?? true;
+        (safeUser as any).enabled = (safeUser as any).enabled ?? true;
       }
-      return NextResponse.json({ user });
+      return NextResponse.json({ user: safeUser });
     }
     if (userEmail) {
       // Attempt to retrieve user by email
@@ -37,7 +45,8 @@ export async function GET(request: NextRequest) {
         const allUsers = await getAllUsers();
         const user = allUsers.find((u: any) => (u.email || '').toLowerCase() === userEmail.toLowerCase());
         if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-        return NextResponse.json({ user });
+        const { password, ...safeUser } = user as any;
+        return NextResponse.json({ user: safeUser });
       } catch (err) {
         return NextResponse.json({ error: 'Failed to fetch user' }, { status: 500 });
       }
@@ -52,13 +61,20 @@ export async function GET(request: NextRequest) {
       for (const u of db.users) {
         enabledMap.set(u.id, typeof u.enabled !== 'undefined' ? !!u.enabled : true);
       }
-      const merged = users.map((u: any) => ({
-        ...u,
-        enabled: typeof u.enabled !== 'undefined' ? !!u.enabled : (enabledMap.get(u.id) ?? true),
-      }));
+      const merged = users.map((u: any) => {
+        const { password, ...rest } = u;
+        return {
+          ...rest,
+          enabled: typeof rest.enabled !== 'undefined' ? !!rest.enabled : (enabledMap.get(u.id) ?? true),
+        };
+      });
       return NextResponse.json({ users: merged });
     } catch (_) {
-      return NextResponse.json({ users });
+      const sanitized = users.map((u: any) => {
+        const { password, ...rest } = u;
+        return rest;
+      });
+      return NextResponse.json({ users: sanitized });
     }
   } catch (error) {
     console.error('Error fetching users:', error);

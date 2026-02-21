@@ -35,7 +35,7 @@ export async function GET() {
         const id = s?.id || r.strategyId;
         const name = r.strategyName || s?.name;
         if (!name) return null;
-        return {
+        const obj = {
           id,
           rsId: r.id,
           strategyId: id,
@@ -49,11 +49,10 @@ export async function GET() {
           plan: r.plan,
           capital: r.capital,
           platform: r.platform ?? null,
-          mtAccountId: r.mtAccountId ?? null,
-          mtAccountPassword: r.mtAccountPassword ?? null,
-          mtAccountServer: r.mtAccountServer ?? null,
+          // Do NOT expose any account credentials in API responses
           rejectionReason: r.rejectionReason ?? null,
         };
+        return obj;
       })
       .filter(Boolean);
 

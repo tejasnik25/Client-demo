@@ -13,7 +13,16 @@ export async function GET() {
 
   try {
     const strategies = await getRunningStrategiesForUser(session.user.id);
-    return NextResponse.json(strategies);
+    const sanitized = (strategies || []).map((r: any) => {
+      const {
+        mtAccountId,
+        mtAccountPassword,
+        mtAccountServer,
+        ...rest
+      } = r || {};
+      return rest;
+    });
+    return NextResponse.json(sanitized);
   } catch (error) {
     console.error('Error fetching running strategies:', error);
     return new NextResponse('Internal Server Error', { status: 500 });

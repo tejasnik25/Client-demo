@@ -20,8 +20,18 @@ export async function GET(
     return NextResponse.json({ error: 'Master ID not found for this strategy' }, { status: 404 });
   }
 
-  const apiUrl = process.env.COPY_TRADING_API_URL || 'http://15.206.157.59:8000';
-  const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
+  // Resolve provider URL similar to copy-trading-service
+  let apiUrl =
+    process.env.COPY_TRADING_API_URL ||
+    process.env.COPY_TRADING_URL ||
+    process.env.NEXT_PUBLIC_COPY_TRADING_API_URL ||
+    process.env.NEXT_PUBLIC_COPY_TRADING_URL ||
+    (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:8000' : 'http://15.206.157.59:8000');
+  if (apiUrl.endsWith('/')) apiUrl = apiUrl.slice(0, -1);
+  const apiKey =
+    process.env.COPY_TRADING_API_KEY ||
+    process.env.NEXT_PUBLIC_COPY_TRADING_API_KEY ||
+    '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
 
   const mapClosed = (p: any) => ({
     position_id: p.position_id ?? p.ticket ?? p.id ?? undefined,
@@ -95,13 +105,34 @@ export async function GET(
         if (Array.isArray(json)) {
           history = json.map(mapClosed);
         } else if (json && typeof json === 'object') {
-          const rawClosed = json.history ?? json.closed_positions ?? json.closed ?? json.positions ?? [];
-          if (Array.isArray(rawClosed)) {
-            history = rawClosed.map(mapClosed);
+          // Accept various shapes: direct keys, nested data/results, mixed objects
+          const candidatesClosed = [
+            json.history,
+            json.closed_positions,
+            json.closed,
+            json.positions,
+            json.trades,
+            json.data?.history,
+            json.data?.closed_positions,
+            json.data?.closed,
+            json.data?.positions,
+            json.data?.trades,
+            json.results,
+          ].find((x: any) => Array.isArray(x)) || [];
+          if (Array.isArray(candidatesClosed)) {
+            history = candidatesClosed.map(mapClosed);
           }
-          const rawOpenInline = json.open_positions ?? json.open ?? [];
-          if (Array.isArray(rawOpenInline)) {
-            open_positions = rawOpenInline.map(mapOpen);
+          const candidatesOpen = [
+            json.open_positions,
+            json.open,
+            json.positions,
+            json.data?.open_positions,
+            json.data?.open,
+            json.data?.positions,
+            json.results,
+          ].find((x: any) => Array.isArray(x)) || [];
+          if (Array.isArray(candidatesOpen)) {
+            open_positions = candidatesOpen.map(mapOpen);
           }
         }
         if (history.length > 0 || open_positions.length > 0) break;
@@ -128,7 +159,19 @@ export async function GET(
             continue;
           }
           const json = await res.json().catch(() => null);
-          const rawOpen = Array.isArray(json) ? json : (json?.open_positions ?? json?.open ?? json?.positions ?? []);
+          const rawOpen = Array.isArray(json)
+            ? json
+            : (
+              json?.open_positions ??
+              json?.open ??
+              json?.positions ??
+              json?.trades ??
+              json?.data?.open_positions ??
+              json?.data?.open ??
+              json?.data?.positions ??
+              json?.data?.trades ??
+              json?.results
+            );
           if (Array.isArray(rawOpen)) {
             open_positions = rawOpen.map(mapOpen);
             if (open_positions.length > 0) break;
