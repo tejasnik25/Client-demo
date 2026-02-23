@@ -2385,8 +2385,24 @@ export const createRunningStrategy = async (
     mtAccountServer?: string;
   }
 ): Promise<{ success: boolean; id?: string }> => {
-  const id = crypto.randomUUID();
   try {
+    // Idempotency guard: if a run for this user+strategy already exists, reuse it
+    try {
+      const [existingRows] = await pool.execute(
+        `SELECT id FROM running_strategies 
+         WHERE user_id = ? AND strategy_id = ? 
+           AND status IN ('in-process','active') 
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId, strategyId]
+      );
+      const arr = existingRows as any[];
+      if (Array.isArray(arr) && arr.length > 0) {
+        return { success: true, id: arr[0].id };
+      }
+    } catch (_) {
+      // fall through to create
+    }
+    const id = crypto.randomUUID();
     await pool.execute(
       'INSERT INTO running_strategies (id, user_id, strategy_id, plan, capital, status, admin_status) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [id, userId, strategyId, plan, capital, 'in-process', 'in-process']
@@ -2415,7 +2431,15 @@ export const createRunningStrategy = async (
     // Fallback to JSON
     try {
       const db: any = readDatabase();
+      // Idempotency guard for JSON fallback
       const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const existing = runs
+        .filter((r: any) => r.user_id === userId && r.strategy_id === strategyId)
+        .find((r: any) => (r.status === 'in-process' || r.status === 'active' || r.admin_status === 'in-process' || r.admin_status === 'running'));
+      if (existing) {
+        return { success: true, id: existing.id };
+      }
+      const id = crypto.randomUUID();
       const newRun = {
         id,
         user_id: userId,
@@ -2543,14 +2567,17 @@ export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => 
 
 export const countRunningStrategyModificationsForRun = async (runId: string): Promise<number> => {
   try {
-    const [rows] = await pool.execute('SELECT COUNT(*) AS cnt FROM running_strategy_modifications WHERE running_strategy_id = ?', [runId]);
+    const [rows] = await pool.execute(
+      'SELECT COUNT(*) AS cnt FROM running_strategy_modifications WHERE running_strategy_id = ? AND status = ?',
+      [runId, 'in-process']
+    );
     const arr = rows as any[];
     return Number(arr[0]?.cnt || 0);
   } catch (error) {
     try {
       const db: any = readDatabase();
       const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
-      return mods.filter(m => m.running_strategy_id === runId).length;
+      return mods.filter(m => m.running_strategy_id === runId && m.status === 'in-process').length;
     } catch (e) {
       return 0;
     }
