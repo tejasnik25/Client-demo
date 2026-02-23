@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 
+export const maxDuration = 20;
+
 export async function POST(req: NextRequest) {
   try {
     // 1. Check Auth
@@ -65,7 +67,7 @@ export async function POST(req: NextRequest) {
                   'x-api-key': apiKey,
                 },
                 body: pythonFormData,
-                signal: AbortSignal.timeout(15000) // 15s timeout
+                signal: AbortSignal.timeout(12000) // tighter 12s timeout to fit within function budget
               });
 
               if (response.ok) {

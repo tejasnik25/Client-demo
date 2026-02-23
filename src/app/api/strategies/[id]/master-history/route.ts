@@ -3,6 +3,7 @@ import { getStrategyById } from '@/db/dbService';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const maxDuration = 25;
 
 export async function GET(
   _req: NextRequest,
@@ -58,6 +59,22 @@ export async function GET(
   });
 
   try {
+    const started = Date.now();
+    const TOTAL_BUDGET_MS = Math.min(
+      Number(process.env.MASTER_HISTORY_TOTAL_TIMEOUT_MS || 20000),
+      25000
+    );
+    const PER_REQ_TIMEOUT_MS = Math.min(
+      Number(process.env.MASTER_HISTORY_PER_REQUEST_TIMEOUT_MS || 2500),
+      TOTAL_BUDGET_MS
+    );
+    const timeLeft = () => Math.max(0, TOTAL_BUDGET_MS - (Date.now() - started));
+    const timedFetch = async (url: string, init?: RequestInit) => {
+      const timeoutMs = Math.min(PER_REQ_TIMEOUT_MS, timeLeft());
+      const controller = AbortSignal.timeout(timeoutMs);
+      return fetch(url, { ...init, signal: controller });
+    };
+
     const pathsClosed = [
       `/master/${masterId}/history`,
       `/masters/${masterId}/history`,
@@ -86,8 +103,9 @@ export async function GET(
     const non404Errors: string[] = [];
 
     for (const p of pathsClosed) {
+      if (timeLeft() < 300) break;
       try {
-        const res = await fetch(`${apiUrl}${p}`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' });
+        const res = await timedFetch(`${apiUrl}${p}`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' });
         if (!res.ok) {
           try {
             const ej = await res.json().catch(() => null);
@@ -143,8 +161,9 @@ export async function GET(
 
     if (open_positions.length === 0) {
       for (const p of pathsOpen) {
+        if (timeLeft() < 300) break;
         try {
-          const res = await fetch(`${apiUrl}${p}`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' });
+          const res = await timedFetch(`${apiUrl}${p}`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' });
           if (!res.ok) {
             try {
               const ej = await res.json().catch(() => null);

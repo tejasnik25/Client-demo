@@ -189,11 +189,14 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
     const checkUserStatus = async () => {
       if (session?.user?.id) {
         try {
-          const res = await fetch(`/api/users?id=${encodeURIComponent(session.user.id)}`);
+          let res = await fetch(`/api/profile`, { cache: 'no-store' });
           if (res.status === 401) {
-            // Unauthorized, session might be expired, trigger logout
-            handleLogout();
-            return;
+            await new Promise(r => setTimeout(r, 800));
+            res = await fetch(`/api/profile`, { cache: 'no-store' });
+            if (res.status === 401) {
+              await handleLogout();
+              return;
+            }
           }
           if (!res.ok && res.status !== 404) throw new Error(`API responded with ${res.status}`);
           const data = await res.json();

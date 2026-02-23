@@ -65,10 +65,18 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const url = new URL(req.url);
     const renewal = url.searchParams.get('renewal');
 
+    // Legacy renewal list is admin-only
     if (renewal === 'true') {
+      if ((session.user as any)?.role !== 'ADMIN') {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
       const [rows] = await db.query('SELECT * FROM payments ORDER BY created_at DESC');
       const payments = (rows as any[]).map((p) => ({
         id: p.id,
@@ -86,22 +94,39 @@ export async function GET(req: Request) {
       return NextResponse.json({ payments });
     }
 
-    const { getAllTransactions } = await import('@/db/dbService');
-    const txs = await getAllTransactions();
-    const payments = txs.map((t: any) => ({
-      id: t.id,
-      userId: t.user_id,
-      txId: t.transaction_id,
-      strategyId: t.strategy_id,
-      plan: t.plan_level,
-      capital: Number(t.capital ?? t.amount ?? 0),
-      payable: Number(t.amount ?? 0),
-      method: t.payment_method,
-      proofUrl: t.receipt_path,
-      status: t.status,
-      createdAt: t.created_at,
-    }));
-    return NextResponse.json({ payments });
+    // If admin, return all transactions; if user, return only their own with minimal fields
+    const isAdmin = (session.user as any)?.role === 'ADMIN';
+    if (isAdmin) {
+      const { getAllTransactions } = await import('@/db/dbService');
+      const txs = await getAllTransactions();
+      const payments = txs.map((t: any) => ({
+        id: t.id,
+        userId: t.user_id,
+        txId: t.transaction_id,
+        strategyId: t.strategy_id,
+        plan: t.plan_level,
+        capital: Number(t.capital ?? t.amount ?? 0),
+        payable: Number(t.amount ?? 0),
+        method: t.payment_method,
+        proofUrl: t.receipt_path,
+        status: t.status,
+        createdAt: t.created_at,
+      }));
+      return NextResponse.json({ payments });
+    } else {
+      const { getTransactionsByUser } = await import('@/db/dbService');
+      const txs = await getTransactionsByUser(session.user.id);
+      const payments = txs.map((t: any) => ({
+        id: t.id,
+        userId: t.user_id,
+        strategyId: t.strategy_id,
+        payable: Number(t.amount ?? 0),
+        method: t.payment_method,
+        status: t.status,
+        createdAt: t.created_at,
+      }));
+      return NextResponse.json({ payments });
+    }
   } catch (error) {
     console.error('Error fetching payments:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

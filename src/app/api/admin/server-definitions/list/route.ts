@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 
+export const maxDuration = 20;
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -30,7 +32,8 @@ export async function GET() {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'x-api-key': apiKey
-        }
+        },
+        signal: AbortSignal.timeout(8000)
       });
       
       if (!response.ok) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 // Server-side proxy to fetch USD→INR in real-time with env fallback
+export const maxDuration = 12;
 export async function GET() {
   try {
     // Allow override via env for fallback/default
@@ -13,7 +14,7 @@ export async function GET() {
 
     let rate: number | undefined = undefined;
     try {
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
       if (res.ok) {
         const data = await res.json();
         const live = data?.rates?.INR;
