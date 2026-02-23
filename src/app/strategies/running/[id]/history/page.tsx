@@ -136,12 +136,12 @@ export default function CopierHistoryPage() {
             const t = ts ? new Date(ts).getTime() : NaN;
             return Number.isFinite(t) ? t : 0;
           };
-          return history
-            .filter((h) => parseTs(h) >= startTs)
-            .map((h) => ({
-              ...h,
-              profit: Number(h.profit) * mult,
-            }));
+          const filtered = history.filter((h) => parseTs(h) >= startTs);
+          const base = filtered.length === 0 && history.length > 0 ? history : filtered;
+          return base.map((h) => ({
+            ...h,
+            profit: Number(h.profit) * mult,
+          }));
         }, [history, lotSize, connectAt]);
 
   if (loading) {

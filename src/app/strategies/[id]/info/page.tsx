@@ -183,8 +183,8 @@ const StrategyInfoPage: React.FC = () => {
   const withUsVal = strategyParams.withUs || strategyParams.WithUs || strategyParams.withUsDays || strategyParams.WithUsDays || "";
   const chatLink = strategyParams.chatLink || strategyParams.telegram || strategyParams.Telegram || strategyParams.Chat || "";
 
-  // Pagination logic for closed positions (filter by connect time)
-  const filteredHistory = (() => {
+  // Pagination logic for closed positions (filter by connect time with safe fallback)
+  const filteredHistoryRaw = (() => {
     const startTs = connectAt ? new Date(connectAt).getTime() : 0;
     const parseTs = (h: any) => {
       const ts = h.time_close || h.server_time_close || h.time_open || h.server_time_open;
@@ -193,6 +193,7 @@ const StrategyInfoPage: React.FC = () => {
     };
     return history.filter((h: any) => parseTs(h) >= startTs);
   })();
+  const filteredHistory = filteredHistoryRaw.length === 0 && history.length > 0 ? history : filteredHistoryRaw;
   const startIndex = (currentPage - 1) * entriesPerPage;
   const endIndex = startIndex + entriesPerPage;
   const currentHistory = filteredHistory.slice(startIndex, endIndex);
