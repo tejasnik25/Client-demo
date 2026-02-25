@@ -250,23 +250,12 @@ export default function CopierHistoryPage() {
   }, [history, lotSize, effectiveStartTs, adminStatus, updatedAt]);
 
   const filteredOpen = useMemo(() => {
-    const startTs = effectiveStartTs;
     const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
     const mult = Number(lotSize) || 1;
     const rows = openPositions.filter((p) => {
-      // If no startTs, include all unless disconnected
-      if (!Number.isFinite(startTs)) {
-        if (Number.isFinite(endTs)) return false;
-        return true;
-      }
-      const openMs = toMs(p.server_time ?? p.time);
-      if (!(Number.isFinite(openMs) && openMs >= startTs)) return false;
-      if (Number.isFinite(endTs)) {
-        // After disconnect, do not show opened positions
-        return false;
-      }
+      if (Number.isFinite(endTs)) return false;
       return true;
     });
     return rows.map((p) => ({
