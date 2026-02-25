@@ -183,7 +183,22 @@ export default function CopierHistoryPage() {
     if (v == null) return NaN;
     if (typeof v === "string") {
       const t = Date.parse(v);
-      return Number.isFinite(t) ? t : NaN;
+      if (Number.isFinite(t)) return t;
+      const m = v.match(/^(\d{4})\.(\d{2})\.(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+      if (m) {
+        const [_, yy, MM, dd, hh, mm, ss] = m;
+        const d = new Date(
+          Number(yy),
+          Number(MM) - 1,
+          Number(dd),
+          Number(hh),
+          Number(mm),
+          Number(ss)
+        );
+        const ts = d.getTime();
+        return Number.isFinite(ts) ? ts : NaN;
+      }
+      return NaN;
     }
     const num = Number(v);
     if (!Number.isFinite(num)) return NaN;
@@ -216,7 +231,7 @@ export default function CopierHistoryPage() {
       : NaN;
     const mult = Number(lotSize) || 1;
     // Only include closed trades OPENED after connectAt and (if disconnected) OPENED before or at endTs and CLOSED before or at endTs
-    const rows = history.filter((h) => {
+    const base = history.filter((h) => {
       // if no startTs, include all
       if (!Number.isFinite(startTs)) {
         if (Number.isFinite(endTs)) {
@@ -236,6 +251,7 @@ export default function CopierHistoryPage() {
       }
       return true;
     });
+    const rows = base.length === 0 && history.length > 0 ? history : base;
     return rows.map((h) => ({
       isOpen: false as const,
       openTimeStr: h.server_time_open || (Number.isFinite(h.time_open) ? new Date(toMs(h.time_open!)).toISOString() : ""),
