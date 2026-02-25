@@ -18,6 +18,17 @@ type HistoryItem = {
   profit: number;
 };
 
+type OpenItem = {
+  server_time?: string;
+  time?: number;
+  symbol: string;
+  type: number | string;
+  volume: number;
+  price_open: number;
+  price_current: number;
+  profit: number;
+};
+
 type Strategy = {
   id: string;
   name: string;
@@ -37,11 +48,14 @@ export default function CopierHistoryPage() {
   const router = useRouter();
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [openPositions, setOpenPositions] = useState<OpenItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [connectAt, setConnectAt] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [filter, setFilter] = useState<"all" | "opened" | "closed">("all");
 
   useEffect(() => {
     const load = async () => {
@@ -71,16 +85,19 @@ export default function CopierHistoryPage() {
   useEffect(() => {
     const loadHistory = async () => {
       if (!params.id) return;
+      setHistoryLoading(true);
       const [hRes, runRes] = await Promise.all([
         fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" }),
         fetch(`/api/strategies/running`, { cache: "no-store" })
       ]);
       const data = await hRes.json();
       setHistory(data.history || []);
+      setOpenPositions(data.open_positions || []);
       setHistoryError(data.error || null);
       const runData = await runRes.json().catch(() => null);
       const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
       setConnectAt(me?.createdAt || null);
+      setHistoryLoading(false);
     };
     loadHistory();
   }, [params.id]);
@@ -128,21 +145,70 @@ export default function CopierHistoryPage() {
     return best.lot;
   }, [strategy?.parameters, payments, params.id, sessionUserId]);
 
-        const adjusted = useMemo(() => {
-          const mult = Number(lotSize) || 1;
-          const startTs = connectAt ? new Date(connectAt).getTime() : 0;
-          const parseTs = (h: any) => {
-            const ts = h.time_close || h.server_time_close || h.time_open || h.server_time_open;
-            const t = ts ? new Date(ts).getTime() : NaN;
-            return Number.isFinite(t) ? t : 0;
-          };
-          const filtered = history.filter((h) => parseTs(h) >= startTs);
-          const base = filtered.length === 0 && history.length > 0 ? history : filtered;
-          return base.map((h) => ({
-            ...h,
-            profit: Number(h.profit) * mult,
-          }));
-        }, [history, lotSize, connectAt]);
+  // Normalize timestamps safely (handles server strings, ms vs s epochs)
+  const toMs = (v: string | number | undefined): number => {
+    if (v == null) return NaN;
+    if (typeof v === "string") {
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : NaN;
+    }
+    const num = Number(v);
+    if (!Number.isFinite(num)) return NaN;
+    return num < 1e12 ? num * 1000 : num;
+  };
+
+  const filteredClosed = useMemo(() => {
+    const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const mult = Number(lotSize) || 1;
+    // Only include closed trades OPENED after connectAt
+    const rows = history.filter((h) => {
+      if (!Number.isFinite(startTs)) return false;
+      const openMs = toMs(h.server_time_open ?? h.time_open);
+      return Number.isFinite(openMs) && openMs >= startTs;
+    });
+    return rows.map((h) => ({
+      isOpen: false as const,
+      openTimeStr: h.server_time_open || (Number.isFinite(h.time_open) ? new Date(toMs(h.time_open!)).toISOString() : ""),
+      closeTimeStr: h.server_time_close || (Number.isFinite(h.time_close) ? new Date(toMs(h.time_close!)).toISOString() : ""),
+      symbol: h.symbol,
+      type: h.type,
+      volume: Number(h.volume) * mult,
+      openPrice: h.price_open,
+      closeOrCurrentPrice: h.price_close,
+      profit: Number(h.profit) * mult,
+    }));
+  }, [history, lotSize, connectAt]);
+
+  const filteredOpen = useMemo(() => {
+    const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const mult = Number(lotSize) || 1;
+    const rows = openPositions.filter((p) => {
+      if (!Number.isFinite(startTs)) return false;
+      const openMs = toMs(p.server_time ?? p.time);
+      return Number.isFinite(openMs) && openMs >= startTs;
+    });
+    return rows.map((p) => ({
+      isOpen: true as const,
+      openTimeStr: p.server_time || (Number.isFinite(p.time) ? new Date(toMs(p.time!)).toISOString() : ""),
+      closeTimeStr: "",
+      symbol: p.symbol,
+      type: p.type,
+      volume: Number(p.volume) * mult,
+      openPrice: p.price_open,
+      closeOrCurrentPrice: p.price_current,
+      profit: Number(p.profit) * mult,
+    }));
+  }, [openPositions, lotSize, connectAt]);
+
+  const displayRows = useMemo(() => {
+    if (filter === "opened") return filteredOpen;
+    if (filter === "closed") return filteredClosed;
+    return [...filteredOpen, ...filteredClosed].sort((a, b) => {
+      const ta = Date.parse(a.openTimeStr || "") || 0;
+      const tb = Date.parse(b.openTimeStr || "") || 0;
+      return tb - ta;
+    });
+  }, [filter, filteredOpen, filteredClosed]);
 
   if (loading) {
     return (
@@ -157,7 +223,7 @@ export default function CopierHistoryPage() {
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Closed Positions History</h1>
+            <h1 className="text-2xl font-bold text-gray-900">View History</h1>
             <p className="text-sm text-gray-600">{strategy?.name || "Strategy"} • Lot Size: {lotSize}</p>
           </div>
           <Button variant="outline" onClick={() => router.push("/strategies/running")}>
@@ -166,12 +232,40 @@ export default function CopierHistoryPage() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-            <h3 className="font-bold text-gray-900">Closed Positions (Adjusted)</h3>
-            <span className="text-xs text-gray-500">Profit = Lot size × Master profit</span>
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-gray-900">
+                {filter === "all" ? "All Trades" : filter === "opened" ? "Opened Positions" : "Closed Positions"} (Adjusted)
+              </h3>
+              <span className="text-xs text-gray-500">Profit = Lot size × Master profit</span>
+            </div>
+            <div className="mt-4 inline-flex rounded-md shadow-sm border border-gray-200 overflow-hidden" role="group">
+              <button
+                className={`px-4 py-2 text-sm ${filter === "all" ? "bg-primary text-white" : "bg-white text-gray-700"}`}
+                onClick={() => setFilter("all")}
+              >
+                All
+              </button>
+              <button
+                className={`px-4 py-2 text-sm border-l border-gray-200 ${filter === "opened" ? "bg-primary text-white" : "bg-white text-gray-700"}`}
+                onClick={() => setFilter("opened")}
+              >
+                Opened
+              </button>
+              <button
+                className={`px-4 py-2 text-sm border-l border-gray-200 ${filter === "closed" ? "bg-primary text-white" : "bg-white text-gray-700"}`}
+                onClick={() => setFilter("closed")}
+              >
+                Closed
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
-            {adjusted.length > 0 ? (
+            {historyLoading ? (
+              <div className="p-12 flex justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
+              </div>
+            ) : displayRows.length > 0 ? (
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
                   <tr>
@@ -186,13 +280,13 @@ export default function CopierHistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {adjusted.map((pos, idx) => (
-                    <tr key={pos.position_id || idx} className="hover:bg-gray-50 transition-colors">
+                  {displayRows.map((pos, idx) => (
+                    <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                        {pos.server_time_open || new Date((pos.time_open || 0) * 1000).toLocaleString()}
+                        {pos.openTimeStr ? new Date(pos.openTimeStr).toLocaleString() : "-"}
                       </td>
                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                        {pos.server_time_close || new Date((pos.time_close || 0) * 1000).toLocaleString()}
+                        {pos.closeTimeStr ? new Date(pos.closeTimeStr).toLocaleString() : "-"}
                       </td>
                       <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                       <td className="px-6 py-4">
@@ -201,21 +295,23 @@ export default function CopierHistoryPage() {
                             pos.type === 0 || pos.type === "buy" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                           }`}
                         >
-                          {pos.type === 0 ? "BUY" : pos.type === 1 ? "SELL" : String(pos.type)}
+                          {pos.type === 0 ? "BUY" : (pos as any).type === 1 ? "SELL" : String((pos as any).type)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
-                      <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
-                      <td className="px-6 py-4 text-gray-600">{pos.price_close}</td>
-                      <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {pos.profit > 0 ? "+" : ""}{Number(pos.profit).toFixed(2)}
+                      <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
+                      <td className="px-6 py-4 text-gray-600">{(pos as any).openPrice}</td>
+                      <td className="px-6 py-4 text-gray-600">{(pos as any).closeOrCurrentPrice ?? "-"}</td>
+                      <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {(pos as any).profit > 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             ) : (
-              <div className="p-12 text-center text-gray-500 text-sm">{historyError ? historyError : 'No closed positions yet.'}</div>
+              <div className="p-12 text-center text-gray-500 text-sm">
+                {historyError ? historyError : 'No trades yet since activation.'}
+              </div>
             )}
           </div>
         </div>
