@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { updateRunningStrategyAdminStatus, deleteRunningStrategyModification, countRunningStrategyModificationsForRun, getRunningStrategyModificationById, updateRunningStrategyMtDetails, getPendingModificationsForStrategy } from '@/db/dbService'
 import { mt5Service } from '@/lib/mt5-service'
+import { getRunningStrategyById, getStrategyById } from '@/db/dbService'
 
 export async function PATCH(
   req: NextRequest,
@@ -66,6 +67,32 @@ export async function PATCH(
   if (finalStatus === 'disconnected') {
     try { await mt5Service.stopCopyTrading(params.id) } catch {}
     try { await mt5Service.closeAllPositions(params.id) } catch {}
+  }
+  // Auto-start copy trading when moving to running (if credentials exist)
+  if (finalStatus === 'running') {
+    try {
+      const running = await getRunningStrategyById(params.id);
+      if (running) {
+        const strategy = await getStrategyById(running.strategyId);
+        const masterId = (strategy as any)?.masterAccountId;
+        const masterPwd = (strategy as any)?.masterAccountPassword || '';
+        const masterSrv = (strategy as any)?.masterAccountServer || '';
+        const masterPlat = ((strategy as any)?.masterPlatform || 'MT5').toUpperCase() as 'MT4' | 'MT5';
+        const slaveId = running.mtAccountId || '';
+        const slavePwd = running.mtAccountPassword || '';
+        const slaveSrv = running.mtAccountServer || '';
+        const slavePlat = ((running.platform as any) || 'MT5').toUpperCase() as 'MT4' | 'MT5';
+        if (masterId && slaveId && slavePwd) {
+          await mt5Service.startCopyTrading(
+            { id: masterId, password: masterPwd, server: masterSrv, platform: masterPlat },
+            { id: slaveId, password: slavePwd, server: slaveSrv, platform: slavePlat },
+            params.id
+          );
+        }
+      }
+    } catch (e) {
+      // do not fail the status update if auto-start fails
+    }
   }
 
   return NextResponse.json({ success: true })
