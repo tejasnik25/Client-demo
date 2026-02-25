@@ -2307,12 +2307,12 @@ export const updateRunningStrategyAdminStatus = async (
   status: string
 ) => {
   try {
-    await pool.execute('UPDATE running_strategies SET admin_status = ? WHERE id = ?', [status, id]);
+    await pool.execute('UPDATE running_strategies SET admin_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, id]);
     if (status === 'running') {
-      try { await pool.execute('UPDATE running_strategies SET status = ? WHERE id = ?', ['active', id]); } catch (e) {}
+      try { await pool.execute('UPDATE running_strategies SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['active', id]); } catch (e) {}
     }
     if (status === 'disconnected') {
-      try { await pool.execute('UPDATE running_strategies SET status = ? WHERE id = ?', ['stopped', id]); } catch (e) {}
+      try { await pool.execute('UPDATE running_strategies SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['stopped', id]); } catch (e) {}
     }
     if (status !== 'running' && status !== 'disconnected') {
       // Otherwise, update in-process modification records to new status
@@ -2329,6 +2329,7 @@ export const updateRunningStrategyAdminStatus = async (
         runs[idx].admin_status = status;
         if (status === 'running') runs[idx].status = 'active';
         if (status === 'disconnected') runs[idx].status = 'stopped';
+        runs[idx].updated_at = new Date().toISOString();
         let updatedMods = mods.map((m: any) => (m.running_strategy_id === id && m.status === 'in-process' ? { ...m, status } : m));
         writeDatabase({ ...db, running_strategies: runs, running_strategy_modifications: updatedMods });
         return { success: true };

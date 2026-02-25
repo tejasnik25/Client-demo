@@ -24,18 +24,21 @@ const PendingNewStrategyPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [modDescByRunId, setModDescByRunId] = useState<Record<string, string>>({});
 
   const load = async () => {
     try {
-      const [strategiesRes, paymentsRes, allStratsRes] = await Promise.all([
+      const [strategiesRes, paymentsRes, allStratsRes, modsRes] = await Promise.all([
         fetch('/api/admin/running-strategies', { cache: 'no-store' }),
         fetch('/api/payments'),
         fetch('/api/strategies', { cache: 'no-store' }),
+        fetch('/api/admin/running-strategies/modifications', { cache: 'no-store' }).catch(() => null),
       ]);
 
       const strategiesData = await strategiesRes.json();
       const paymentsData = await paymentsRes.json();
       const allStratsData = await allStratsRes.json().catch(() => ({ strategies: [] }));
+      const modsData = await modsRes?.json().catch(() => ({ modifications: [] })) || { modifications: [] };
 
       if (!strategiesRes.ok) throw new Error('Failed to load strategies');
 
@@ -163,6 +166,26 @@ const PendingNewStrategyPage = () => {
         return { ...s, lotLabel };
       });
 
+      // Build modification description map
+      const modMap: Record<string, string> = {};
+      const mods = Array.isArray(modsData.modifications) ? modsData.modifications : [];
+      for (const m of mods) {
+        const rsId = String(m.running_strategy_id || m.runningStrategyId || '').trim();
+        const status = String(m.status || '').toLowerCase();
+        if (!rsId || status !== 'in-process') continue;
+        let nu: any = m.new_update_json;
+        if (typeof nu === 'string') {
+          try { nu = JSON.parse(nu); } catch { nu = {}; }
+        }
+        const action = String(nu?.action || '').toLowerCase();
+        if (action === 'disconnect') {
+          modMap[rsId] = 'Requested for Disconnect';
+        } else if (action === 'enable' || action === 'connect') {
+          modMap[rsId] = 'Requested for Connect';
+        }
+      }
+      setModDescByRunId(modMap);
+
       setStrategies(strategiesWithLot);
       setError(null);
     } catch (e: any) {
@@ -271,6 +294,7 @@ const PendingNewStrategyPage = () => {
               <th>Strategy</th>
               <th>Lot Size</th>
               <th>Status</th>
+              <th>Request</th>
             </tr>
           </thead>
             <tbody>
@@ -299,6 +323,11 @@ const PendingNewStrategyPage = () => {
                         </select>
                       </div>
                     </td>
+                  <td>
+                    <div className="text-xs text-gray-400">
+                      {modDescByRunId[s.id] || '-'}
+                    </div>
+                  </td>
                   </tr>
                 ))
               ) : (
