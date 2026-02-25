@@ -101,7 +101,8 @@ export default function CopierHistoryPage() {
       const runData = await runRes.json().catch(() => null);
       const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
       const status = String(me?.adminStatus || me?.status || '').toLowerCase();
-      const connectedAt = (status === 'running' || status === 'active') ? (me?.updatedAt || me?.createdAt || null) : null;
+      const runningLike = status === 'running' || status === 'active' || status === 'in-process' || status === 'in process';
+      const connectedAt = runningLike ? (me?.updatedAt || me?.createdAt || null) : (me?.createdAt || null);
       setConnectAt(connectedAt);
       setAdminStatus(me?.adminStatus || me?.status || null);
       setUpdatedAt(me?.updatedAt || null);
@@ -116,7 +117,8 @@ export default function CopierHistoryPage() {
     const fetchSnapshot = async () => {
       const status = String(adminStatus || '').toLowerCase();
       if (!rsId) return;
-      if (status === 'running' || status === 'active') {
+      const isDisc = status === 'disconnected' || status === 'stopped';
+      if (!isDisc) {
         setSnapshot(null);
         return;
       }
@@ -226,7 +228,7 @@ export default function CopierHistoryPage() {
 
   const filteredClosed = useMemo(() => {
     const startTs = effectiveStartTs;
-    const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
+    const endTs = (adminStatus && ((() => { const s = String(adminStatus).toLowerCase(); return s === 'disconnected' || s === 'stopped'; })()))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
     const mult = Number(lotSize) || 1;
@@ -266,7 +268,7 @@ export default function CopierHistoryPage() {
   }, [history, lotSize, effectiveStartTs, adminStatus, updatedAt]);
 
   const filteredOpen = useMemo(() => {
-    const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
+    const endTs = (adminStatus && ((() => { const s = String(adminStatus).toLowerCase(); return s === 'disconnected' || s === 'stopped'; })()))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
     const mult = Number(lotSize) || 1;
@@ -331,6 +333,11 @@ export default function CopierHistoryPage() {
     });
   }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus]);
 
+  const [lastRows, setLastRows] = useState<any[]>([]);
+  useEffect(() => {
+    if (displayRows.length > 0) setLastRows(displayRows);
+  }, [displayRows]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
@@ -382,11 +389,7 @@ export default function CopierHistoryPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            {historyLoading ? (
-              <div className="p-12 flex justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
-              </div>
-            ) : displayRows.length > 0 ? (
+            {(displayRows.length > 0 || lastRows.length > 0) ? (
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
                   <tr>
@@ -401,7 +404,7 @@ export default function CopierHistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {displayRows.map((pos, idx) => (
+                  {(displayRows.length > 0 ? displayRows : lastRows).map((pos, idx) => (
                     <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
                         {pos.openTimeStr ? new Date(pos.openTimeStr).toLocaleString() : "-"}
