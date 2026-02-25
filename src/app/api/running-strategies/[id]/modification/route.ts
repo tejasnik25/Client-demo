@@ -8,6 +8,7 @@ import {
 } from '@/db/dbService';
 import { v4 as uuidv4 } from 'uuid';
 import { mt5Service } from '@/lib/mt5-service';
+import { readDatabase, writeDatabase } from '@/db/dbService';
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -36,6 +37,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         new_update_json: { action: 'disconnect' },
     };
     await createRunningStrategyModification(modPayload);
+    // Snapshot open positions at the moment of disconnect for accurate P&L
+    try {
+      const snapshot = await mt5Service.getOpenPositions(params.id);
+      const db = readDatabase();
+      const snaps = Array.isArray((db as any).disconnect_snapshots) ? (db as any).disconnect_snapshots : [];
+      snaps.push({
+        id: uuidv4(),
+        running_strategy_id: params.id,
+        user_id: userId,
+        snapshot_at: new Date().toISOString(),
+        positions: snapshot?.positions || []
+      });
+      writeDatabase({ ...db, disconnect_snapshots: snaps });
+    } catch {}
     // Immediately stop copying and close all open positions
     try {
       await mt5Service.stopCopyTrading(params.id);

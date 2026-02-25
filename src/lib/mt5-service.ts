@@ -95,6 +95,15 @@ export class Mt5Service {
   }
 
   /**
+   * Fetch current open positions for a subscription/slave.
+   */
+  async getOpenPositions(runningStrategyId: string) {
+    console.log(`[MT5 Service] Getting open positions for ${runningStrategyId}`);
+    const result = await this.provider.getOpenPositions(runningStrategyId);
+    return result;
+  }
+
+  /**
    * Updates the slave details (e.g. password change).
    * For now, this might require a re-subscription in many engines.
    */

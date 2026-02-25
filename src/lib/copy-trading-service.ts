@@ -22,6 +22,7 @@ export interface ICopyTradingProvider {
   pauseSubscription(subscriptionId: string): Promise<{ success: boolean; error?: string }>;
   resumeSubscription(subscriptionId: string): Promise<{ success: boolean; error?: string }>;
   closeAllPositions(subscriptionId: string): Promise<{ success: boolean; error?: string }>;
+  getOpenPositions(subscriptionId: string): Promise<{ success: boolean; positions: any[]; error?: string }>;
   getSubscriptionStatus(subscriptionId: string): Promise<{ 
     status: CopyTradingStatus; 
     error?: string; 
@@ -98,6 +99,11 @@ export class MockCopyTradingProvider implements ICopyTradingProvider {
     const status = this.subscriptions.get(subscriptionId);
     if (!status) return { status: 'disconnected', detail: 'Mock: Subscription not found' };
     return { status, detail: 'Mock: Connection healthy' };
+  }
+
+  async getOpenPositions(_subscriptionId: string): Promise<{ success: boolean; positions: any[]; error?: string }> {
+    await this.delay(100);
+    return { success: true, positions: [] };
   }
 }
 
@@ -246,6 +252,16 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
       return { success: true };
     } catch (e) {
       return { success: false, error: 'Failed' };
+    }
+  }
+
+  async getOpenPositions(id: string) {
+    try {
+      const res = await this.request(`/subscriptions/${id}/positions`, 'GET');
+      const positions = Array.isArray(res?.positions) ? res.positions : (Array.isArray(res) ? res : []);
+      return { success: true, positions };
+    } catch (e: any) {
+      return { success: false, positions: [], error: e?.message || 'Failed' };
     }
   }
 

@@ -56,6 +56,10 @@ export default function CopierHistoryPage() {
   const [connectAt, setConnectAt] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [filter, setFilter] = useState<"all" | "opened" | "closed">("all");
+  const [adminStatus, setAdminStatus] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [rsId, setRsId] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<any | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -96,11 +100,40 @@ export default function CopierHistoryPage() {
       setHistoryError(data.error || null);
       const runData = await runRes.json().catch(() => null);
       const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
-      setConnectAt(me?.createdAt || null);
+      const status = String(me?.adminStatus || me?.status || '').toLowerCase();
+      const connectedAt = (status === 'running' || status === 'active') ? (me?.updatedAt || me?.createdAt || null) : null;
+      setConnectAt(connectedAt);
+      setAdminStatus(me?.adminStatus || me?.status || null);
+      setUpdatedAt(me?.updatedAt || null);
+      setRsId(me?.rsId || null);
       setHistoryLoading(false);
     };
     loadHistory();
   }, [params.id]);
+
+  // Fetch latest disconnect snapshot when not running/active
+  useEffect(() => {
+    const fetchSnapshot = async () => {
+      const status = String(adminStatus || '').toLowerCase();
+      if (!rsId) return;
+      if (status === 'running' || status === 'active') {
+        setSnapshot(null);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/running-strategies/${rsId}/snapshot`, { cache: 'no-store' });
+        if (res.ok) {
+          const js = await res.json();
+          setSnapshot(js?.snapshot || null);
+        } else {
+          setSnapshot(null);
+        }
+      } catch {
+        setSnapshot(null);
+      }
+    };
+    fetchSnapshot();
+  }, [adminStatus, rsId]);
 
   const lotSize = useMemo(() => {
     const lp = strategy?.parameters?.lotPricing;
@@ -159,12 +192,21 @@ export default function CopierHistoryPage() {
 
   const filteredClosed = useMemo(() => {
     const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
+      ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
+      : NaN;
     const mult = Number(lotSize) || 1;
-    // Only include closed trades OPENED after connectAt
+    // Only include closed trades OPENED after connectAt and (if disconnected) OPENED before or at endTs and CLOSED before or at endTs
     const rows = history.filter((h) => {
       if (!Number.isFinite(startTs)) return false;
       const openMs = toMs(h.server_time_open ?? h.time_open);
-      return Number.isFinite(openMs) && openMs >= startTs;
+      if (!(Number.isFinite(openMs) && openMs >= startTs)) return false;
+      if (Number.isFinite(endTs)) {
+        if (openMs > endTs) return false;
+        const closeMs = toMs(h.server_time_close ?? h.time_close);
+        if (Number.isFinite(closeMs) && closeMs > endTs) return false;
+      }
+      return true;
     });
     return rows.map((h) => ({
       isOpen: false as const,
@@ -177,15 +219,23 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: h.price_close,
       profit: Number(h.profit) * mult,
     }));
-  }, [history, lotSize, connectAt]);
+  }, [history, lotSize, connectAt, adminStatus, updatedAt]);
 
   const filteredOpen = useMemo(() => {
     const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
+      ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
+      : NaN;
     const mult = Number(lotSize) || 1;
     const rows = openPositions.filter((p) => {
       if (!Number.isFinite(startTs)) return false;
       const openMs = toMs(p.server_time ?? p.time);
-      return Number.isFinite(openMs) && openMs >= startTs;
+      if (!(Number.isFinite(openMs) && openMs >= startTs)) return false;
+      if (Number.isFinite(endTs)) {
+        // After disconnect, do not show opened positions
+        return false;
+      }
+      return true;
     });
     return rows.map((p) => ({
       isOpen: true as const,
@@ -198,17 +248,51 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: p.price_current,
       profit: Number(p.profit) * mult,
     }));
-  }, [openPositions, lotSize, connectAt]);
+  }, [openPositions, lotSize, connectAt, adminStatus, updatedAt]);
+
+  // Synthesize closures at disconnect time for any positions that were open at the cutoff
+  const syntheticClosures = useMemo(() => {
+    const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
+      ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
+      : NaN;
+    const mult = Number(lotSize) || 1;
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return [];
+    // Prefer snapshot positions at disconnect; fallback to current open positions
+    const src = Array.isArray(snapshot?.positions) && snapshot.positions.length > 0 ? snapshot.positions : openPositions;
+    // Take any open position whose open time is in [startTs, endTs]
+    const rows = src.filter((p: any) => {
+      const openMs = toMs(p.server_time ?? p.time);
+      return Number.isFinite(openMs) && openMs >= startTs && openMs <= endTs;
+    });
+    return rows.map((p: any) => ({
+      isOpen: false as const,
+      openTimeStr: p.server_time || (Number.isFinite(p.time) ? new Date(toMs(p.time!)).toISOString() : ""),
+      closeTimeStr: new Date(endTs).toISOString(),
+      symbol: p.symbol,
+      type: p.type,
+      volume: Number(p.volume) * mult,
+      openPrice: p.price_open,
+      closeOrCurrentPrice: p.price_current,
+      profit: Number(p.profit) * mult,
+    }));
+  }, [openPositions, lotSize, connectAt, adminStatus, updatedAt, snapshot]);
 
   const displayRows = useMemo(() => {
-    if (filter === "opened") return filteredOpen;
-    if (filter === "closed") return filteredClosed;
-    return [...filteredOpen, ...filteredClosed].sort((a, b) => {
+    const isRunning = String(adminStatus || '').toLowerCase() === 'running' || String(adminStatus || '').toLowerCase() === 'active';
+    const closedRows = [...filteredClosed, ...(!isRunning ? syntheticClosures : [])];
+    if (filter === "opened") return isRunning ? filteredOpen : [];
+    if (filter === "closed") return closedRows.sort((a, b) => {
       const ta = Date.parse(a.openTimeStr || "") || 0;
       const tb = Date.parse(b.openTimeStr || "") || 0;
       return tb - ta;
     });
-  }, [filter, filteredOpen, filteredClosed]);
+    return [...(isRunning ? filteredOpen : []), ...closedRows].sort((a, b) => {
+      const ta = Date.parse(a.openTimeStr || "") || 0;
+      const tb = Date.parse(b.openTimeStr || "") || 0;
+      return tb - ta;
+    });
+  }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus]);
 
   if (loading) {
     return (
