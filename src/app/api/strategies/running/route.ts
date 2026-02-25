@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getRunningStrategiesForUser, getAllStrategies } from '@/db/dbService';
+import { getRunningStrategiesForUser, getAllStrategies, getRunningStrategyById, getStrategyById } from '@/db/dbService';
+import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
 /**
  * GET /api/strategies/running
@@ -55,6 +56,52 @@ export async function GET() {
         return obj;
       })
       .filter(Boolean);
+
+    // Auto-recover missing subscriptions for running sessions in the background
+    try {
+      await Promise.all(
+        (running as any[]).map(async (item) => {
+          const st = String(item.adminStatus || item.status || '').toLowerCase();
+          if (st !== 'running' && st !== 'active') return;
+          try {
+            const status = await mt5Service.checkConnectionStatus(item.rsId);
+            const isMissing =
+              (status.status === 'disconnected' &&
+                ((status.error || '').includes('Subscription not found') ||
+                 (status.detail || '').includes('Subscription not found'))) ||
+              (status.status === 'error' &&
+                ((status.error || '').includes('404') ||
+                 (status.error || '').includes('Not Found') ||
+                 (status.error || '').includes('Subscription not found')));
+            if (isMissing) {
+              const runningRow = await getRunningStrategyById(item.rsId);
+              if (!runningRow) return;
+              const strategy = await getStrategyById(runningRow.strategyId);
+              if (!strategy || !(strategy as any).masterAccountId) return;
+              const master: MtAccountDetails = {
+                id: (strategy as any).masterAccountId,
+                password: (strategy as any).masterAccountPassword || '',
+                server: (strategy as any).masterAccountServer || '',
+                platform: (((strategy as any).masterPlatform || 'MT5') as string).toUpperCase() === 'MT4' ? 'MT4' : 'MT5',
+              };
+              const slave: MtAccountDetails = {
+                id: (runningRow as any).mtAccountId || '',
+                password: (runningRow as any).mtAccountPassword || '',
+                server: (runningRow as any).mtAccountServer || '',
+                platform: (((runningRow as any).platform || 'MT5') as string).toUpperCase() === 'MT4' ? 'MT4' : 'MT5',
+              };
+              if (slave.id && slave.password) {
+                await mt5Service.startCopyTrading(master, slave, item.rsId);
+              }
+            }
+          } catch {
+            // ignore per-item failures
+          }
+        })
+      );
+    } catch {
+      // ignore batch failures
+    }
 
     return NextResponse.json({ strategies: running });
   } catch (error) {

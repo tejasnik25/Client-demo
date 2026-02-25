@@ -95,6 +95,18 @@ const TotalRunningStrategyPage = () => {
     });
   }, [rows, searchTerm, planFilter]);
 
+  const reconnect = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/running-strategies/${id}/reconnect`, { method: 'POST' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Reconnect failed');
+      }
+      alert('Reconnect triggered');
+    } catch (e: any) {
+      alert(e?.message || 'Reconnect failed');
+    }
+  };
   const exportCSV = () => {
     const header = [
       "User ID",
@@ -210,6 +222,7 @@ const TotalRunningStrategyPage = () => {
               <th className="py-2 px-4 border-b">Lot Size</th>
               <th className="py-2 px-4 border-b">Status</th>
               <th className="py-2 px-4 border-b">Created At</th>
+              <th className="py-2 px-4 border-b">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -258,6 +271,15 @@ const TotalRunningStrategyPage = () => {
                   </td>
                   <td className="py-2 px-4 border-b">
                     {r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'}
+                  </td>
+                  <td className="py-2 px-4 border-b">
+                    <button
+                      onClick={() => reconnect(r.id)}
+                      className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                      title="Force reconnect this subscription"
+                    >
+                      Reconnect
+                    </button>
                   </td>
                 </tr>
               ))
