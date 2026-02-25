@@ -21,6 +21,7 @@ export interface ICopyTradingProvider {
   unsubscribe(subscriptionId: string): Promise<{ success: boolean; error?: string }>;
   pauseSubscription(subscriptionId: string): Promise<{ success: boolean; error?: string }>;
   resumeSubscription(subscriptionId: string): Promise<{ success: boolean; error?: string }>;
+  closeAllPositions(subscriptionId: string): Promise<{ success: boolean; error?: string }>;
   getSubscriptionStatus(subscriptionId: string): Promise<{ 
     status: CopyTradingStatus; 
     error?: string; 
@@ -84,6 +85,12 @@ export class MockCopyTradingProvider implements ICopyTradingProvider {
       return { success: true };
     }
     return { success: false, error: 'Subscription not found' };
+  }
+
+  async closeAllPositions(_subscriptionId: string): Promise<{ success: boolean; error?: string }> {
+    await this.delay(300);
+    console.log(`[MockProvider] Closing all positions for ${_subscriptionId}`);
+    return { success: true };
   }
 
   async getSubscriptionStatus(subscriptionId: string): Promise<{ status: CopyTradingStatus; error?: string; detail?: string; updated_at?: number }> {
@@ -227,6 +234,15 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
   private async action(id: string, action: string) {
     try {
       await this.request(`/subscriptions/${id}/${action}`, 'POST');
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: 'Failed' };
+    }
+  }
+
+  async closeAllPositions(id: string) {
+    try {
+      await this.request(`/subscriptions/${id}/close-all`, 'POST');
       return { success: true };
     } catch (e) {
       return { success: false, error: 'Failed' };

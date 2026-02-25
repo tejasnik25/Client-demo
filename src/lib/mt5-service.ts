@@ -86,6 +86,15 @@ export class Mt5Service {
   }
 
   /**
+   * Closes all open positions for the given subscription/slave.
+   */
+  async closeAllPositions(runningStrategyId: string) {
+    console.log(`[MT5 Service] Closing all open positions for ${runningStrategyId}`);
+    const result = await this.provider.closeAllPositions(runningStrategyId);
+    return result;
+  }
+
+  /**
    * Updates the slave details (e.g. password change).
    * For now, this might require a re-subscription in many engines.
    */

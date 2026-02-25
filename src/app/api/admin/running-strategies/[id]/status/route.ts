@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { updateRunningStrategyAdminStatus, deleteRunningStrategyModification, countRunningStrategyModificationsForRun, getRunningStrategyModificationById, updateRunningStrategyMtDetails, getPendingModificationsForStrategy } from '@/db/dbService'
+import { mt5Service } from '@/lib/mt5-service'
 
 export async function PATCH(
   req: NextRequest,
@@ -61,7 +62,11 @@ export async function PATCH(
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
   }
 
-  // No auto-start of copy trading; approval only updates statuses
+  // Enforce stop and close when disconnecting
+  if (finalStatus === 'disconnected') {
+    try { await mt5Service.stopCopyTrading(params.id) } catch {}
+    try { await mt5Service.closeAllPositions(params.id) } catch {}
+  }
 
   return NextResponse.json({ success: true })
 }

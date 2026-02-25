@@ -7,6 +7,7 @@ import {
   getRunningStrategyById
 } from '@/db/dbService';
 import { v4 as uuidv4 } from 'uuid';
+import { mt5Service } from '@/lib/mt5-service';
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -35,7 +36,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         new_update_json: { action: 'disconnect' },
     };
     await createRunningStrategyModification(modPayload);
-    return NextResponse.json({ success: true });
+    // Immediately stop copying and close all open positions
+    try {
+      await mt5Service.stopCopyTrading(params.id);
+    } catch {}
+    try {
+      await mt5Service.closeAllPositions(params.id);
+    } catch {}
+    return NextResponse.json({ success: true, status: 'in-process' });
   }
   
   if (body.action === 'enable') {

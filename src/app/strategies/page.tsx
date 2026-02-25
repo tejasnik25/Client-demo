@@ -126,6 +126,19 @@ const StrategiesPageInner: React.FC = () => {
     return running;
   }, [running, user]);
 
+  // Determine which strategies are currently being copied by this user
+  const copyingIds = useMemo<Set<string>>(() => {
+    const set = new Set<string>();
+    for (const r of running as any[]) {
+      const st = String((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
+      if (st === 'running' || st === 'connected' || st === 'active') {
+        const sid = (r as any)?.id; // strategy id in running payload
+        if (sid) set.add(String(sid));
+      }
+    }
+    return set;
+  }, [running]);
+
  
 
   const renderAdminStatusBadge = (s: string, r?: any) => {
@@ -659,12 +672,18 @@ const StrategiesPageInner: React.FC = () => {
                     const copiers = strategy.copiers || 0;
                     const roi = strategy.roi || 0;
 
+                    const isCopying = copyingIds.has(strategy.id);
                     return (
                       <div
                         key={strategy.id}
-                        className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-all cursor-pointer"
+                        className={`w-full bg-white rounded-2xl shadow-sm border overflow-hidden hover:shadow-md transition-all cursor-pointer ${isCopying ? 'border-white' : 'border-gray-200'} relative`}
                         onClick={() => handleViewInfo(strategy)}
                       >
+                        {isCopying && (
+                          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-semibold tracking-wide">
+                            Copying
+                          </div>
+                        )}
                         {/* Header Section */}
                         <div className="p-5 pb-4">
                           <div className="flex items-start justify-between mb-2">
@@ -799,12 +818,19 @@ const StrategiesPageInner: React.FC = () => {
               )
               : (
                 <div className="space-y-3">
-                  {filtered.map(strategy => (
+                  {filtered.map(strategy => {
+                    const isCopyingList = copyingIds.has(strategy.id);
+                    return (
                     <div
                       key={strategy.id}
-                      className="group bg-white rounded-xl p-4 border border-gray-200 hover:shadow-sm transition-all cursor-pointer"
+                      className={`group bg-white rounded-xl p-4 border hover:shadow-sm transition-all cursor-pointer ${isCopyingList ? 'border-white' : 'border-gray-200'} relative`}
                       onClick={() => handleViewInfo(strategy)}
                     >
+                      {isCopyingList && (
+                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-semibold tracking-wide">
+                          Copying
+                        </div>
+                      )}
                       <div className="flex items-center gap-4">
                         <div className="relative w-11 h-11 flex-shrink-0">
                           <div className="w-full h-full rounded-full border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center">
@@ -885,7 +911,7 @@ const StrategiesPageInner: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )
           )}
