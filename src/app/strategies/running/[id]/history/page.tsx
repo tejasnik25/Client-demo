@@ -190,15 +190,43 @@ export default function CopierHistoryPage() {
     return num < 1e12 ? num * 1000 : num;
   };
 
+  // Compute effective start timestamp: prefer connectAt; fallback to latest approved/completed payment; if none, show all
+  const effectiveStartTs = useMemo(() => {
+    const fromConnect = connectAt ? new Date(connectAt).getTime() : NaN;
+    if (Number.isFinite(fromConnect)) return fromConnect;
+    const approved = [...payments]
+      .filter(p => p.strategyId === params.id)
+      .filter(p => {
+        const st = String(p.status || '').toLowerCase();
+        return st === 'approved' || st === 'completed' || st === 'renewal_approved' || st === 'in-process';
+      })
+      .sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+      });
+    const t = approved[0]?.createdAt ? new Date(approved[0].createdAt as any).getTime() : NaN;
+    return Number.isFinite(t) ? t : NaN;
+  }, [connectAt, payments, params.id]);
+
   const filteredClosed = useMemo(() => {
-    const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const startTs = effectiveStartTs;
     const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
     const mult = Number(lotSize) || 1;
     // Only include closed trades OPENED after connectAt and (if disconnected) OPENED before or at endTs and CLOSED before or at endTs
     const rows = history.filter((h) => {
-      if (!Number.isFinite(startTs)) return false;
+      // if no startTs, include all
+      if (!Number.isFinite(startTs)) {
+        if (Number.isFinite(endTs)) {
+          const openMs0 = toMs(h.server_time_open ?? h.time_open);
+          const closeMs0 = toMs(h.server_time_close ?? h.time_close);
+          if (Number.isFinite(openMs0) && openMs0 > endTs) return false;
+          if (Number.isFinite(closeMs0) && closeMs0 > endTs) return false;
+        }
+        return true;
+      }
       const openMs = toMs(h.server_time_open ?? h.time_open);
       if (!(Number.isFinite(openMs) && openMs >= startTs)) return false;
       if (Number.isFinite(endTs)) {
@@ -219,16 +247,20 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: h.price_close,
       profit: Number(h.profit) * mult,
     }));
-  }, [history, lotSize, connectAt, adminStatus, updatedAt]);
+  }, [history, lotSize, effectiveStartTs, adminStatus, updatedAt]);
 
   const filteredOpen = useMemo(() => {
-    const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const startTs = effectiveStartTs;
     const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
     const mult = Number(lotSize) || 1;
     const rows = openPositions.filter((p) => {
-      if (!Number.isFinite(startTs)) return false;
+      // If no startTs, include all unless disconnected
+      if (!Number.isFinite(startTs)) {
+        if (Number.isFinite(endTs)) return false;
+        return true;
+      }
       const openMs = toMs(p.server_time ?? p.time);
       if (!(Number.isFinite(openMs) && openMs >= startTs)) return false;
       if (Number.isFinite(endTs)) {
@@ -248,11 +280,11 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: p.price_current,
       profit: Number(p.profit) * mult,
     }));
-  }, [openPositions, lotSize, connectAt, adminStatus, updatedAt]);
+  }, [openPositions, lotSize, effectiveStartTs, adminStatus, updatedAt]);
 
   // Synthesize closures at disconnect time for any positions that were open at the cutoff
   const syntheticClosures = useMemo(() => {
-    const startTs = connectAt ? new Date(connectAt).getTime() : NaN;
+    const startTs = effectiveStartTs;
     const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
@@ -276,7 +308,7 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: p.price_current,
       profit: Number(p.profit) * mult,
     }));
-  }, [openPositions, lotSize, connectAt, adminStatus, updatedAt, snapshot]);
+  }, [openPositions, lotSize, effectiveStartTs, adminStatus, updatedAt, snapshot]);
 
   const displayRows = useMemo(() => {
     const isRunning = String(adminStatus || '').toLowerCase() === 'running' || String(adminStatus || '').toLowerCase() === 'active';
