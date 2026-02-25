@@ -204,8 +204,8 @@ export async function GET(
     // Only surface non-404 errors so UI doesn't show long "Not Found" chains
     const errorStr = non404Errors.length ? non404Errors.join(' | ') : undefined;
 
-    // Hardcoded fallback: if provider returns no data, synthesize a small sample so UI is not empty
-    if (history.length === 0 && open_positions.length === 0) {
+    // Optional sample fallback for demos only (guarded by env flag)
+    if (process.env.MASTER_HISTORY_SAMPLE === 'true' && history.length === 0 && open_positions.length === 0) {
       const now = Date.now();
       const oneHour = 60 * 60 * 1000;
       const twoHours = 2 * oneHour;

@@ -58,12 +58,15 @@ const StrategyManagement: React.FC = () => {
   const fetchStrategies = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/strategies');
-      if (!response.ok) {
-        throw new Error('Failed to fetch strategies');
+      // Prefer admin endpoint to include master details
+      let response = await fetch('/api/admin/strategies', { cache: 'no-store' });
+      if (response.status === 401) {
+        // Fallback to public endpoint without master details
+        response = await fetch('/api/strategies', { cache: 'no-store' });
       }
+      if (!response.ok) throw new Error('Failed to fetch strategies');
       const data = await response.json();
-      setStrategies(data.strategies || []);
+      setStrategies(Array.isArray(data.strategies) ? data.strategies : []);
     } catch (err) {
       setError('Failed to fetch strategies');
       console.error('Error fetching strategies:', err);
@@ -555,6 +558,22 @@ const resetAddForm = () => {
                   <div className="p-2 bg-gray-50 rounded">
                     <span className="font-medium text-gray-600">Master's Name:</span>
                     <Badge variant="outline" className="ml-1">{strategy.mastersTag || '-'}</Badge>
+                  </div>
+                  <div className="p-2 bg-gray-50 rounded col-span-2">
+                    <span className="font-medium text-gray-600">Master Account:</span>
+                    <span className="ml-1 text-gray-900">
+                      {(strategy.masterAccountId && strategy.masterAccountId.trim().length > 0) ? strategy.masterAccountId : '-'}
+                    </span>
+                    <span className="mx-2 text-gray-400">•</span>
+                    <span className="font-medium text-gray-600">Server:</span>
+                    <span className="ml-1 text-gray-900">
+                      {(strategy.masterAccountServer && strategy.masterAccountServer.trim().length > 0) ? strategy.masterAccountServer : '-'}
+                    </span>
+                    <span className="mx-2 text-gray-400">•</span>
+                    <span className="font-medium text-gray-600">Platform:</span>
+                    <span className="ml-1 text-gray-900">
+                      {(strategy.masterPlatform || '').toUpperCase() || '-'}
+                    </span>
                   </div>
                 </div>
                 
