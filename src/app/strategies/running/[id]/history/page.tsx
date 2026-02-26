@@ -388,7 +388,9 @@ export default function CopierHistoryPage() {
       const tb = Date.parse(b.openTimeStr || "") || 0;
       return tb - ta;
     });
-    return [...(isActuallyRunning ? filteredOpen : []), ...closedRows].sort((a, b) => {
+    // For 'all' tab, combine both
+    const all = [...(isActuallyRunning ? filteredOpen : []), ...closedRows];
+    return all.sort((a, b) => {
       const ta = Date.parse(a.openTimeStr || "") || 0;
       const tb = Date.parse(b.openTimeStr || "") || 0;
       return tb - ta;
@@ -397,7 +399,10 @@ export default function CopierHistoryPage() {
 
   const [lastRows, setLastRows] = useState<any[]>([]);
   useEffect(() => {
-    if (displayRows.length > 0) setLastRows(displayRows);
+    // Only update lastRows if we have actual data, to prevent flickering to empty state
+    if (displayRows.length > 0) {
+      setLastRows(displayRows);
+    }
   }, [displayRows]);
 
   if (loading) {
@@ -461,7 +466,7 @@ export default function CopierHistoryPage() {
                     <th className="px-6 py-3">Type</th>
                     <th className="px-6 py-3">Volume</th>
                     <th className="px-6 py-3">Open Price</th>
-                    <th className="px-6 py-3">Close Price</th>
+                    <th className="px-6 py-3">{filter === "opened" ? "Current Price" : "Close Price"}</th>
                     <th className="px-6 py-3">Profit</th>
                   </tr>
                 </thead>
