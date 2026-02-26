@@ -66,19 +66,19 @@ export default function CopierHistoryPage() {
     const load = async () => {
       try {
         setLoading(true);
-        const [stratRes, paymentsRes, meRes] = await Promise.all([
+        const [stratRes, paymentsRes, profileRes] = await Promise.all([
           fetch("/api/strategies", { cache: "no-store" }),
           fetch("/api/payments", { cache: "no-store" }),
-          fetch("/api/me", { cache: "no-store" }).catch(() => null),
+          fetch("/api/profile", { cache: "no-store" }).catch(() => null),
         ]);
         const stratData = await stratRes.json();
         const s = (stratData.strategies || []).find((x: any) => x.id === params.id);
         setStrategy(s || null);
         const payJson = await paymentsRes.json();
         setPayments(payJson.payments || []);
-        if (meRes && meRes.ok) {
-          const me = await meRes.json().catch(() => null);
-          setSessionUserId(me?.user?.id || null);
+        if (profileRes && profileRes.ok) {
+          const profile = await profileRes.json().catch(() => null);
+          setSessionUserId(profile?.user?.id || null);
         }
       } finally {
         setLoading(false);
@@ -96,11 +96,31 @@ export default function CopierHistoryPage() {
           fetch(`/api/strategies/running`, { cache: "no-store" })
         ]);
         const data = await hRes.json();
-        setHistory(data.history || []);
-        setOpenPositions(data.open_positions || []);
+        
+        // Use cached data if current fetch failed or returned no history
+        if ((!data.history || data.history.length === 0) && (!data.open_positions || data.open_positions.length === 0)) {
+          const cached = localStorage.getItem(`history_cache_${params.id}`);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            setHistory(parsed.history || []);
+            setOpenPositions(parsed.open_positions || []);
+          } else {
+            setHistory([]);
+            setOpenPositions([]);
+          }
+        } else {
+          setHistory(data.history || []);
+          setOpenPositions(data.open_positions || []);
+          // Save successful fetch to cache
+          localStorage.setItem(`history_cache_${params.id}`, JSON.stringify({
+            history: data.history || [],
+            open_positions: data.open_positions || []
+          }));
+        }
+        
         setHistoryError(data.error || null);
         const runData = await runRes.json().catch(() => null);
-        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
+        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.id === params.id) : null;
         
         const aStatus = String(me?.adminStatus || '').toLowerCase();
         const mStatus = String(me?.status || '').toLowerCase();
@@ -111,10 +131,9 @@ export default function CopierHistoryPage() {
         const isRunningLike = aStatus === 'running' || aStatus === 'active' || 
                              ((aStatus === 'in-process' || aStatus === 'in process') && (mStatus === 'running' || mStatus === 'active'));
         
-        // Effective connection time for filtering
-        // If running, use the latest session start (updatedAt). 
-        // Else fallback to createdAt (original approval).
-        const connectedAt = isRunningLike ? (me?.updatedAt || me?.createdAt || null) : (me?.createdAt || null);
+        // Effective connection time for filtering: Always use the original creation time
+        // of the running strategy record (when the strategy was first approved/purchased).
+        const connectedAt = me?.createdAt || null;
         setConnectAt(connectedAt);
         setUpdatedAt(me?.updatedAt || null);
         setRsId(me?.rsId || null);

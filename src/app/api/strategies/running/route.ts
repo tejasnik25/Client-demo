@@ -32,10 +32,10 @@ export async function GET() {
     // Approved transactions for this user that reference a strategy
     const running = runningRows
       .map((r: any) => {
-        const s = Array.isArray(strategies) ? strategies.find((st: any) => st.name === r.strategyName) : null;
-        const id = s?.id || r.strategyId;
-        const name = r.strategyName || s?.name;
-        if (!name) return null;
+        const s = Array.isArray(strategies) ? strategies.find((st: any) => st.id === r.strategyId) : null;
+        const id = r.strategyId || s?.id;
+        const name = s?.name || r.strategyName;
+        if (!id) return null;
         const obj = {
           id,
           rsId: r.id,
