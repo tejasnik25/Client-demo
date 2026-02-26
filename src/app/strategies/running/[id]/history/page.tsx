@@ -397,14 +397,6 @@ export default function CopierHistoryPage() {
     });
   }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus, mtStatus]);
 
-  const [lastRows, setLastRows] = useState<any[]>([]);
-  useEffect(() => {
-    // Only update lastRows if we have actual data, to prevent flickering to empty state
-    if (displayRows.length > 0) {
-      setLastRows(displayRows);
-    }
-  }, [displayRows]);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
@@ -456,7 +448,7 @@ export default function CopierHistoryPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            {(displayRows.length > 0 || lastRows.length > 0) ? (
+            {displayRows.length > 0 ? (
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
                   <tr>
@@ -471,7 +463,7 @@ export default function CopierHistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {(displayRows.length > 0 ? displayRows : lastRows).map((pos, idx) => (
+                  {displayRows.map((pos, idx) => (
                     <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
                         {pos.openTimeStr ? new Date(pos.openTimeStr).toLocaleString() : "-"}
@@ -501,7 +493,12 @@ export default function CopierHistoryPage() {
               </table>
             ) : (
               <div className="p-12 text-center text-gray-500 text-sm">
-                {historyError ? historyError : 'No trades yet since activation.'}
+                {historyLoading ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="h-6 w-6 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
+                    <span>Syncing trades...</span>
+                  </div>
+                ) : historyError ? historyError : 'No trades yet since activation.'}
               </div>
             )}
           </div>
