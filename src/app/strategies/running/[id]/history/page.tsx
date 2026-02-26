@@ -57,6 +57,7 @@ export default function CopierHistoryPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [filter, setFilter] = useState<"all" | "opened" | "closed">("all");
   const [adminStatus, setAdminStatus] = useState<string | null>(null);
+  const [mtStatus, setMtStatus] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [rsId, setRsId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<any | null>(null);
@@ -89,36 +90,57 @@ export default function CopierHistoryPage() {
   useEffect(() => {
     const loadHistory = async () => {
       if (!params.id) return;
-      setHistoryLoading(true);
-      const [hRes, runRes] = await Promise.all([
-        fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" }),
-        fetch(`/api/strategies/running`, { cache: "no-store" })
-      ]);
-      const data = await hRes.json();
-      setHistory(data.history || []);
-      setOpenPositions(data.open_positions || []);
-      setHistoryError(data.error || null);
-      const runData = await runRes.json().catch(() => null);
-      const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
-      const status = String(me?.adminStatus || me?.status || '').toLowerCase();
-      const runningLike = status === 'running' || status === 'active' || status === 'in-process' || status === 'in process';
-      const connectedAt = runningLike ? (me?.updatedAt || me?.createdAt || null) : (me?.createdAt || null);
-      setConnectAt(connectedAt);
-      setAdminStatus(me?.adminStatus || me?.status || null);
-      setUpdatedAt(me?.updatedAt || null);
-      setRsId(me?.rsId || null);
-      setHistoryLoading(false);
+      try {
+        const [hRes, runRes] = await Promise.all([
+          fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" }),
+          fetch(`/api/strategies/running`, { cache: "no-store" })
+        ]);
+        const data = await hRes.json();
+        setHistory(data.history || []);
+        setOpenPositions(data.open_positions || []);
+        setHistoryError(data.error || null);
+        const runData = await runRes.json().catch(() => null);
+        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
+        
+        const aStatus = String(me?.adminStatus || '').toLowerCase();
+        const mStatus = String(me?.status || '').toLowerCase();
+        setAdminStatus(me?.adminStatus || null);
+        setMtStatus(me?.status || null);
+        
+        // isRunningLike: either fully running OR in-process of disconnecting
+        const isRunningLike = aStatus === 'running' || aStatus === 'active' || 
+                             ((aStatus === 'in-process' || aStatus === 'in process') && (mStatus === 'running' || mStatus === 'active'));
+        
+        // Effective connection time for filtering
+        // If running, use the latest session start (updatedAt). 
+        // Else fallback to createdAt (original approval).
+        const connectedAt = isRunningLike ? (me?.updatedAt || me?.createdAt || null) : (me?.createdAt || null);
+        setConnectAt(connectedAt);
+        setUpdatedAt(me?.updatedAt || null);
+        setRsId(me?.rsId || null);
+      } catch (e) {
+        console.error("Failed to load history data:", e);
+      } finally {
+        setHistoryLoading(false);
+      }
     };
+    
+    setHistoryLoading(true);
     loadHistory();
+    const timer = setInterval(loadHistory, 30000);
+    return () => clearInterval(timer);
   }, [params.id]);
 
   // Fetch latest disconnect snapshot when not running/active
   useEffect(() => {
     const fetchSnapshot = async () => {
-      const status = String(adminStatus || '').toLowerCase();
+      const aStatus = String(adminStatus || '').toLowerCase();
+      const mStatus = String(mtStatus || '').toLowerCase();
+      const isRunningLike = aStatus === 'running' || aStatus === 'active' || 
+                             ((aStatus === 'in-process' || aStatus === 'in process') && (mStatus === 'running' || mStatus === 'active'));
+      
       if (!rsId) return;
-      const isDisc = status === 'disconnected' || status === 'stopped';
-      if (!isDisc) {
+      if (isRunningLike) {
         setSnapshot(null);
         return;
       }
@@ -135,7 +157,7 @@ export default function CopierHistoryPage() {
       }
     };
     fetchSnapshot();
-  }, [adminStatus, rsId]);
+  }, [adminStatus, mtStatus, rsId]);
 
   const lotSize = useMemo(() => {
     const lp = strategy?.parameters?.lotPricing;
@@ -228,32 +250,29 @@ export default function CopierHistoryPage() {
 
   const filteredClosed = useMemo(() => {
     const startTs = effectiveStartTs;
-    const endTs = (adminStatus && ((() => { const s = String(adminStatus).toLowerCase(); return s === 'disconnected' || s === 'stopped'; })()))
+    const aStatus = String(adminStatus || '').toLowerCase();
+    const mStatus = String(mtStatus || '').toLowerCase();
+    const isRunningLike = aStatus === 'running' || aStatus === 'active' || 
+                         ((aStatus === 'in-process' || aStatus === 'in process') && (mStatus === 'running' || mStatus === 'active'));
+
+    const endTs = (!isRunningLike && (aStatus === 'disconnected' || aStatus === 'stopped'))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
+    
     const mult = Number(lotSize) || 1;
-    // Only include closed trades OPENED after connectAt and (if disconnected) OPENED before or at endTs and CLOSED before or at endTs
-    const base = history.filter((h) => {
-      // if no startTs, include all
-      if (!Number.isFinite(startTs)) {
-        if (Number.isFinite(endTs)) {
-          const openMs0 = toMs(h.server_time_open ?? h.time_open);
-          const closeMs0 = toMs(h.server_time_close ?? h.time_close);
-          if (Number.isFinite(openMs0) && openMs0 > endTs) return false;
-          if (Number.isFinite(closeMs0) && closeMs0 > endTs) return false;
-        }
-        return true;
-      }
-      const openMs = toMs(h.server_time_open ?? h.time_open);
+    // Only include closed trades OPENED after startTs and (if disconnected) OPENED before or at endTs
+    const rows = history.filter((h) => {
+      if (!Number.isFinite(startTs)) return false; // Don't show anything if no approved session found
+      
+      const openMs = toMs(h.time_open ?? h.server_time_open);
       if (!(Number.isFinite(openMs) && openMs >= startTs)) return false;
+      
       if (Number.isFinite(endTs)) {
-        if (openMs > endTs) return false;
-        const closeMs = toMs(h.server_time_close ?? h.time_close);
+        const closeMs = toMs(h.time_close ?? h.server_time_close);
         if (Number.isFinite(closeMs) && closeMs > endTs) return false;
       }
       return true;
     });
-    const rows = base.length === 0 && history.length > 0 ? history : base;
     return rows.map((h) => ({
       isOpen: false as const,
       openTimeStr: h.server_time_open || (Number.isFinite(h.time_open) ? new Date(toMs(h.time_open!)).toISOString() : ""),
@@ -265,15 +284,27 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: h.price_close,
       profit: Number(h.profit) * mult,
     }));
-  }, [history, lotSize, effectiveStartTs, adminStatus, updatedAt]);
+  }, [history, lotSize, effectiveStartTs, adminStatus, mtStatus, updatedAt]);
 
   const filteredOpen = useMemo(() => {
-    const endTs = (adminStatus && ((() => { const s = String(adminStatus).toLowerCase(); return s === 'disconnected' || s === 'stopped'; })()))
-      ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
-      : NaN;
+    const startTs = effectiveStartTs;
+    const aStatus = String(adminStatus || '').toLowerCase();
+    const mStatus = String(mtStatus || '').toLowerCase();
+    
+    // User says: "If user payment is done and user status is 'In-prcess' but user have request to connect in that case also system should not display any trades"
+    // This means if MT5 status is NOT running, don't show open positions.
+    const isActuallyRunning = (aStatus === 'running' || aStatus === 'active' || aStatus === 'in-process' || aStatus === 'in process') && 
+                               (mStatus === 'running' || mStatus === 'active');
+
+    if (!isActuallyRunning) return [];
+
     const mult = Number(lotSize) || 1;
     const rows = openPositions.filter((p) => {
-      if (Number.isFinite(endTs)) return false;
+      if (!Number.isFinite(startTs)) return false;
+      
+      const openMs = toMs(p.time ?? p.server_time);
+      if (!(Number.isFinite(openMs) && openMs >= startTs)) return false;
+      
       return true;
     });
     return rows.map((p) => ({
@@ -287,21 +318,28 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: p.price_current,
       profit: Number(p.profit) * mult,
     }));
-  }, [openPositions, lotSize, effectiveStartTs, adminStatus, updatedAt]);
+  }, [openPositions, lotSize, effectiveStartTs, adminStatus, mtStatus]);
 
   // Synthesize closures at disconnect time for any positions that were open at the cutoff
   const syntheticClosures = useMemo(() => {
     const startTs = effectiveStartTs;
-    const endTs = (adminStatus && (String(adminStatus).toLowerCase() !== 'running' && String(adminStatus).toLowerCase() !== 'active'))
+    const aStatus = String(adminStatus || '').toLowerCase();
+    const mStatus = String(mtStatus || '').toLowerCase();
+    const isRunningLike = aStatus === 'running' || aStatus === 'active' || 
+                         ((aStatus === 'in-process' || aStatus === 'in process') && (mStatus === 'running' || mStatus === 'active'));
+
+    const endTs = (!isRunningLike && (aStatus === 'disconnected' || aStatus === 'stopped'))
       ? (updatedAt ? new Date(updatedAt).getTime() : NaN)
       : NaN;
+    
     const mult = Number(lotSize) || 1;
     if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return [];
+    
     // Prefer snapshot positions at disconnect; fallback to current open positions
     const src = Array.isArray(snapshot?.positions) && snapshot.positions.length > 0 ? snapshot.positions : openPositions;
     // Take any open position whose open time is in [startTs, endTs]
     const rows = src.filter((p: any) => {
-      const openMs = toMs(p.server_time ?? p.time);
+      const openMs = toMs(p.time ?? p.server_time);
       return Number.isFinite(openMs) && openMs >= startTs && openMs <= endTs;
     });
     return rows.map((p: any) => ({
@@ -315,23 +353,28 @@ export default function CopierHistoryPage() {
       closeOrCurrentPrice: p.price_current,
       profit: Number(p.profit) * mult,
     }));
-  }, [openPositions, lotSize, effectiveStartTs, adminStatus, updatedAt, snapshot]);
+  }, [openPositions, lotSize, effectiveStartTs, adminStatus, mtStatus, updatedAt, snapshot]);
 
   const displayRows = useMemo(() => {
-    const isRunning = String(adminStatus || '').toLowerCase() === 'running' || String(adminStatus || '').toLowerCase() === 'active';
-    const closedRows = [...filteredClosed, ...(!isRunning ? syntheticClosures : [])];
-    if (filter === "opened") return isRunning ? filteredOpen : [];
+    const aStatus = String(adminStatus || '').toLowerCase();
+    const mStatus = String(mtStatus || '').toLowerCase();
+    const isActuallyRunning = (aStatus === 'running' || aStatus === 'active' || aStatus === 'in-process' || aStatus === 'in process') && 
+                               (mStatus === 'running' || mStatus === 'active');
+    
+    const closedRows = [...filteredClosed, ...(!isActuallyRunning ? syntheticClosures : [])];
+    
+    if (filter === "opened") return isActuallyRunning ? filteredOpen : [];
     if (filter === "closed") return closedRows.sort((a, b) => {
       const ta = Date.parse(a.openTimeStr || "") || 0;
       const tb = Date.parse(b.openTimeStr || "") || 0;
       return tb - ta;
     });
-    return [...(isRunning ? filteredOpen : []), ...closedRows].sort((a, b) => {
+    return [...(isActuallyRunning ? filteredOpen : []), ...closedRows].sort((a, b) => {
       const ta = Date.parse(a.openTimeStr || "") || 0;
       const tb = Date.parse(b.openTimeStr || "") || 0;
       return tb - ta;
     });
-  }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus]);
+  }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus, mtStatus]);
 
   const [lastRows, setLastRows] = useState<any[]>([]);
   useEffect(() => {
