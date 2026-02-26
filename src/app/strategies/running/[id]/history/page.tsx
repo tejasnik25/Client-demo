@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
+import UserLayout from "@/components/UserLayout";
+import { FiTrendingUp, FiDollarSign, FiTrendingDown } from "react-icons/fi";
 
 type HistoryItem = {
   position_id?: string;
@@ -397,6 +399,31 @@ export default function CopierHistoryPage() {
     });
   }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus, mtStatus]);
 
+  const stats = useMemo(() => {
+    let totalInvestment = 0;
+    let totalProfit = 0;
+    let totalLoss = 0;
+
+    displayRows.forEach((row: any) => {
+      const investment = Number(row.volume) * Number(row.openPrice);
+      const profit = Number(row.profit);
+      
+      totalInvestment += investment;
+      
+      if (profit >= 0) {
+        totalProfit += profit;
+      } else {
+        totalLoss += Math.abs(profit);
+      }
+    });
+
+    return {
+      totalInvestment: totalInvestment.toFixed(2),
+      totalProfit: totalProfit.toFixed(2),
+      totalLoss: totalLoss.toFixed(2)
+    };
+  }, [displayRows]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
@@ -406,16 +433,53 @@ export default function CopierHistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 px-6 py-8">
+    <UserLayout>
+      <div className="min-h-screen bg-gray-50 text-gray-900 px-6 py-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">View History</h1>
-            <p className="text-sm text-gray-600">{strategy?.name || "Strategy"} • Lot Size: {lotSize}</p>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-[#00d09c] to-[#7c3aed] bg-clip-text text-transparent">View History</h1>
+            <p className="text-sm text-gray-600 mt-1">{strategy?.name || "Strategy"} • Lot Size: {lotSize}</p>
           </div>
           <Button variant="outline" onClick={() => router.push("/strategies/running")}>
             Back
           </Button>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2 rounded-lg bg-blue-100">
+                <FiDollarSign className="h-5 w-5 text-blue-600" />
+              </div>
+              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Investment</span>
+            </div>
+            <div className="text-2xl font-bold text-gray-900">${stats.totalInvestment}</div>
+            <div className="text-sm text-gray-600 mt-1">Total amount invested</div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2 rounded-lg bg-green-100">
+                <FiTrendingUp className="h-5 w-5 text-green-600" />
+              </div>
+              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Profit</span>
+            </div>
+            <div className="text-2xl font-bold text-green-600">${stats.totalProfit}</div>
+            <div className="text-sm text-gray-600 mt-1">Total profitable gains</div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2 rounded-lg bg-red-100">
+                <FiTrendingDown className="h-5 w-5 text-red-600" />
+              </div>
+              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Loss</span>
+            </div>
+            <div className="text-2xl font-bold text-red-600">${stats.totalLoss}</div>
+            <div className="text-sm text-gray-600 mt-1">Total losses incurred</div>
+          </div>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -504,6 +568,7 @@ export default function CopierHistoryPage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </UserLayout>
   );
 }
