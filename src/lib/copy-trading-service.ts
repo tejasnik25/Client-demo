@@ -172,16 +172,22 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
           clearTimeout(timeoutId);
           
           if (!res.ok) {
-
-            // If it's a 404/500 from the server, it means we connected but something is wrong.
-            // We should probably NOT failover if we got a valid HTTP response (even error) from the primary?
-            // BUT, for 404 (Subscription not found), it might exist on the other server.
-            // For now, let's treat any error as a reason to try the fallback, 
-            // because "Connection Issue" is the main user complaint.
-            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            const errorText = await res.text().catch(() => res.statusText);
+            // If it's a 404, the subscription simply doesn't exist on this provider.
+            // We should NOT log this as a scary "Request failed" warning if we have multiple URLs,
+            // but we need to know if it's a 404.
+            if (res.status === 404) {
+              console.log(`[CopyTrading] Subscription not found on ${base} (404).`);
+              throw new Error(`404: Not Found`);
+            }
+            throw new Error(`HTTP ${res.status}: ${errorText}`);
           }
           return res.json();
         } catch (e: any) {
+          if (e.message.includes('404')) {
+            lastError = e;
+            continue; // Try next URL
+          }
           console.warn(`[CopyTrading] Request failed to ${url}: ${e.message}`);
           lastError = e;
           // Continue to next URL
@@ -189,6 +195,11 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     }
 
     // If we exhausted all URLs
+    if (lastError?.message?.includes('404')) {
+      console.log(`[CopyTrading] Subscription not found on any provider.`);
+      throw new Error('Subscription not found (404)');
+    }
+    
     console.error(`[CopyTrading] All connection attempts failed.`);
     if (lastError) {
         // Create a new error to avoid "Cannot set property message of which has only a getter"

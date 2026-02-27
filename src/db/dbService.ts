@@ -2323,6 +2323,7 @@ export const updateRunningStrategyAdminStatus = async (
     }
     return { success: true };
   } catch (error) {
+    console.error('MySQL updateRunningStrategyAdminStatus failed:', error);
     try {
       const db: any = readDatabase();
       const runs: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];

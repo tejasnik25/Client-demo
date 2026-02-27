@@ -51,13 +51,11 @@ export async function PATCH(
        // We don't delete anymore
     }
   }
-  let finalStatus = status
-  if (status === 'running' || status === 'disconnected') {
-    const remaining = await countRunningStrategyModificationsForRun(params.id)
-    if (remaining > 0) {
-      finalStatus = 'in-process'
-    }
-  }
+  // We directly use the status provided by the admin. 
+  // Previously we would set it back to 'in-process' if modifications were pending,
+  // but that created a bug where status could never be finalized.
+  const finalStatus = status;
+  
   const result = await updateRunningStrategyAdminStatus(params.id, finalStatus as any)
   if (!result.success) {
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
