@@ -2545,7 +2545,7 @@ export const getDisconnectSnapshots = async (runningStrategyId: string): Promise
       const snaps = Array.isArray(db.disconnect_snapshots) ? db.disconnect_snapshots : [];
       return snaps
         .filter((s: any) => s.running_strategy_id === runningStrategyId)
-        .sort((a, b) => new Date(b.snapshot_at).getTime() - new Date(a.snapshot_at).getTime());
+        .sort((a: any, b: any) => new Date(b.snapshot_at).getTime() - new Date(a.snapshot_at).getTime());
     } catch (e) {
       return [];
     }
