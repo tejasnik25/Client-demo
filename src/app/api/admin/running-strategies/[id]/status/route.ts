@@ -35,7 +35,7 @@ export async function PATCH(
       if (typeof (mod.mt_account_server ?? nu.mt_account_server) !== 'undefined') updates.mt_account_server = (mod.mt_account_server ?? nu.mt_account_server) || undefined
       await updateRunningStrategyMtDetails(params.id, updates)
     }
-    await deleteRunningStrategyModification(modId)
+    // We don't delete anymore, updateRunningStrategyAdminStatus handles the status update of the record
   } else if (!modId && (status === 'running' || status === 'disconnected')) {
     // Automatically process all pending modifications if status is being set to running/disconnected
     const pendingMods = await getPendingModificationsForStrategy(params.id)
@@ -48,7 +48,7 @@ export async function PATCH(
        if (typeof (mod.mt_account_server ?? nu.mt_account_server) !== 'undefined') updates.mt_account_server = (mod.mt_account_server ?? nu.mt_account_server) || undefined
        
        await updateRunningStrategyMtDetails(params.id, updates)
-       await deleteRunningStrategyModification(mod.id)
+       // We don't delete anymore
     }
   }
   let finalStatus = status

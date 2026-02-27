@@ -2317,6 +2317,9 @@ export const updateRunningStrategyAdminStatus = async (
     if (status !== 'running' && status !== 'disconnected') {
       // Otherwise, update in-process modification records to new status
       await pool.execute('UPDATE running_strategy_modifications SET status = ? WHERE running_strategy_id = ? AND status = ?', [status, id, 'in-process']);
+    } else {
+      // Keep records but mark them as completed with the new status (running/disconnected)
+      await pool.execute('UPDATE running_strategy_modifications SET status = ? WHERE running_strategy_id = ? AND status = ?', [status, id, 'in-process']);
     }
     return { success: true };
   } catch (error) {
@@ -2495,6 +2498,76 @@ export const deleteRunningStrategyForUserStrategy = async (
       return { success: true };
     } catch (jsonError) {
       return { success: false };
+    }
+  }
+};
+
+export const createDisconnectSnapshot = async (
+  payload: {
+    id: string;
+    running_strategy_id: string;
+    user_id: string;
+    positions: any[];
+  }
+) => {
+  try {
+    await pool.execute(
+      'INSERT INTO disconnect_snapshots (id, running_strategy_id, user_id, positions) VALUES (?, ?, ?, ?)',
+      [payload.id, payload.running_strategy_id, payload.user_id, JSON.stringify(payload.positions)]
+    );
+    return { success: true };
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const snaps = Array.isArray(db.disconnect_snapshots) ? db.disconnect_snapshots : [];
+      db.disconnect_snapshots = [...snaps, { ...payload, snapshot_at: new Date().toISOString() }];
+      writeDatabase(db);
+      return { success: true };
+    } catch (e) {
+      return { success: false };
+    }
+  }
+};
+
+export const getDisconnectSnapshots = async (runningStrategyId: string): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM disconnect_snapshots WHERE running_strategy_id = ? ORDER BY snapshot_at DESC',
+      [runningStrategyId]
+    );
+    return (rows as any[]).map(r => ({
+      ...r,
+      positions: typeof r.positions === 'string' ? JSON.parse(r.positions) : r.positions
+    }));
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const snaps = Array.isArray(db.disconnect_snapshots) ? db.disconnect_snapshots : [];
+      return snaps
+        .filter((s: any) => s.running_strategy_id === runningStrategyId)
+        .sort((a, b) => new Date(b.snapshot_at).getTime() - new Date(a.snapshot_at).getTime());
+    } catch (e) {
+      return [];
+    }
+  }
+};
+
+export const getRunningStrategyModifications = async (runningStrategyId: string): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM running_strategy_modifications WHERE running_strategy_id = ? ORDER BY created_at ASC',
+      [runningStrategyId]
+    );
+    return rows as any[];
+  } catch (error) {
+    try {
+      const db: any = readDatabase();
+      const mods: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      return mods
+        .filter((m: any) => m.running_strategy_id === runningStrategyId)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } catch (e) {
+      return [];
     }
   }
 };

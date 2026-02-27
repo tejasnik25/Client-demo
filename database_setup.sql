@@ -529,6 +529,17 @@ SET @ddl := IF(@exists_master_id = 0,
 );
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Disconnect Snapshots Table
+CREATE TABLE IF NOT EXISTS disconnect_snapshots (
+  id VARCHAR(36) PRIMARY KEY,
+  running_strategy_id VARCHAR(36) NOT NULL,
+  user_id VARCHAR(36) NOT NULL,
+  snapshot_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  positions JSON NOT NULL,
+  FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET @exists_master_pw := (
   SELECT COUNT(*) FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'strategies' AND COLUMN_NAME = 'master_account_password'

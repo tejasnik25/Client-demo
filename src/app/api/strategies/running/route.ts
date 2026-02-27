@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getRunningStrategiesForUser, getAllStrategies, getRunningStrategyById, getStrategyById } from '@/db/dbService';
+import { 
+  getRunningStrategiesForUser, 
+  getAllStrategies, 
+  getRunningStrategyById, 
+  getStrategyById,
+  getRunningStrategyModifications,
+  getDisconnectSnapshots
+} from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
 /**
@@ -30,12 +37,18 @@ export async function GET() {
       .forEach((s: any) => enabledMap.set(s.id, s));
 
     // Approved transactions for this user that reference a strategy
-    const running = runningRows
-      .map((r: any) => {
+    const running = await Promise.all(runningRows
+      .map(async (r: any) => {
         const s = Array.isArray(strategies) ? strategies.find((st: any) => st.id === r.strategyId) : null;
         const id = r.strategyId || s?.id;
         const name = s?.name || r.strategyName;
         if (!id) return null;
+
+        const [modifications, snapshots] = await Promise.all([
+          getRunningStrategyModifications(r.id),
+          getDisconnectSnapshots(r.id)
+        ]);
+
         const obj = {
           id,
           rsId: r.id,
@@ -52,15 +65,18 @@ export async function GET() {
           platform: r.platform ?? null,
           // Do NOT expose any account credentials in API responses
           rejectionReason: r.rejectionReason ?? null,
+          modifications,
+          snapshots
         };
         return obj;
-      })
-      .filter(Boolean);
+      }));
+
+    const filteredRunning = running.filter(Boolean);
 
     // Auto-recover missing subscriptions for running sessions in the background
     try {
       await Promise.all(
-        (running as any[]).map(async (item) => {
+        (filteredRunning as any[]).map(async (item) => {
           const st = String(item.adminStatus || item.status || '').toLowerCase();
           if (st !== 'running' && st !== 'active') return;
           try {
@@ -103,7 +119,7 @@ export async function GET() {
       // ignore batch failures
     }
 
-    return NextResponse.json({ strategies: running });
+    return NextResponse.json({ strategies: filteredRunning });
   } catch (error) {
     console.error('Error computing running strategies:', error);
     return NextResponse.json({ strategies: [] }, { status: 200 });
