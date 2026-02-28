@@ -2573,6 +2573,89 @@ export const getRunningStrategyModifications = async (runningStrategyId: string)
   }
 };
 
+export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean) => {
+  try {
+    for (const t of trades) {
+      const posId = String(t.position_id || t.id || '');
+      if (!posId) continue;
+
+      const timeOpen = t.time_open ? new Date(t.time_open < 1e12 ? t.time_open * 1000 : t.time_open) : null;
+      const timeClose = t.time_close ? new Date(t.time_close < 1e12 ? t.time_close * 1000 : t.time_close) : null;
+
+      await pool.execute(
+        `INSERT INTO master_trades_cache 
+         (master_id, position_id, time_open, time_close, server_time_open, server_time_close, symbol, type, volume, price_open, price_close, profit, is_open)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+         time_close = VALUES(time_close),
+         server_time_close = VALUES(server_time_close),
+         price_close = VALUES(price_close),
+         profit = VALUES(profit),
+         is_open = VALUES(is_open),
+         updated_at = CURRENT_TIMESTAMP`,
+        [
+          masterId,
+          posId,
+          timeOpen,
+          timeClose,
+          t.server_time_open || null,
+          t.server_time_close || null,
+          t.symbol || '',
+          String(t.type || ''),
+          t.volume || 0,
+          t.price_open || 0,
+          t.price_close || t.price_current || 0,
+          t.profit || 0,
+          isOpen ? 1 : 0
+        ]
+      );
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('upsertMasterTrades failed:', error);
+    return { success: false };
+  }
+};
+
+export const getCachedMasterTrades = async (masterId: string): Promise<{ history: any[], open_positions: any[] }> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM master_trades_cache WHERE master_id = ? ORDER BY time_open DESC',
+      [masterId]
+    );
+    const all = rows as any[];
+    return {
+      history: all.filter(r => !r.is_open).map(r => ({
+        position_id: r.position_id,
+        time_open: r.time_open ? new Date(r.time_open).getTime() : undefined,
+        time_close: r.time_close ? new Date(r.time_close).getTime() : undefined,
+        server_time_open: r.server_time_open,
+        server_time_close: r.server_time_close,
+        symbol: r.symbol,
+        type: r.type,
+        volume: r.volume,
+        price_open: r.price_open,
+        price_close: r.price_close,
+        profit: Number(r.profit)
+      })),
+      open_positions: all.filter(r => !!r.is_open).map(r => ({
+        position_id: r.position_id,
+        time: r.time_open ? new Date(r.time_open).getTime() : undefined,
+        server_time: r.server_time_open,
+        symbol: r.symbol,
+        type: r.type,
+        volume: r.volume,
+        price_open: r.price_open,
+        price_current: r.price_close,
+        profit: Number(r.profit)
+      }))
+    };
+  } catch (error) {
+    console.error('getCachedMasterTrades failed:', error);
+    return { history: [], open_positions: [] };
+  }
+};
+
 export const createRunningStrategyModification = async (
   payload: {
     id: string;

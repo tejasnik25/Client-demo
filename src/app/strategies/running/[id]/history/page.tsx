@@ -100,30 +100,17 @@ export default function CopierHistoryPage() {
         ]);
         const data = await hRes.json();
         
-        // Use cached data if current fetch failed or returned no history
-        if ((!data.history || data.history.length === 0) && (!data.open_positions || data.open_positions.length === 0)) {
-          const cached = localStorage.getItem(`history_cache_${params.id}`);
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            setHistory(parsed.history || []);
-            setOpenPositions(parsed.open_positions || []);
-          } else {
-            setHistory([]);
-            setOpenPositions([]);
-          }
-        } else {
-          setHistory(data.history || []);
-          setOpenPositions(data.open_positions || []);
-          // Save successful fetch to cache
-          localStorage.setItem(`history_cache_${params.id}`, JSON.stringify({
-            history: data.history || [],
-            open_positions: data.open_positions || []
-          }));
-        }
+        setHistory(data.history || []);
+        setOpenPositions(data.open_positions || []);
         
         setHistoryError(data.error || null);
         const runData = await runRes.json().catch(() => null);
-        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.id === params.id) : null;
+        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => (x.id === params.id || x.strategyId === params.id)) : null;
+        
+        if (!me) {
+          console.warn("No matching running strategy found for current user session.");
+          return;
+        }
         
         const aStatus = String(me?.adminStatus || '').toLowerCase();
         const mStatus = String(me?.status || '').toLowerCase();

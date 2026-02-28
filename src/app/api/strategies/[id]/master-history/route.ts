@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStrategyById } from '@/db/dbService';
+import { getStrategyById, upsertMasterTrades, getCachedMasterTrades } from '@/db/dbService';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -204,7 +204,39 @@ export async function GET(
     // Only surface non-404 errors so UI doesn't show long "Not Found" chains
     const errorStr = non404Errors.length ? non404Errors.join(' | ') : undefined;
 
-    return NextResponse.json({ history, open_positions, error: errorStr });
+    // Persist to temporary storage (MySQL Cache) before returning
+    if (history.length > 0) {
+      await upsertMasterTrades(masterId, history, false);
+    }
+    if (open_positions.length > 0) {
+      await upsertMasterTrades(masterId, open_positions, true);
+    }
+
+    // Always merge with cached data to ensure completeness
+    const cached = await getCachedMasterTrades(masterId);
+    
+    // Create map for deduplication, preferring fresh data
+    const historyMap = new Map();
+    cached.history.forEach(t => historyMap.set(t.position_id, t));
+    history.forEach(t => historyMap.set(t.position_id, t));
+    
+    const openMap = new Map();
+    // For open positions, we only want the ones currently reported as open by MT5
+    // But if fetch failed completely, we might fallback to cache (though risky for open trades)
+    if (open_positions.length > 0) {
+      open_positions.forEach(t => openMap.set(t.position_id, t));
+    } else if (!errorStr) {
+      // If MT5 says 0 open positions and no error, then 0 are open.
+    } else {
+      // If error, show last known open positions
+      cached.open_positions.forEach(t => openMap.set(t.position_id, t));
+    }
+
+    return NextResponse.json({ 
+      history: Array.from(historyMap.values()).sort((a, b) => (b.time_open || 0) - (a.time_open || 0)), 
+      open_positions: Array.from(openMap.values()), 
+      error: errorStr 
+    });
   } catch (error: any) {
     console.error('Error fetching master history:', error);
     return NextResponse.json({ history: [], open_positions: [], error: 'Connection to trading service failed' });

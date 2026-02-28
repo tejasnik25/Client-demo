@@ -252,6 +252,26 @@ CREATE TABLE IF NOT EXISTS running_strategy_modifications (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Master Trades Cache Table (Temporary Storage for Real-time Trades)
+CREATE TABLE IF NOT EXISTS master_trades_cache (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  master_id VARCHAR(255) NOT NULL,
+  position_id VARCHAR(255) NOT NULL,
+  time_open TIMESTAMP NULL,
+  time_close TIMESTAMP NULL,
+  server_time_open VARCHAR(64),
+  server_time_close VARCHAR(64),
+  symbol VARCHAR(64),
+  type VARCHAR(32),
+  volume DECIMAL(14, 2),
+  price_open DECIMAL(14, 5),
+  price_close DECIMAL(14, 5),
+  profit DECIMAL(14, 2),
+  is_open BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY idx_master_pos (master_id, position_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Payment Transactions Table
 CREATE TABLE IF NOT EXISTS payment_transactions (
   id VARCHAR(36) PRIMARY KEY,
