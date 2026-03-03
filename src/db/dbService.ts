@@ -2598,13 +2598,35 @@ const createMasterTradesCacheTable = async () => {
 };
 
 export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean) => {
+  const toMs = (v: string | number | undefined): number => {
+    if (v == null) return NaN;
+    if (typeof v === "string") {
+      let t = Date.parse(v);
+      if (!Number.isFinite(t)) t = Date.parse(v.replace(/\./g, '-'));
+      if (!Number.isFinite(t)) {
+        const m = v.match(/^(\d{4})\.(\d{2})\.(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+        if (m) {
+          const [_, yy, MM, dd, hh, mm, ss] = m;
+          const d = new Date(Number(yy), Number(MM) - 1, Number(dd), Number(hh), Number(mm), Number(ss));
+          t = d.getTime();
+        }
+      }
+      return Number.isFinite(t) ? t : NaN;
+    }
+    const num = Number(v);
+    if (!Number.isFinite(num)) return NaN;
+    return num < 1e12 ? num * 1000 : num;
+  };
+
   try {
     for (const t of trades) {
       const posId = String(t.position_id || t.id || '');
       if (!posId) continue;
 
-      const timeOpen = t.time_open ? new Date(t.time_open < 1e12 ? t.time_open * 1000 : t.time_open) : null;
-      const timeClose = t.time_close ? new Date(t.time_close < 1e12 ? t.time_close * 1000 : t.time_close) : null;
+      const msOpen = toMs(t.time_open ?? t.server_time_open);
+      const msClose = toMs(t.time_close ?? t.server_time_close);
+      const timeOpen = Number.isFinite(msOpen) ? new Date(msOpen) : null;
+      const timeClose = Number.isFinite(msClose) ? new Date(msClose) : null;
 
       try {
         await pool.execute(

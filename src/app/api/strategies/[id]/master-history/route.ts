@@ -18,8 +18,11 @@ export async function GET(
 
   const masterId = strategy.masterAccountId;
   if (!masterId) {
+    console.error(`[MasterHistory] Master ID not found for strategy ${id}`);
     return NextResponse.json({ error: 'Master ID not found for this strategy' }, { status: 404 });
   }
+
+  console.log(`[MasterHistory] Fetching history for master ${masterId} (Strategy: ${id})`);
 
   // Resolve provider URL similar to copy-trading-service
   let apiUrl =
@@ -206,14 +209,17 @@ export async function GET(
 
     // Persist to temporary storage (MySQL Cache) before returning
     if (history.length > 0) {
+      console.log(`[MasterHistory] Upserting ${history.length} closed trades for ${masterId}`);
       await upsertMasterTrades(masterId, history, false);
     }
     if (open_positions.length > 0) {
+      console.log(`[MasterHistory] Upserting ${open_positions.length} open positions for ${masterId}`);
       await upsertMasterTrades(masterId, open_positions, true);
     }
 
     // Always merge with cached data to ensure completeness
     const cached = await getCachedMasterTrades(masterId);
+    console.log(`[MasterHistory] Cache for ${masterId}: ${cached.history.length} closed, ${cached.open_positions.length} open`);
     
     // Create map for deduplication, preferring fresh data
     const historyMap = new Map();
