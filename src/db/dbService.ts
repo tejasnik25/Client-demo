@@ -2573,6 +2573,30 @@ export const getRunningStrategyModifications = async (runningStrategyId: string)
   }
 };
 
+const createMasterTradesCacheTable = async () => {
+  const sql = `
+    CREATE TABLE IF NOT EXISTS master_trades_cache (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      master_id VARCHAR(255) NOT NULL,
+      position_id VARCHAR(255) NOT NULL,
+      time_open TIMESTAMP NULL,
+      time_close TIMESTAMP NULL,
+      server_time_open VARCHAR(64),
+      server_time_close VARCHAR(64),
+      symbol VARCHAR(64),
+      type VARCHAR(32),
+      volume DECIMAL(14, 2),
+      price_open DECIMAL(14, 5),
+      price_close DECIMAL(14, 5),
+      profit DECIMAL(14, 2),
+      is_open BOOLEAN DEFAULT FALSE,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_master_pos (master_id, position_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `;
+  await pool.query(sql);
+};
+
 export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean) => {
   try {
     for (const t of trades) {
@@ -2582,33 +2606,69 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
       const timeOpen = t.time_open ? new Date(t.time_open < 1e12 ? t.time_open * 1000 : t.time_open) : null;
       const timeClose = t.time_close ? new Date(t.time_close < 1e12 ? t.time_close * 1000 : t.time_close) : null;
 
-      await pool.execute(
-        `INSERT INTO master_trades_cache 
-         (master_id, position_id, time_open, time_close, server_time_open, server_time_close, symbol, type, volume, price_open, price_close, profit, is_open)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-         time_close = VALUES(time_close),
-         server_time_close = VALUES(server_time_close),
-         price_close = VALUES(price_close),
-         profit = VALUES(profit),
-         is_open = VALUES(is_open),
-         updated_at = CURRENT_TIMESTAMP`,
-        [
-          masterId,
-          posId,
-          timeOpen,
-          timeClose,
-          t.server_time_open || null,
-          t.server_time_close || null,
-          t.symbol || '',
-          String(t.type || ''),
-          t.volume || 0,
-          t.price_open || 0,
-          t.price_close || t.price_current || 0,
-          t.profit || 0,
-          isOpen ? 1 : 0
-        ]
-      );
+      try {
+        await pool.execute(
+          `INSERT INTO master_trades_cache 
+           (master_id, position_id, time_open, time_close, server_time_open, server_time_close, symbol, type, volume, price_open, price_close, profit, is_open)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+           time_close = VALUES(time_close),
+           server_time_close = VALUES(server_time_close),
+           price_close = VALUES(price_close),
+           profit = VALUES(profit),
+           is_open = VALUES(is_open),
+           updated_at = CURRENT_TIMESTAMP`,
+          [
+            masterId,
+            posId,
+            timeOpen,
+            timeClose,
+            t.server_time_open || null,
+            t.server_time_close || null,
+            t.symbol || '',
+            String(t.type || ''),
+            t.volume || 0,
+            t.price_open || 0,
+            t.price_close || t.price_current || 0,
+            t.profit || 0,
+            isOpen ? 1 : 0
+          ]
+        );
+      } catch (innerError: any) {
+        if (innerError.code === 'ER_NO_SUCH_TABLE') {
+          await createMasterTradesCacheTable();
+          // Retry once after creation
+          await pool.execute(
+            `INSERT INTO master_trades_cache 
+             (master_id, position_id, time_open, time_close, server_time_open, server_time_close, symbol, type, volume, price_open, price_close, profit, is_open)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+             time_close = VALUES(time_close),
+             server_time_close = VALUES(server_time_close),
+             price_close = VALUES(price_close),
+             profit = VALUES(profit),
+             is_open = VALUES(is_open),
+             updated_at = CURRENT_TIMESTAMP`,
+            [
+              masterId,
+              posId,
+              timeOpen,
+              timeClose,
+              t.server_time_open || null,
+              t.server_time_close || null,
+              t.symbol || '',
+              String(t.type || ''),
+              t.volume || 0,
+              t.price_open || 0,
+              t.price_close || t.price_current || 0,
+              t.profit || 0,
+              isOpen ? 1 : 0
+            ]
+          );
+        } else {
+          throw innerError;
+        }
+      }
     }
     return { success: true };
   } catch (error) {
@@ -2619,13 +2679,23 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
 
 export const getCachedMasterTrades = async (masterId: string): Promise<{ history: any[], open_positions: any[] }> => {
   try {
-    const [rows] = await pool.execute(
-      'SELECT * FROM master_trades_cache WHERE master_id = ? ORDER BY time_open DESC',
-      [masterId]
-    );
-    const all = rows as any[];
+    let rows: any[] = [];
+    try {
+      const [result] = await pool.execute(
+        'SELECT * FROM master_trades_cache WHERE master_id = ? ORDER BY time_open DESC',
+        [masterId]
+      );
+      rows = result as any[];
+    } catch (innerError: any) {
+      if (innerError.code === 'ER_NO_SUCH_TABLE') {
+        await createMasterTradesCacheTable();
+        return { history: [], open_positions: [] };
+      }
+      throw innerError;
+    }
+
     return {
-      history: all.filter(r => !r.is_open).map(r => ({
+      history: rows.filter(r => !r.is_open).map(r => ({
         position_id: r.position_id,
         time_open: r.time_open ? new Date(r.time_open).getTime() : undefined,
         time_close: r.time_close ? new Date(r.time_close).getTime() : undefined,
@@ -2638,7 +2708,7 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         price_close: r.price_close,
         profit: Number(r.profit)
       })),
-      open_positions: all.filter(r => !!r.is_open).map(r => ({
+      open_positions: rows.filter(r => !!r.is_open).map(r => ({
         position_id: r.position_id,
         time: r.time_open ? new Date(r.time_open).getTime() : undefined,
         server_time: r.server_time_open,
