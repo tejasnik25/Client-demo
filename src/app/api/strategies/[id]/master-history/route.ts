@@ -37,175 +37,136 @@ export async function GET(
     process.env.NEXT_PUBLIC_COPY_TRADING_API_KEY ||
     '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
 
-  const mapClosed = (p: any) => ({
-    position_id: p.position_id ?? p.ticket ?? p.id ?? undefined,
-    time_open: p.time_open ?? p.open_time ?? p.time ?? p.time_entry ?? undefined,
-    time_close: p.time_close ?? p.close_time ?? p.time_exit ?? undefined,
-    server_time_open: p.server_time_open ?? p.time_open_str ?? p.open_time_str ?? undefined,
-    server_time_close: p.server_time_close ?? p.time_close_str ?? undefined,
-    symbol: p.symbol ?? p.instrument ?? '',
-    type: p.type ?? p.side ?? '',
-    volume: p.volume ?? p.lots ?? p.volume_lots ?? 0,
-    price_open: p.price_open ?? p.open ?? p.entry_price ?? 0,
-    price_close: p.price_close ?? p.close ?? p.exit_price ?? p.price_current ?? 0,
-    profit: Number(p.profit ?? p.pnl ?? 0),
-  });
-  const mapOpen = (p: any) => ({
-    server_time: p.server_time ?? p.time_str ?? undefined,
-    time: p.time ?? p.open_time ?? p.time_open ?? undefined,
-    symbol: p.symbol ?? p.instrument ?? '',
-    type: p.type ?? p.side ?? '',
-    volume: p.volume ?? p.lots ?? p.volume_lots ?? 0,
-    price_open: p.price_open ?? p.open ?? p.entry_price ?? 0,
-    price_current: p.price_current ?? p.current_price ?? p.close ?? 0,
-    profit: Number(p.profit ?? p.pnl ?? 0),
-  });
+  const mapClosed = (p: any) => {
+    const rawType = p.type ?? p.side ?? '';
+    // MT5: 0=Buy, 1=Sell. Others might use "buy"/"sell" strings.
+    const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'buy' : 
+                 (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'sell' : String(rawType);
+    
+    return {
+      position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
+      time_open: p.time_open ?? p.open_time ?? p.time ?? p.time_entry ?? undefined,
+      time_close: p.time_close ?? p.close_time ?? p.time_exit ?? undefined,
+      server_time_open: p.server_time_open ?? p.time_open_str ?? p.open_time_str ?? undefined,
+      server_time_close: p.server_time_close ?? p.time_close_str ?? undefined,
+      symbol: p.symbol ?? p.instrument ?? '',
+      type,
+      volume: p.volume ?? p.lots ?? p.volume_lots ?? 0,
+      price_open: p.price_open ?? p.open ?? p.entry_price ?? 0,
+      price_close: p.price_close ?? p.close ?? p.exit_price ?? p.price_current ?? 0,
+      profit: Number(p.profit ?? p.pnl ?? 0),
+    };
+  };
+
+  const mapOpen = (p: any) => {
+    const rawType = p.type ?? p.side ?? '';
+    const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'buy' : 
+                 (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'sell' : String(rawType);
+
+    return {
+      position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
+      server_time: p.server_time ?? p.time_str ?? undefined,
+      time: p.time ?? p.open_time ?? p.time_open ?? undefined,
+      symbol: p.symbol ?? p.instrument ?? '',
+      type,
+      volume: p.volume ?? p.lots ?? p.volume_lots ?? 0,
+      price_open: p.price_open ?? p.open ?? p.entry_price ?? 0,
+      price_current: p.price_current ?? p.current_price ?? p.close ?? 0,
+      profit: Number(p.profit ?? p.pnl ?? 0),
+    };
+  };
 
   try {
     const started = Date.now();
-    const TOTAL_BUDGET_MS = Math.min(
-      Number(process.env.MASTER_HISTORY_TOTAL_TIMEOUT_MS || 20000),
-      25000
-    );
-    const PER_REQ_TIMEOUT_MS = Math.min(
-      Number(process.env.MASTER_HISTORY_PER_REQUEST_TIMEOUT_MS || 2500),
-      TOTAL_BUDGET_MS
-    );
-    const timeLeft = () => Math.max(0, TOTAL_BUDGET_MS - (Date.now() - started));
+    const TOTAL_BUDGET_MS = 20000;
+    const PER_REQ_TIMEOUT_MS = 4000;
+    
     const timedFetch = async (url: string, init?: RequestInit) => {
-      const timeoutMs = Math.min(PER_REQ_TIMEOUT_MS, timeLeft());
-      const controller = AbortSignal.timeout(timeoutMs);
-      return fetch(url, { ...init, signal: controller });
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), PER_REQ_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, { ...init, signal: controller.signal });
+        clearTimeout(id);
+        return res;
+      } catch (e) {
+        clearTimeout(id);
+        throw e;
+      }
     };
 
     const pathsClosed = [
       `/master/${masterId}/history`,
       `/masters/${masterId}/history`,
       `/master/${masterId}/positions/closed`,
-      `/masters/${masterId}/positions/closed`,
       `/master/${masterId}/trades/closed`,
-      `/masters/${masterId}/trades/closed`,
-      `/master/${masterId}/trades`,
-      `/masters/${masterId}/trades`,
-      `/master/history?id=${masterId}`,
-      `/masters/history?id=${masterId}`
     ];
     const pathsOpen = [
       `/master/${masterId}/open`,
       `/masters/${masterId}/open`,
       `/master/${masterId}/positions/open`,
-      `/masters/${masterId}/positions/open`,
-      `/master/${masterId}/positions/current`,
-      `/masters/${masterId}/positions/current`,
-      `/master/${masterId}/positions`
+      `/master/${masterId}/positions`,
     ];
 
     let history: any[] = [];
     let open_positions: any[] = [];
-    const errors: string[] = [];
-    const non404Errors: string[] = [];
 
-    for (const p of pathsClosed) {
-      if (timeLeft() < 300) break;
-      try {
-        const res = await timedFetch(`${apiUrl}${p}`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' });
-        if (!res.ok) {
-          try {
-            const ej = await res.json().catch(() => null);
-            const msg = ej?.detail ? `${p}: ${ej.detail}` : `${p}: ${res.status} ${res.statusText}`;
-            errors.push(msg);
-            if (res.status !== 404) non404Errors.push(msg);
-          } catch {
-            const msg = `${p}: ${res.status} ${res.statusText}`;
-            errors.push(msg);
-            if (res.status !== 404) non404Errors.push(msg);
-          }
-          continue;
-        }
-        const json = await res.json().catch(() => null);
+    // Parallelize all primary paths to reduce delay significantly
+    const allPaths = [...pathsClosed, ...pathsOpen];
+    const results = await Promise.allSettled(
+      allPaths.map(p => timedFetch(`${apiUrl}${p}`, { 
+        headers: { Authorization: `Bearer ${apiKey}` }, 
+        cache: 'no-store' 
+      }))
+    );
+    
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === 'fulfilled' && r.value.ok) {
+        const json = await r.value.json().catch(() => null);
+        if (!json) continue;
+
         if (Array.isArray(json)) {
-          history = json.map(mapClosed);
-        } else if (json && typeof json === 'object') {
-          // Accept various shapes: direct keys, nested data/results, mixed objects
-          const candidatesClosed = [
-            json.history,
-            json.closed_positions,
-            json.closed,
-            json.positions,
-            json.trades,
-            json.data?.history,
-            json.data?.closed_positions,
-            json.data?.closed,
-            json.data?.positions,
-            json.data?.trades,
-            json.results,
-          ].find((x: any) => Array.isArray(x)) || [];
-          if (Array.isArray(candidatesClosed)) {
-            history = candidatesClosed.map(mapClosed);
+          const isHistory = json.length > 0 && ('time_close' in json[0] || 'close_time' in json[0] || 'price_close' in json[0]);
+          if (isHistory) {
+            const mapped = json.map(mapClosed);
+            history = [...history, ...mapped];
+          } else {
+            const mapped = json.map(mapOpen);
+            open_positions = [...open_positions, ...mapped];
           }
-          const candidatesOpen = [
-            json.open_positions,
-            json.open,
-            json.positions,
-            json.data?.open_positions,
-            json.data?.open,
-            json.data?.positions,
-            json.results,
-          ].find((x: any) => Array.isArray(x)) || [];
-          if (Array.isArray(candidatesOpen)) {
-            open_positions = candidatesOpen.map(mapOpen);
-          }
-        }
-        if (history.length > 0 || open_positions.length > 0) break;
-      } catch (e: any) {
-        errors.push(`${p}: ${e?.message || 'request failed'}`);
-      }
-    }
-
-    if (open_positions.length === 0) {
-      for (const p of pathsOpen) {
-        if (timeLeft() < 300) break;
-        try {
-          const res = await timedFetch(`${apiUrl}${p}`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' });
-          if (!res.ok) {
-            try {
-              const ej = await res.json().catch(() => null);
-              const msg = ej?.detail ? `${p}: ${ej.detail}` : `${p}: ${res.status} ${res.statusText}`;
-              errors.push(msg);
-              if (res.status !== 404) non404Errors.push(msg);
-            } catch {
-              const msg = `${p}: ${res.status} ${res.statusText}`;
-              errors.push(msg);
-              if (res.status !== 404) non404Errors.push(msg);
+        } else {
+          const extract = (obj: any, keys: string[]) => {
+            for (const k of keys) {
+              if (Array.isArray(obj[k])) return obj[k];
+              if (obj.data && Array.isArray(obj.data[k])) return obj.data[k];
             }
-            continue;
-          }
-          const json = await res.json().catch(() => null);
-          const rawOpen = Array.isArray(json)
-            ? json
-            : (
-              json?.open_positions ??
-              json?.open ??
-              json?.positions ??
-              json?.trades ??
-              json?.data?.open_positions ??
-              json?.data?.open ??
-              json?.data?.positions ??
-              json?.data?.trades ??
-              json?.results
-            );
-          if (Array.isArray(rawOpen)) {
-            open_positions = rawOpen.map(mapOpen);
-            if (open_positions.length > 0) break;
-          }
-        } catch (e: any) {
-          errors.push(`${p}: ${e?.message || 'request failed'}`);
+            return null;
+          };
+
+          const hRaw = extract(json, ['history', 'closed_positions', 'closed', 'trades', 'results']);
+          const oRaw = extract(json, ['open_positions', 'open', 'positions', 'results']);
+          
+          if (hRaw) history = [...history, ...hRaw.map(mapClosed)];
+          if (oRaw) open_positions = [...open_positions, ...oRaw.map(mapOpen)];
         }
       }
     }
 
-    // Only surface non-404 errors so UI doesn't show long "Not Found" chains
-    const errorStr = non404Errors.length ? non404Errors.join(' | ') : undefined;
+    // Deduplicate fresh history and open_positions
+    const freshHistoryMap = new Map();
+    history.forEach(t => freshHistoryMap.set(t.position_id, t));
+    history = Array.from(freshHistoryMap.values());
+
+    const freshOpenMap = new Map();
+    open_positions.forEach(t => freshOpenMap.set(t.position_id, t));
+    open_positions = Array.from(freshOpenMap.values());
+
+    // CRITICAL: A trade cannot be in both history and open_positions.
+    // If it's in history (closed), remove it from open_positions.
+    open_positions = open_positions.filter(op => !freshHistoryMap.has(op.position_id));
+
+    // Only surface non-404 errors if we found absolutely nothing
+    const errorStr = (history.length === 0 && open_positions.length === 0) ? "No data found from provider" : undefined;
 
     // Persist to temporary storage (MySQL Cache) before returning
     if (history.length > 0) {

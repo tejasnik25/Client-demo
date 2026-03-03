@@ -483,9 +483,9 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            pos.type === 0 || pos.type === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                           }`}>
-                            {pos.type === 0 ? 'BUY' : pos.type === 1 ? 'SELL' : pos.type}
+                            {String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'BUY' : 'SELL'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
@@ -547,9 +547,9 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            pos.type === 0 || pos.type === 'buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                           }`}>
-                            {pos.type === 0 ? 'BUY' : pos.type === 1 ? 'SELL' : pos.type}
+                            {String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'BUY' : 'SELL'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-gray-600">{pos.volume}</td>

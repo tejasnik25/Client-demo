@@ -532,10 +532,10 @@ export default function CopierHistoryPage() {
                       <td className="px-6 py-4">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            pos.type === 0 || pos.type === "buy" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                            String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                           }`}
                         >
-                          {pos.type === 0 ? "BUY" : (pos as any).type === 1 ? "SELL" : String((pos as any).type)}
+                          {String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? "BUY" : "SELL"}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
