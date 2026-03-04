@@ -302,19 +302,14 @@ const resetAddForm = () => {
       if (currentStrategy.masterAccountServer) formData.append('masterAccountServer', currentStrategy.masterAccountServer);
       if (currentStrategy.masterPlatform) formData.append('masterPlatform', currentStrategy.masterPlatform);
 
-      // Plans
-      const pp = currentStrategy.planPrices || {};
-      if (pp.Pro !== undefined) formData.append('planPro', String(pp.Pro));
-      if (pp.Expert !== undefined) formData.append('planExpert', String(pp.Expert));
-      if (pp.Premium !== undefined) formData.append('planPremium', String(pp.Premium));
-
-      // Plan display details
-      if (planRanges.Pro) formData.append('planProLabel', planRanges.Pro);
-      if (planRanges.Expert) formData.append('planExpertLabel', planRanges.Expert);
-      if (planRanges.Premium) formData.append('planPremiumLabel', planRanges.Premium);
-      if (planPercents.Pro !== undefined) formData.append('planProPercent', String(planPercents.Pro));
-      if (planPercents.Expert !== undefined) formData.append('planExpertPercent', String(planPercents.Expert));
-      if (planPercents.Premium !== undefined) formData.append('planPremiumPercent', String(planPercents.Premium));
+      // Plans: removed Pro/Expert/Premium specific inputs per request
+      // We will now only use the base lot pricing
+      formData.append('planPro', '0');
+      formData.append('planExpert', '0');
+      formData.append('planPremium', '0');
+      formData.append('planProPercent', '0');
+      formData.append('planExpertPercent', '0');
+      formData.append('planPremiumPercent', '0');
 
       // Lot pricing rows -> JSON string
       const lotPricing = lotRows
@@ -929,22 +924,43 @@ const resetAddForm = () => {
 
           {/* Lot Size Pricing */}
           <Separator className="my-4 bg-gray-200" />
-          <div className="space-y-2">
-            <Label className="text-gray-700">Lot Size Pricing</Label>
-            <p className="text-xs text-gray-600">Enter the USD amount for 1 Lot. Pricing for larger lots will be calculated linearly (e.g. 2 Lots = 2×base, 3 Lots = 3×base).</p>
-            <div className="space-y-2 max-w-md">
-              <Label className="text-gray-700">Price for 1 Lot (USD)</Label>
-              <Input
-                value={(lotRows[0] && lotRows[0].amountUSD) || ''}
-                onChange={(e) => setLotRows((prev) => {
-                  const v = e.target.value;
-                  if (!prev || prev.length === 0) return [{ amountUSD: v, lot: '1', id: `lot-${Date.now()}` }];
-                  return [{ ...prev[0], amountUSD: v, lot: '1' }, ...prev.slice(1)];
-                })}
-                placeholder="e.g. 25"
-                className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
-              />
-              <p className="text-xs text-gray-500">Admin should enter the price for 1 Lot only. The system will multiply this value for x2, x3 and custom lot sizes.</p>
+          <div className="space-y-4">
+            <Label className="text-gray-700 font-bold text-lg">Lot Size Pricing</Label>
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
+              <div className="space-y-2 max-w-md">
+                <Label className="text-gray-700 font-semibold">Price for 1 Lot (USD) *</Label>
+                <Input
+                  type="number"
+                  value={(lotRows[0] && lotRows[0].amountUSD) || ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setLotRows([{ amountUSD: v, lot: '1', id: `lot-1` }]);
+                  }}
+                  placeholder="e.g. 25"
+                  className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 font-medium"
+                  required
+                />
+                <p className="text-xs text-gray-500 italic">
+                  Admin should enter the price for 1 Lot only. The system will automatically calculate pricing for Equal (x1), Double (x2), Triple (x3), and Custom lot sizes.
+                </p>
+              </div>
+              
+              {lotRows[0]?.amountUSD && Number(lotRows[0].amountUSD) > 0 && (
+                <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200">
+                  <div className="text-center p-2 bg-white rounded border border-gray-100">
+                    <div className="text-xs text-gray-500 uppercase font-bold">x1 (Equal)</div>
+                    <div className="text-sm font-bold text-primary">${Number(lotRows[0].amountUSD).toFixed(2)}</div>
+                  </div>
+                  <div className="text-center p-2 bg-white rounded border border-gray-100">
+                    <div className="text-xs text-gray-500 uppercase font-bold">x2 (Double)</div>
+                    <div className="text-sm font-bold text-primary">${(Number(lotRows[0].amountUSD) * 2).toFixed(2)}</div>
+                  </div>
+                  <div className="text-center p-2 bg-white rounded border border-gray-100">
+                    <div className="text-xs text-gray-500 uppercase font-bold">x3 (Triple)</div>
+                    <div className="text-sm font-bold text-primary">${(Number(lotRows[0].amountUSD) * 3).toFixed(2)}</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
             </form>
