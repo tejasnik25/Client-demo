@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PaymentData } from '@/types';
 
 interface Stage0Props {
@@ -15,31 +14,30 @@ interface Stage0Props {
 type LotOption = { amountUSD: number; lot: number };
 
 const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }: Stage0Props) => {
-  const lotOptions: LotOption[] = useMemo(() => {
+  // Derive base price for 1 Lot from strategy parameters
+  const basePrice: number | null = useMemo(() => {
     const raw = (strategy?.parameters && (strategy.parameters as any).lotPricing) || '';
     try {
       const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        return arr
-          .map((x) => ({
-            amountUSD: Number(x.amountUSD),
-            lot: Number(x.lot),
-          }))
-          .filter((x) => x.amountUSD > 0 && x.lot > 0)
-          .sort((a, b) => a.amountUSD - b.amountUSD);
+      if (Array.isArray(arr) && arr.length > 0) {
+        // Prefer an explicit lot=1 entry
+        const one = arr.find((x: any) => Number(x.lot) === 1);
+        const src = one || arr[0];
+        const amt = Number(src.amountUSD);
+        return Number.isFinite(amt) && amt > 0 ? amt : null;
       }
     } catch {}
-    return [];
+    return null;
   }, [strategy]);
 
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedMultiplier, setSelectedMultiplier] = useState<number | null>(null);
+  const [customLot, setCustomLot] = useState<string>('');
+  const [showCustom, setShowCustom] = useState<boolean>(false);
 
-  const handleSelect = (key: string) => {
-    setSelectedKey(key);
-    const [amountStr, lotStr] = key.split('|');
-    const amountUSD = Number(amountStr);
-    const lot = Number(lotStr);
-    const lotLabel = `USD ${amountUSD} – ${lot} Lot`;
+  const applySelection = (lot: number) => {
+    if (!basePrice) return;
+    const amount = basePrice * lot;
+    const lotLabel = `USD ${amount} – ${lot} Lot`;
     setPaymentData((prev) => ({
       ...(prev || {}),
       strategyId: strategy?.id,
@@ -47,12 +45,12 @@ const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }:
       profit: strategy?.profit ?? 0,
       lotSize: lot,
       lotLabel,
-      payable: amountUSD,
+      payable: amount,
     } as PaymentData));
   };
 
   const handleContinue = () => {
-    if (selectedKey) onNext();
+    if (paymentData?.payable != null) onNext();
   };
 
   return (
@@ -62,27 +60,59 @@ const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }:
         <p className="text-gray-600">Choose the lot size configured by admin</p>
       </div>
 
-      <div className="max-w-md">
-        <Select onValueChange={handleSelect} value={selectedKey || undefined}>
-          <SelectTrigger className="bg-white text-gray-900 border border-gray-300">
-            <SelectValue placeholder="Select Lot Size" />
-          </SelectTrigger>
-          <SelectContent className="bg-white text-gray-900 border border-gray-200">
-            {lotOptions.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-500">No lot sizes available</div>
-            ) : (
-              lotOptions.map((opt) => {
-                const key = `${opt.amountUSD}|${opt.lot}`;
-                const label = `USD ${opt.amountUSD} – ${opt.lot} Lot`;
-                return (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
-                );
-              })
-            )}
-          </SelectContent>
-        </Select>
+      <div className="max-w-md space-y-4">
+        {!basePrice ? (
+          <div className="text-sm text-gray-500">No pricing configured for this strategy.</div>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-3">
+              {[1,2,3].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => { setSelectedMultiplier(m); setCustomLot(''); setShowCustom(false); applySelection(m); }}
+                  className={`p-3 text-left rounded ${selectedMultiplier===m && !showCustom ? 'border-2 border-primary bg-primary/10' : 'border bg-white'} `}
+                >
+                  <div className="text-sm font-semibold">{m===1? 'Equal x1' : m===2 ? 'Double x2' : 'Triple x3'}</div>
+                  <div className="text-xs text-gray-600">${(basePrice * m).toFixed(2)} required</div>
+                  <div className="text-xs text-gray-400">×{m} trade volume</div>
+                </button>
+              ))}
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => { setShowCustom(true); setSelectedMultiplier(null); setPaymentData((prev) => ({ ...(prev||{}), lotSize: undefined, lotLabel: undefined, payable: undefined } as any)); }}
+                className="text-sm text-blue-600"
+              >
+                Custom ›
+              </button>
+              {showCustom && (
+                <div className="mt-2">
+                  <label className="text-sm text-gray-700">Enter value</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={customLot}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^0-9]/g, '');
+                      setCustomLot(v);
+                      const n = Number(v || 0);
+                      if (n > 0 && basePrice) {
+                        applySelection(n);
+                      }
+                    }}
+                    placeholder="Enter lot size"
+                    className="mt-1 w-full p-2 border rounded bg-white"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">Required investment: {customLot && Number(customLot) > 0 ? `$${(Number(customLot) * basePrice).toFixed(2)}` : `$${basePrice.toFixed(2)} (for 1)`}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {paymentData?.lotLabel && (
           <div className="mt-2 text-sm text-gray-700">
             Selected: <span className="font-semibold">{paymentData.lotLabel}</span>

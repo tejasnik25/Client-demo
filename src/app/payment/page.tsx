@@ -160,21 +160,19 @@ const PaymentContent = () => {
                 </div>
 
                 {/* Lot Size Summary */}
-                <div className="grid grid-cols-1 gap-4 mt-4">
-                  <div>
-                    <p className="text-s text-gray-600 mb-1">Selected Lot Size</p>
-                    <p className="text-lg font-semibold text-green-600">
-                      {paymentData?.lotLabel ? paymentData.lotLabel : 'Select Lot Size'}
-                    </p>
+                <div className="grid grid-cols-1 gap-2 mt-4">
+                  <div className="flex justify-between">
+                    <p className="text-sm text-gray-600">Copy proportion</p>
+                    <p className="text-sm font-semibold text-gray-900">{paymentData?.lotSize ?? '-' }{paymentData?.lotSize ? `×${paymentData.lotSize}` : ''}</p>
                   </div>
-                  {typeof paymentData?.payable === 'number' && (
-                    <div>
-                      <p className="text-s text-gray-600 mb-1">Total Amount</p>
-                      <p className="text-lg font-semibold text-gray-900">
-                        ${paymentData.payable.toFixed(2)}
-                      </p>
-                    </div>
-                  )}
+                  <div className="flex justify-between">
+                    <p className="text-sm text-gray-600">Required Investment</p>
+                    <p className="text-sm font-semibold text-gray-900">{typeof paymentData?.payable === 'number' ? `$${paymentData.payable.toFixed(2)}` : '-'}</p>
+                  </div>
+                  <div className="flex justify-between">
+                    <p className="text-sm text-gray-600">Total</p>
+                    <p className="text-sm font-semibold text-gray-900">{typeof paymentData?.payable === 'number' ? `$${paymentData.payable.toFixed(2)}` : '-'}</p>
+                  </div>
                 </div>
               </div>
             </div>

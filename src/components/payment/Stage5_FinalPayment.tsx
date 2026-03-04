@@ -95,16 +95,15 @@ const Stage5_FinalPayment = ({ onBack, paymentData, onSuccess }: Stage5Props) =>
           body: JSON.stringify({ fileType, transactionId }),
         });
         if (signedUrlRes.ok) {
-          const { signedUrl, key, useLocalFallback } = await signedUrlRes.json();
-          if (!useLocalFallback && signedUrl && key) {
+          const { signedUrl, key, bucket, region, useLocalFallback } = await signedUrlRes.json();
+          if (!useLocalFallback && signedUrl && key && bucket && region) {
             // 2. Upload file to S3
             await fetch(signedUrl, {
               method: 'PUT',
               body: file,
               headers: { 'Content-Type': fileType },
             });
-            const awsRegion = process.env.NEXT_PUBLIC_AWS_REGION || process.env.AWS_REGION || 'ap-south-1';
-            proofUrl = `https://${process.env.NEXT_PUBLIC_AWS_S3_BUCKET}.s3.${awsRegion}.amazonaws.com/${key}`;
+            proofUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
           }
         }
       } catch (e) {

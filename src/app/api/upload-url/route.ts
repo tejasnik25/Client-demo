@@ -57,7 +57,12 @@ export async function POST(req: Request) {
 
     const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 });
 
-    return NextResponse.json({ signedUrl, key });
+    return NextResponse.json({ 
+      signedUrl, 
+      key,
+      bucket: (process.env.NEXT_PUBLIC_AWS_S3_BUCKET || process.env.AWS_S3_BUCKET) as string,
+      region: process.env.AWS_REGION as string,
+    });
   } catch (error) {
     console.error('Error creating signed URL:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

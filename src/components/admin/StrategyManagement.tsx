@@ -924,175 +924,27 @@ const resetAddForm = () => {
                 </div>
               </div>
 
-              {/* Plans: enter USD ranges; first number used for payments */}
+              {/* Plans: removed Pro/Expert/Premium specific inputs per request */}
               <Separator className="my-2 bg-gray-200" />
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                  <Label htmlFor="planPro" className="text-gray-700">Pro Price</Label>
-                  <Input
-                    id="planPro"
-                    name="planPro"
-                    type="text"
-                    placeholder="$1000-$2999"
-                    value={planRanges.Pro ?? ''}
-                    onChange={(e) => {
-                      const text = e.target.value;
-                      setPlanRanges(prev => ({ ...prev, Pro: text }));
-                      const first = parseFirstPrice(text);
-                      setCurrentStrategy(prev => ({
-                        ...prev,
-                        planPrices: { ...(prev.planPrices || {}), Pro: first }
-                      }));
-                    }}
-                  className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                  <div className="space-y-1">
-                    <Label htmlFor="planProPercent" className="text-gray-700">Pro Percent (%)</Label>
-                    <Input
-                      id="planProPercent"
-                      name="planProPercent"
-                      type="number"
-                      step="0.01"
-                      placeholder="17"
-                      value={planPercents.Pro ?? '' as any}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const num = val === '' ? undefined : Number(val);
-                        setPlanPercents(prev => ({ ...prev, Pro: isNaN(num as any) ? undefined : num }));
-                      }}
-                    className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">Enter USD range; first number used for payments.</p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="planExpert" className="text-gray-700">Expert Price</Label>
-                  <Input
-                    id="planExpert"
-                    name="planExpert"
-                    type="text"
-                    placeholder="$3000-$5999"
-                    value={planRanges.Expert ?? ''}
-                    onChange={(e) => {
-                      const text = e.target.value;
-                      setPlanRanges(prev => ({ ...prev, Expert: text }));
-                      const first = parseFirstPrice(text);
-                      setCurrentStrategy(prev => ({
-                        ...prev,
-                        planPrices: { ...(prev.planPrices || {}), Expert: first }
-                      }));
-                    }}
-                  className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                  <div className="space-y-1">
-                    <Label htmlFor="planExpertPercent" className="text-gray-700">Expert Percent (%)</Label>
-                    <Input
-                      id="planExpertPercent"
-                      name="planExpertPercent"
-                      type="number"
-                      step="0.01"
-                      placeholder="15"
-                      value={planPercents.Expert ?? '' as any}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const num = val === '' ? undefined : Number(val);
-                        setPlanPercents(prev => ({ ...prev, Expert: isNaN(num as any) ? undefined : num }));
-                      }}
-                    className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">Enter USD range; first number used for payments.</p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="planPremium" className="text-gray-700">Premium Price</Label>
-                  <Input
-                    id="planPremium"
-                    name="planPremium"
-                    type="text"
-                    placeholder="$6000+"
-                    value={planRanges.Premium ?? ''}
-                    onChange={(e) => {
-                      const text = e.target.value;
-                      setPlanRanges(prev => ({ ...prev, Premium: text }));
-                      const first = parseFirstPrice(text);
-                      setCurrentStrategy(prev => ({
-                        ...prev,
-                        planPrices: { ...(prev.planPrices || {}), Premium: first }
-                      }));
-                    }}
-                  className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                  <div className="space-y-1">
-                    <Label htmlFor="planPremiumPercent" className="text-gray-700">Premium Percent (%)</Label>
-                    <Input
-                      id="planPremiumPercent"
-                      name="planPremiumPercent"
-                      type="number"
-                      step="0.01"
-                      placeholder="12"
-                      value={planPercents.Premium ?? '' as any}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const num = val === '' ? undefined : Number(val);
-                        setPlanPercents(prev => ({ ...prev, Premium: isNaN(num as any) ? undefined : num }));
-                      }}
-                    className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">Enter USD range; first number used for payments.</p>
-                </div>
-              </div>
 
           {/* Lot Size Pricing */}
           <Separator className="my-4 bg-gray-200" />
           <div className="space-y-2">
             <Label className="text-gray-700">Lot Size Pricing</Label>
-            <p className="text-xs text-gray-600">Enter USD amount for each lot size. These appear as options to users.</p>
-            <div className="space-y-2">
-              {lotRows.map((row, idx) => (
-                <div key={row.id} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
-                  <div className="md:col-span-2">
-                    <Label className="text-gray-700">Amount (USD)</Label>
-                    <Input
-                      value={row.amountUSD}
-                      onChange={(e) =>
-                        setLotRows((prev) =>
-                          prev.map((r) => (r.id === row.id ? { ...r, amountUSD: e.target.value } : r))
-                        )
-                      }
-                      placeholder="e.g. 1000"
-                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label className="text-gray-700">Lot Size</Label>
-                    <Input
-                      value={row.lot}
-                      onChange={(e) =>
-                        setLotRows((prev) =>
-                          prev.map((r) => (r.id === row.id ? { ...r, lot: e.target.value } : r))
-                        )
-                      }
-                      placeholder="e.g. 1"
-                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        setLotRows((prev) => prev.filter((r) => r.id !== row.id))
-                      }
-                      className="border-gray-300"
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              <Button
-                type="button"
-                onClick={() =>
-                  setLotRows((prev) => [...prev, { amountUSD: '', lot: '', id: `lot-${Date.now()}` }])
-                }
-              >
-                Add Lot
-              </Button>
+            <p className="text-xs text-gray-600">Enter the USD amount for 1 Lot. Pricing for larger lots will be calculated linearly (e.g. 2 Lots = 2×base, 3 Lots = 3×base).</p>
+            <div className="space-y-2 max-w-md">
+              <Label className="text-gray-700">Price for 1 Lot (USD)</Label>
+              <Input
+                value={(lotRows[0] && lotRows[0].amountUSD) || ''}
+                onChange={(e) => setLotRows((prev) => {
+                  const v = e.target.value;
+                  if (!prev || prev.length === 0) return [{ amountUSD: v, lot: '1', id: `lot-${Date.now()}` }];
+                  return [{ ...prev[0], amountUSD: v, lot: '1' }, ...prev.slice(1)];
+                })}
+                placeholder="e.g. 25"
+                className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
+              />
+              <p className="text-xs text-gray-500">Admin should enter the price for 1 Lot only. The system will multiply this value for x2, x3 and custom lot sizes.</p>
             </div>
           </div>
             </form>
