@@ -438,6 +438,14 @@ const initializeDatabase = async () => {
 
     console.log('Database tables initialized successfully');
     
+     // Sync JSON to MySQL on startup to ensure all users are available
+    try {
+      const syncResult = await syncJsonToMysql();
+      console.log(`Sync JSON to MySQL: Inserted ${syncResult.inserted}, Skipped ${syncResult.skipped}`);
+    } catch (syncError) {
+      console.error('Initial sync JSON to MySQL failed:', syncError);
+    }
+    
     // Initialize default data
     await initializeDefaultData();
   } catch (error) {
@@ -1201,16 +1209,32 @@ export const loginUser = async (
       const userWithHistory = await getUserById(user.id);
       if (userWithHistory) {
         return { success: true, user: userWithHistory };
-      } else {
-        return { success: false, error: 'Could not retrieve user details.' };
       }
-    } else {
-        return { success: false, error: 'User not found' };
     }
   } catch (error) {
-    console.error('An error occurred during login:', error);
-    return { success: false, error: 'An internal error occurred. Please try again.' };
+    console.error('An error occurred during MySQL login:', error);
   }
+
+  // Fallback to JSON database if MySQL fails or user not found
+  try {
+    console.log(`Attempting JSON fallback for user: ${email}`);
+    const db: any = readDatabase();
+    const user = db.users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+
+    if (user) {
+      if (typeof user.enabled !== 'undefined' && user.enabled === false) {
+        return { success: false, error: 'Account disabled' };
+      }
+      const isValidPassword = await validatePassword(user.password, password);
+      if (isValidPassword) {
+        return { success: true, user: user as User };
+      }
+    }
+  } catch (jsonError) {
+    console.error('JSON fallback login failed:', jsonError);
+  }
+
+  return { success: false, error: 'Invalid credentials' };
 };
 
 export const getUserById = async (id: string): Promise<User | null> => {
