@@ -2039,22 +2039,111 @@ export const updateUserAdmin = async (
 // Running Strategies operations
 export const getRunningStrategiesForUser = async (userId: string): Promise<any[]> => {
   try {
-    const [rows] = await pool.execute(
+    // Get running strategies from running_strategies table
+    const [runningRows] = await pool.execute(
       'SELECT * FROM running_strategies WHERE user_id = ? ORDER BY created_at DESC',
       [userId]
     );
-    return (rows as any[]).map(row => ({
-      ...row,
-      created_at: row.created_at.toISOString(),
-      updated_at: row.updated_at.toISOString()
-    }));
+    
+    // Also get completed wallet transactions that have strategy_id
+    const [transactionRows] = await pool.execute(
+      'SELECT * FROM wallet_transactions WHERE user_id = ? AND status = "completed" AND strategy_id IS NOT NULL ORDER BY updated_at DESC',
+      [userId]
+    );
+    
+    // Combine and deduplicate results
+    const allStrategies = new Map();
+    
+    // Add running strategies
+    (runningRows as any[]).forEach(row => {
+      allStrategies.set(row.strategy_id, {
+        id: row.id,
+        strategyId: row.strategy_id,
+        userId: row.user_id,
+        plan: row.plan,
+        capital: parseFloat(row.capital) || 0,
+        status: row.status,
+        adminStatus: row.admin_status,
+        platform: row.platform,
+        mtAccountId: row.mt_account_id,
+        mtAccountPassword: row.mt_account_password,
+        mtAccountServer: row.mt_account_server,
+        createdAt: row.created_at.toISOString(),
+        updatedAt: row.updated_at.toISOString(),
+        source: 'running_strategies'
+      });
+    });
+    
+    // Add completed transactions that aren't already in running_strategies
+    (transactionRows as any[]).forEach(row => {
+      if (!allStrategies.has(row.strategy_id)) {
+        allStrategies.set(row.strategy_id, {
+          id: `txn_${row.id}`,
+          strategyId: row.strategy_id,
+          userId: row.user_id,
+          plan: row.plan_level,
+          capital: parseFloat(row.amount) || 0,
+          status: 'completed',
+          adminStatus: 'running',
+          platform: row.platform,
+          mtAccountId: row.mt_account_id,
+          mtAccountPassword: row.mt_account_password,
+          mtAccountServer: row.mt_account_server,
+          createdAt: row.created_at.toISOString(),
+          updatedAt: row.updated_at?.toISOString() || row.created_at.toISOString(),
+          source: 'wallet_transaction'
+        });
+      }
+    });
+    
+    return Array.from(allStrategies.values());
   } catch (error) {
     console.error('Error getting running strategies for user:', error);
     // JSON fallback
     try {
       const db: any = readDatabase();
       const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
-      return runningStrategies.filter((r: any) => r.user_id === userId);
+      const walletTransactions: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      
+      // Filter running strategies for this user
+      const userRunningStrategies = runningStrategies.filter((r: any) => r.user_id === userId);
+      
+      // Filter completed transactions for this user
+      const completedTransactions = walletTransactions.filter((t: any) => 
+        t.user_id === userId && 
+        t.status === 'completed' && 
+        t.strategy_id
+      );
+      
+      // Combine and deduplicate
+      const allStrategies = new Map();
+      
+      userRunningStrategies.forEach((r: any) => {
+        allStrategies.set(r.strategy_id, { ...r, source: 'running_strategies' });
+      });
+      
+      completedTransactions.forEach((t: any) => {
+        if (!allStrategies.has(t.strategy_id)) {
+          allStrategies.set(t.strategy_id, {
+            id: `txn_${t.id}`,
+            strategyId: t.strategy_id,
+            userId: t.user_id,
+            plan: t.plan_level,
+            capital: t.amount || 0,
+            status: 'completed',
+            adminStatus: 'running',
+            platform: t.platform,
+            mtAccountId: t.mt_account_id,
+            mtAccountPassword: t.mt_account_password,
+            mtAccountServer: t.mt_account_server,
+            createdAt: t.created_at,
+            updatedAt: t.updated_at || t.created_at,
+            source: 'wallet_transaction'
+          });
+        }
+      });
+      
+      return Array.from(allStrategies.values());
     } catch (jsonError) {
       console.error('JSON fallback getRunningStrategiesForUser failed:', jsonError);
       return [];
@@ -2305,6 +2394,114 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
     } catch (jsonError) {
       console.error('JSON fallback getRunningStrategiesAdmin failed:', jsonError);
       return [];
+    }
+  }
+};
+
+// Ads CRUD operations
+export const getAds = async (): Promise<Ad[]> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM ads ORDER BY created_at DESC');
+    return (rows as any[]).map(row => ({
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      imageUrl: row.image_url,
+      linkUrl: row.link_url,
+      position: row.position,
+      isActive: !!row.is_active,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString()
+    }));
+  } catch (error) {
+    console.error('Error getting ads:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const ads: any[] = Array.isArray(db.ads) ? db.ads : [];
+      return ads.map((ad: any) => ({
+        id: ad.id,
+        title: ad.title,
+        content: ad.content,
+        imageUrl: ad.imageUrl || ad.image_url,
+        linkUrl: ad.linkUrl || ad.link_url,
+        position: ad.position || 'top',
+        isActive: ad.isActive !== false,
+        createdAt: ad.created_at,
+        updatedAt: ad.updated_at
+      }));
+    } catch (jsonError) {
+      console.error('JSON fallback getAds failed:', jsonError);
+      return [];
+    }
+  }
+};
+
+export const createAd = async (ad: {
+  title: string;
+  content: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  position?: 'top' | 'bottom' | 'sidebar';
+  isActive?: boolean;
+}): Promise<Ad> => {
+  const id = `ad_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    await pool.execute(
+      `INSERT INTO ads (id, title, content, image_url, link_url, position, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        ad.title,
+        ad.content,
+        ad.imageUrl || null,
+        ad.linkUrl || null,
+        ad.position || 'top',
+        ad.isActive !== false
+      ]
+    );
+    
+    const [rows] = await pool.execute('SELECT * FROM ads WHERE id = ?', [id]);
+    const newAd = (rows as any[])[0];
+    
+    return {
+      id: newAd.id,
+      title: newAd.title,
+      content: newAd.content,
+      imageUrl: newAd.image_url,
+      linkUrl: newAd.link_url,
+      position: newAd.position,
+      isActive: !!newAd.is_active,
+      createdAt: newAd.created_at.toISOString(),
+      updatedAt: newAd.updated_at.toISOString()
+    };
+  } catch (error) {
+    console.error('Error creating ad:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const ads: any[] = Array.isArray(db.ads) ? db.ads : [];
+      
+      const newAd = {
+        id,
+        title: ad.title,
+        content: ad.content,
+        imageUrl: ad.imageUrl || undefined,
+        linkUrl: ad.linkUrl || undefined,
+        position: ad.position || 'top',
+        isActive: ad.isActive !== false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      ads.push(newAd);
+      writeDatabase({ ...db, ads });
+      
+      return newAd;
+    } catch (jsonError) {
+      console.error('JSON fallback createAd failed:', jsonError);
+      throw new Error('Failed to create ad');
     }
   }
 };

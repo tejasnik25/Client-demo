@@ -13,7 +13,6 @@ import {
   FaMoneyBillWave,
   FaNetworkWired,
   FaChevronDown,
-  FaBullhorn,
   FaChartBar,
   FaHdd
 } from 'react-icons/fa';
@@ -171,12 +170,6 @@ export function Sidebar() {
             </div>
           )}
         </div>
-        <NavItem 
-          href="/admin/ads" 
-          icon={<FaBullhorn size={18} />} 
-          label="Ads Management" 
-          active={pathname === '/admin/ads'} 
-        />
       </nav>
       
       <div className="p-4 border-t border-gray-200">
