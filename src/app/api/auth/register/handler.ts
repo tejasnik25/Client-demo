@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { registerUser } from '@/db/dbService';
+import { createHash, createHmac } from 'crypto';
 
 export async function POST(request: Request) {
   try {
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     if (!Number.isFinite(issuedMs) || !Number.isFinite(diff)) {
       return NextResponse.json({ error: 'Invalid PoW' }, { status: 400 });
     }
-    const hash = (await import('crypto')).createHash('sha256').update(`${powSalt}:${action}:${email}:${powNonce}`).digest('hex');
+    const hash = createHash('sha256').update(`${powSalt}:${action}:${email}:${powNonce}`).digest('hex');
     const prefix = '0'.repeat(diff);
     if (!hash.startsWith(prefix)) {
       return NextResponse.json({ error: 'Insufficient PoW' }, { status: 400 });
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
 
     // Validate PoW signature
     const sigBase = `${powSalt}:${issuedMs}:${diff}:${action}`;
-    const sig = (await import('crypto')).createHmac('sha256', secret).update(sigBase).digest('hex');
+    const sig = createHmac('sha256', secret).update(sigBase).digest('hex');
     if (sig !== powSignature) {
       return NextResponse.json({ error: 'Invalid PoW signature' }, { status: 400 });
     }

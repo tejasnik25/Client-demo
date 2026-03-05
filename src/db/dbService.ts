@@ -1175,6 +1175,8 @@ export const loginUser = async (
   // Helper function to validate password (handles both plain text and bcrypt hashes)
   const validatePassword = async (storedPassword: string, providedPassword: string): Promise<boolean> => {
     try {
+      if (!storedPassword || !providedPassword) return false;
+      
       // Check if password is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
       if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
         return await bcrypt.compare(providedPassword, storedPassword);
@@ -1206,10 +1208,19 @@ export const loginUser = async (
         return { success: false, error: 'Invalid password' };
       }
 
-      const userWithHistory = await getUserById(user.id);
-      if (userWithHistory) {
-        return { success: true, user: userWithHistory };
+      // Try to get user with history, but don't fail login if history fetch fails
+      try {
+        const userWithHistory = await getUserById(user.id);
+        if (userWithHistory) {
+          return { success: true, user: userWithHistory };
+        }
+      } catch (historyErr) {
+        console.warn('Failed to fetch user history during login, returning base user:', historyErr);
       }
+      
+      // If we are here, we have a valid password but couldn't get history or getUserById returned null
+      // Return the base user from the first query
+      return { success: true, user: user as User };
     }
   } catch (error) {
     console.error('An error occurred during MySQL login:', error);

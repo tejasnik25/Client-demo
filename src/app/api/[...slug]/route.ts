@@ -14,8 +14,14 @@ async function handleRequest(req: NextRequest, { params }: { params: { slug: str
     // Skip admin - it has its own catch-all
     if (slug[0] === 'admin') return NextResponse.json({ error: 'Use /api/admin/*' }, { status: 404 });
     // Skip auth - it has its own routes
-    if (slug[0] === 'auth' && (slug[1] === 'register' || slug[1] === 'pow' || slug[1] === 'user')) {
-       handler = await import(`../auth/${slug[1]}/handler`);
+    if (slug[0] === 'auth') {
+       if (slug[1] === 'register') {
+         handler = await import('../auth/register/handler');
+       } else if (slug[1] === 'pow') {
+         handler = await import('../auth/pow/handler');
+       } else if (slug[1] === 'user') {
+         handler = await import('../auth/user/handler');
+       }
        if (handler && handler[method]) return (handler[method] as any)(req);
     }
 

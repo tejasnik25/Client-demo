@@ -2,6 +2,7 @@ import { type NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { loginUser } from '@/db/dbService';
 import bcrypt from 'bcryptjs';
+import { createHmac, createHash } from 'crypto';
 
 // Admin user definition
 const adminUser = {
@@ -33,9 +34,14 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        console.log(`Login attempt with email: ${credentials.email}`);
+        const email = credentials.email.toLowerCase().trim();
+        const password = credentials.password;
+
+        console.log(`Login attempt with email: ${email}`);
 
         const secret = process.env.NEXTAUTH_SECRET || 'your-secret-key';
+        
+        // Extract PoW components
         type Creds = {
           email: string;
           password: string;
@@ -56,7 +62,7 @@ export const authOptions: NextAuthOptions = {
         const powAction = cred.powAction || 'login';
 
         // Check for admin login early to avoid PoW issues if it's broken
-        if (credentials.email === adminUser.email && credentials.password === 'admin123') {
+        if (email === adminUser.email && password === 'admin123') {
           console.log('Admin emergency login successful');
           return {
             id: adminUser.id,
@@ -74,35 +80,35 @@ export const authOptions: NextAuthOptions = {
         const diff = typeof powDifficulty === 'string' ? parseInt(powDifficulty, 10) : Number(powDifficulty);
         const now = Date.now();
         if (!Number.isFinite(issuedMs) || !Number.isFinite(diff)) {
-          console.log(`Login blocked for ${credentials.email}: Invalid PoW values`);
+          console.log(`Login blocked for ${email}: Invalid PoW values`);
           return null;
         }
         if (now - issuedMs > 2 * 60 * 1000) {
-          console.log(`Login blocked for ${credentials.email}: PoW expired (now: ${now}, issued: ${issuedMs})`);
+          console.log(`Login blocked for ${email}: PoW expired (now: ${now}, issued: ${issuedMs})`);
           return null;
         }
         const sigBase = `${powSalt}:${issuedMs}:${diff}:${powAction}`;
-        const sig = (await import('crypto')).createHmac('sha256', secret).update(sigBase).digest('hex');
+        const sig = createHmac('sha256', secret).update(sigBase).digest('hex');
         if (sig !== powSignature) {
-          console.log(`Login blocked for ${credentials.email}: PoW signature invalid. Expected: ${sig}, Received: ${powSignature}`);
+          console.log(`Login blocked for ${email}: PoW signature invalid. Expected: ${sig}, Received: ${powSignature}`);
           return null;
         }
-        const hash = (await import('crypto')).createHash('sha256').update(`${powSalt}:${powAction}:${credentials.email}:${powNonce}`).digest('hex');
+        const hash = createHash('sha256').update(`${powSalt}:${powAction}:${email}:${powNonce}`).digest('hex');
         const prefix = '0'.repeat(diff);
         if (!hash.startsWith(prefix)) {
-          console.log(`Login blocked for ${credentials.email}: PoW insufficient. Hash: ${hash}`);
+          console.log(`Login blocked for ${email}: PoW insufficient. Hash: ${hash}`);
           return null;
         }
 
         // credentials are validated above
 
         // Admin login - prioritize this check
-        if (credentials.email === adminUser.email) {
+        if (email === adminUser.email) {
           console.log('Admin user detected');
           
           // IMPORTANT: For admin login in production, always check direct password first
           // This ensures admin login works even if bcrypt has issues in serverless environment
-          if (credentials.password === 'admin123') {
+          if (password === 'admin123') {
             console.log('Admin password matched directly');
             return {
               id: adminUser.id,
@@ -114,7 +120,7 @@ export const authOptions: NextAuthOptions = {
           
           // Fallback to bcrypt comparison if direct match fails
           try {
-            const passwordMatch = await bcrypt.compare(credentials.password, adminUser.password);
+            const passwordMatch = await bcrypt.compare(password, adminUser.password);
             console.log('Admin bcrypt password match:', passwordMatch);
             if (passwordMatch) {
               return {
@@ -132,7 +138,7 @@ export const authOptions: NextAuthOptions = {
 
         // Regular user login
         console.log('Attempting regular user login');
-        const result = await loginUser(credentials.email, credentials.password);
+        const result = await loginUser(email, password);
         console.log('loginUser result:', result);
 
         if (!result.success || !result.user) {
