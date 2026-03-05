@@ -172,28 +172,10 @@ export function Sidebar() {
           )}
         </div>
         <NavItem 
-          href="/admin/referrals" 
-          icon={<FaNetworkWired size={18} />} 
-          label="Referrals" 
-          active={pathname === '/admin/referrals'} 
-        />
-        <NavItem 
-          href="/admin/database" 
-          icon={<FaDatabase size={18} />} 
-          label="Database" 
-          active={pathname === '/admin/database'} 
-        />
-        <NavItem 
           href="/admin/ads" 
           icon={<FaBullhorn size={18} />} 
           label="Ads Management" 
           active={pathname === '/admin/ads'} 
-        />
-        <NavItem 
-          href="/admin/settings" 
-          icon={<FaCog size={18} />} 
-          label="Settings" 
-          active={pathname === '/admin/settings'} 
         />
       </nav>
       

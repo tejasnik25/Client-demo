@@ -122,7 +122,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="users" className="flex items-center gap-2">
             <FiUsers className="h-4 w-4" /> Users
           </TabsTrigger>
@@ -131,12 +131,6 @@ export default function AdminPage() {
           </TabsTrigger>
           <TabsTrigger value="payments" className="flex items-center gap-2">
             <FiDollarSign className="h-4 w-4" /> Payments
-          </TabsTrigger>
-          <TabsTrigger value="referrals" className="flex items-center gap-2">
-            <FiLink className="h-4 w-4" /> Referrals
-          </TabsTrigger>
-          <TabsTrigger value="database" className="flex items-center gap-2">
-            <FiDatabase className="h-4 w-4" /> Database
           </TabsTrigger>
           <TabsTrigger value="strategies" className="flex items-center gap-2">
             <FiTrendingUp className="h-4 w-4" /> Strategies
@@ -163,30 +157,6 @@ export default function AdminPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="referrals" className="mt-6">
-          <Card className="bg-white border border-gray-200">
-            <CardHeader>
-              <CardTitle>Referral Program</CardTitle>
-              <CardDescription>Manage user referrals and rewards</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p>Referral management interface will be implemented here.</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="database" className="mt-6">
-          <Card className="bg-white border border-gray-200">
-            <CardHeader>
-              <CardTitle>Database Management</CardTitle>
-              <CardDescription>Manage database operations and backups</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p>Database management interface will be implemented here.</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
         <TabsContent value="strategies" className="mt-6">
           <Card className="bg-white border border-gray-200">
             <CardHeader>
