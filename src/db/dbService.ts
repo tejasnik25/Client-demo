@@ -421,6 +421,17 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN score DECIMAL(6,2)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE analysis_history ADD INDEX idx_analysis_user (user_id, created_at)"); } catch (e) {}
 
+    // Create disconnect_snapshots table
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS disconnect_snapshots (
+        id VARCHAR(255) PRIMARY KEY,
+        running_strategy_id VARCHAR(255) NOT NULL,
+        snapshot_data JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE
+      )
+    `);
+
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS ads (
         id VARCHAR(255) PRIMARY KEY,
@@ -2022,5 +2033,278 @@ export const updateUserAdmin = async (
   } catch (error) {
     console.error('updateUserAdmin failed:', error);
     return { success: false, error: 'Failed to update user' };
+  }
+};
+
+// Running Strategies operations
+export const getRunningStrategiesForUser = async (userId: string): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM running_strategies WHERE user_id = ? ORDER BY created_at DESC',
+      [userId]
+    );
+    return (rows as any[]).map(row => ({
+      ...row,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString()
+    }));
+  } catch (error) {
+    console.error('Error getting running strategies for user:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      return runningStrategies.filter((r: any) => r.user_id === userId);
+    } catch (jsonError) {
+      console.error('JSON fallback getRunningStrategiesForUser failed:', jsonError);
+      return [];
+    }
+  }
+};
+
+export const createRunningStrategy = async (
+  userId: string,
+  strategyId: string,
+  plan: string,
+  capital: number,
+  mtDetails?: {
+    platform?: string;
+    mtAccountId?: string;
+    mtAccountPassword?: string;
+    mtAccountServer?: string;
+  }
+): Promise<{ success: boolean; id?: string; error?: string }> => {
+  const id = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    await pool.execute(
+      `INSERT INTO running_strategies (id, user_id, strategy_id, plan, capital, status, platform, mt_account_id, mt_account_password, mt_account_server)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        userId,
+        strategyId,
+        plan,
+        capital,
+        'in-process',
+        mtDetails?.platform || null,
+        mtDetails?.mtAccountId || null,
+        mtDetails?.mtAccountPassword || null,
+        mtDetails?.mtAccountServer || null
+      ]
+    );
+    
+    return { success: true, id };
+  } catch (error) {
+    console.error('Error creating running strategy:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      
+      const newStrategy = {
+        id: id,
+        user_id: userId,
+        strategy_id: strategyId,
+        plan,
+        capital,
+        status: 'in-process',
+        platform: mtDetails?.platform || null,
+        mt_account_id: mtDetails?.mtAccountId || null,
+        mt_account_password: mtDetails?.mtAccountPassword || null,
+        mt_account_server: mtDetails?.mtAccountServer || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      runningStrategies.push(newStrategy);
+      writeDatabase({ ...db, running_strategies: runningStrategies });
+      
+      return { success: true, id };
+    } catch (jsonError) {
+      console.error('JSON fallback createRunningStrategy failed:', jsonError);
+      return { success: false, error: 'Failed to create running strategy' };
+    }
+  }
+};
+
+export const getRunningStrategyById = async (id: string): Promise<any | null> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM running_strategies WHERE id = ?', [id]);
+    const strategies = rows as any[];
+    
+    if (strategies.length > 0) {
+      const strategy = strategies[0];
+      return {
+        ...strategy,
+        created_at: strategy.created_at.toISOString(),
+        updated_at: strategy.updated_at.toISOString()
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting running strategy by ID:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      return runningStrategies.find((r: any) => r.id === id) || null;
+    } catch (jsonError) {
+      console.error('JSON fallback getRunningStrategyById failed:', jsonError);
+      return null;
+    }
+  }
+};
+
+export const updateRunningStrategyAdminStatus = async (id: string, status: string): Promise<boolean> => {
+  try {
+    await pool.execute(
+      'UPDATE running_strategies SET admin_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [status, id]
+    );
+    return true;
+  } catch (error) {
+    console.error('Error updating running strategy admin status:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const index = runningStrategies.findIndex((r: any) => r.id === id);
+      
+      if (index !== -1) {
+        runningStrategies[index].admin_status = status;
+        runningStrategies[index].updated_at = new Date().toISOString();
+        writeDatabase({ ...db, running_strategies: runningStrategies });
+        return true;
+      }
+      return false;
+    } catch (jsonError) {
+      console.error('JSON fallback updateRunningStrategyAdminStatus failed:', jsonError);
+      return false;
+    }
+  }
+};
+
+export const getRunningStrategyModifications = async (runningStrategyId: string): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM running_strategy_modifications WHERE running_strategy_id = ? ORDER BY created_at DESC',
+      [runningStrategyId]
+    );
+    return (rows as any[]).map(row => ({
+      ...row,
+      created_at: row.created_at.toISOString()
+    }));
+  } catch (error) {
+    console.error('Error getting running strategy modifications:', error);
+    return [];
+  }
+};
+
+export const getDisconnectSnapshots = async (runningStrategyId: string): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM disconnect_snapshots WHERE running_strategy_id = ? ORDER BY created_at DESC',
+      [runningStrategyId]
+    );
+    return (rows as any[]).map(row => ({
+      ...row,
+      created_at: row.created_at.toISOString()
+    }));
+  } catch (error) {
+    console.error('Error getting disconnect snapshots:', error);
+    return [];
+  }
+};
+
+export const updateWalletTransactionStatus = async (
+  mtAccountId: string,
+  status: string,
+  rejectionReason?: string
+): Promise<boolean> => {
+  try {
+    const updates = ['status = ?', 'updated_at = CURRENT_TIMESTAMP'];
+    const values = [status];
+    
+    if (rejectionReason) {
+      updates.push('rejection_reason = ?');
+      values.push(rejectionReason);
+    }
+    
+    values.push(mtAccountId);
+    
+    await pool.execute(
+      `UPDATE wallet_transactions SET ${updates.join(', ')} WHERE mt_account_id = ?`,
+      values
+    );
+    return true;
+  } catch (error) {
+    console.error('Error updating wallet transaction status:', error);
+    return false;
+  }
+};
+
+export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(`
+      SELECT rs.*, u.name as userName, u.email as userEmail, s.name as strategyName 
+      FROM running_strategies rs
+      LEFT JOIN users u ON rs.user_id = u.id
+      LEFT JOIN strategies s ON rs.strategy_id = s.id
+      ORDER BY rs.created_at DESC
+    `);
+    
+    return (rows as any[]).map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      userName: row.userName || 'Unknown',
+      userEmail: row.userEmail || '',
+      strategyId: row.strategy_id,
+      strategyName: row.strategyName || 'Unknown',
+      plan: row.plan,
+      capital: parseFloat(row.capital) || 0,
+      status: row.status,
+      adminStatus: row.admin_status,
+      platform: row.platform,
+      mtAccountId: row.mt_account_id,
+      mtAccountServer: row.mt_account_server,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString()
+    }));
+  } catch (error) {
+    console.error('Error getting admin running strategies:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const users: any[] = Array.isArray(db.users) ? db.users : [];
+      const strategies: any[] = Array.isArray(db.strategies) ? db.strategies : [];
+      
+      return runningStrategies.map((rs: any) => {
+        const user = users.find((u: any) => u.id === rs.user_id);
+        const strategy = strategies.find((s: any) => s.id === rs.strategy_id);
+        
+        return {
+          id: rs.id,
+          userId: rs.user_id,
+          userName: user?.name || 'Unknown',
+          userEmail: user?.email || '',
+          strategyId: rs.strategy_id,
+          strategyName: strategy?.name || 'Unknown',
+          plan: rs.plan,
+          capital: rs.capital || 0,
+          status: rs.status,
+          adminStatus: rs.admin_status,
+          platform: rs.platform,
+          mtAccountId: rs.mt_account_id,
+          mtAccountServer: rs.mt_account_server,
+          createdAt: rs.created_at,
+          updatedAt: rs.updated_at
+        };
+      });
+    } catch (jsonError) {
+      console.error('JSON fallback getRunningStrategiesAdmin failed:', jsonError);
+      return [];
+    }
   }
 };
