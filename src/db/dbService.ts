@@ -442,21 +442,6 @@ const initializeDatabase = async () => {
       console.warn('Could not add foreign key constraint for disconnect_snapshots:', e);
     }
 
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS ads (
-        id VARCHAR(255) PRIMARY KEY,
-        title VARCHAR(255) NOT NULL,
-        content TEXT NOT NULL,
-        image_url VARCHAR(500),
-        link_url VARCHAR(500),
-        position ENUM('top','bottom','sidebar') DEFAULT 'top',
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-    try { await pool.execute("CREATE INDEX idx_ads_active ON ads (is_active)"); } catch (e) {}
-
     console.log('Database tables initialized successfully');
     
      // Sync JSON to MySQL on startup to ensure all users are available
@@ -2311,6 +2296,38 @@ export const getDisconnectSnapshots = async (runningStrategyId: string): Promise
       created_at: row.created_at.toISOString()
     }));
   } catch (error) {
+    // Check if it's a table doesn't exist error
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ER_NO_SUCH_TABLE') {
+      console.warn('disconnect_snapshots table does not exist, creating it...');
+      try {
+        // Create the table
+        await pool.execute(`
+          CREATE TABLE IF NOT EXISTS disconnect_snapshots (
+            id VARCHAR(255) PRIMARY KEY,
+            running_strategy_id VARCHAR(255) NOT NULL,
+            snapshot_data JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        
+        // Try adding foreign key constraint separately
+        try {
+          await pool.execute(`
+            ALTER TABLE disconnect_snapshots 
+            ADD CONSTRAINT fk_disconnect_snapshots_running_strategy 
+            FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE
+          `);
+        } catch (fkError) {
+          console.warn('Could not add foreign key constraint for disconnect_snapshots:', fkError);
+        }
+        
+        // Return empty array since table was just created
+        return [];
+      } catch (createError) {
+        console.error('Failed to create disconnect_snapshots table:', createError);
+      }
+    }
+    
     console.error('Error getting disconnect snapshots:', error);
     return [];
   }
@@ -2404,114 +2421,6 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
     } catch (jsonError) {
       console.error('JSON fallback getRunningStrategiesAdmin failed:', jsonError);
       return [];
-    }
-  }
-};
-
-// Ads CRUD operations
-export const getAds = async (): Promise<Ad[]> => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM ads ORDER BY created_at DESC');
-    return (rows as any[]).map(row => ({
-      id: row.id,
-      title: row.title,
-      content: row.content,
-      imageUrl: row.image_url,
-      linkUrl: row.link_url,
-      position: row.position,
-      isActive: !!row.is_active,
-      createdAt: row.created_at.toISOString(),
-      updatedAt: row.updated_at.toISOString()
-    }));
-  } catch (error) {
-    console.error('Error getting ads:', error);
-    // JSON fallback
-    try {
-      const db: any = readDatabase();
-      const ads: any[] = Array.isArray(db.ads) ? db.ads : [];
-      return ads.map((ad: any) => ({
-        id: ad.id,
-        title: ad.title,
-        content: ad.content,
-        imageUrl: ad.imageUrl || ad.image_url,
-        linkUrl: ad.linkUrl || ad.link_url,
-        position: ad.position || 'top',
-        isActive: ad.isActive !== false,
-        createdAt: ad.created_at,
-        updatedAt: ad.updated_at
-      }));
-    } catch (jsonError) {
-      console.error('JSON fallback getAds failed:', jsonError);
-      return [];
-    }
-  }
-};
-
-export const createAd = async (ad: {
-  title: string;
-  content: string;
-  imageUrl?: string;
-  linkUrl?: string;
-  position?: 'top' | 'bottom' | 'sidebar';
-  isActive?: boolean;
-}): Promise<Ad> => {
-  const id = `ad_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  try {
-    await pool.execute(
-      `INSERT INTO ads (id, title, content, image_url, link_url, position, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        ad.title,
-        ad.content,
-        ad.imageUrl || null,
-        ad.linkUrl || null,
-        ad.position || 'top',
-        ad.isActive !== false
-      ]
-    );
-    
-    const [rows] = await pool.execute('SELECT * FROM ads WHERE id = ?', [id]);
-    const newAd = (rows as any[])[0];
-    
-    return {
-      id: newAd.id,
-      title: newAd.title,
-      content: newAd.content,
-      imageUrl: newAd.image_url,
-      linkUrl: newAd.link_url,
-      position: newAd.position,
-      isActive: !!newAd.is_active,
-      createdAt: newAd.created_at.toISOString(),
-      updatedAt: newAd.updated_at.toISOString()
-    };
-  } catch (error) {
-    console.error('Error creating ad:', error);
-    // JSON fallback
-    try {
-      const db: any = readDatabase();
-      const ads: any[] = Array.isArray(db.ads) ? db.ads : [];
-      
-      const newAd = {
-        id,
-        title: ad.title,
-        content: ad.content,
-        imageUrl: ad.imageUrl || undefined,
-        linkUrl: ad.linkUrl || undefined,
-        position: ad.position || 'top',
-        isActive: ad.isActive !== false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
-      ads.push(newAd);
-      writeDatabase({ ...db, ads });
-      
-      return newAd;
-    } catch (jsonError) {
-      console.error('JSON fallback createAd failed:', jsonError);
-      throw new Error('Failed to create ad');
     }
   }
 };

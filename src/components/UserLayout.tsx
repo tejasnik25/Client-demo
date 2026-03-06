@@ -931,7 +931,7 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
                   <div className="space-y-1 pr-4">
                     <p className="text-sm font-semibold">Marketing cookies</p>
                     <p className="text-[11px] text-gray-400">
-                      Help us provide a more personalised user experience and more relevant ads based on analysis of
+                      Help us provide a more personalised user experience and more relevant content based on analysis of
                       user activity.
                     </p>
                   </div>

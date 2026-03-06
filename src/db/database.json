@@ -57,6 +57,18 @@
       "wallet_balance": 0,
       "created_at": "2025-10-24T13:38:22.424Z",
       "updated_at": "2025-10-24T13:38:22.424Z"
+    },
+    {
+      "id": "user_1762531624017",
+      "name": "Production User",
+      "email": "production@example.com",
+      "email_verified": true,
+      "password": "$2b$10$Y0PAuARG21NxO2/FGo5EauLf1FQrFtJIHqcou2onFAr.qIBQpwBXm",
+      "role": "USER",
+      "wallet_balance": 1000,
+      "created_at": "2025-11-01T00:00:00.000Z",
+      "updated_at": "2025-11-01T00:00:00.000Z",
+      "enabled": true
     }
   ],
   "wallet_transactions": [
