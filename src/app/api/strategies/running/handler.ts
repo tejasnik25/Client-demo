@@ -92,7 +92,9 @@ export async function GET() {
             if (isMissing) {
               const runningRow = await getRunningStrategyById(item.rsId);
               if (!runningRow) return;
-              const strategy = await getStrategyById(runningRow.strategyId);
+              const strategyId = runningRow.strategyId || runningRow.strategy_id;
+              if (!strategyId) return;
+              const strategy = await getStrategyById(strategyId);
               if (!strategy || !(strategy as any).masterAccountId) return;
               const master: MtAccountDetails = {
                 id: (strategy as any).masterAccountId,

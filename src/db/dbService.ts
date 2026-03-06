@@ -421,16 +421,26 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE analysis_history ADD COLUMN score DECIMAL(6,2)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE analysis_history ADD INDEX idx_analysis_user (user_id, created_at)"); } catch (e) {}
 
-    // Create disconnect_snapshots table
+    // Create disconnect_snapshots table (without foreign key first, then add it)
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS disconnect_snapshots (
         id VARCHAR(255) PRIMARY KEY,
         running_strategy_id VARCHAR(255) NOT NULL,
         snapshot_data JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    
+    // Try to add foreign key constraint separately
+    try {
+      await pool.execute(`
+        ALTER TABLE disconnect_snapshots 
+        ADD CONSTRAINT fk_disconnect_snapshots_running_strategy 
+        FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE
+      `);
+    } catch (e) {
+      console.warn('Could not add foreign key constraint for disconnect_snapshots:', e);
+    }
 
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS ads (
