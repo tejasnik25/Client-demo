@@ -444,6 +444,58 @@ const initializeDatabase = async () => {
 
     console.log('Database tables initialized successfully');
     
+    // Create master_trades table for storing master account trade history
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS master_trades (
+        id VARCHAR(255) PRIMARY KEY,
+        master_id VARCHAR(255) NOT NULL,
+        position_id VARCHAR(255) NOT NULL,
+        symbol VARCHAR(50) NOT NULL,
+        type ENUM('BUY', 'SELL') NOT NULL,
+        volume DECIMAL(18,2) NOT NULL,
+        price_open DECIMAL(18,5) NOT NULL,
+        price_close DECIMAL(18,5),
+        profit DECIMAL(18,2) DEFAULT 0,
+        commission DECIMAL(18,2) DEFAULT 0,
+        swap DECIMAL(18,2) DEFAULT 0,
+        time_open TIMESTAMP NOT NULL,
+        time_close TIMESTAMP,
+        is_open BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_master_id (master_id),
+        INDEX idx_position_id (position_id),
+        INDEX idx_time_open (time_open)
+      )
+    `);
+    
+    // Create trades table for storing user trade history
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS trades (
+        id VARCHAR(255) PRIMARY KEY,
+        running_strategy_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        symbol VARCHAR(50) NOT NULL,
+        type ENUM('BUY', 'SELL') NOT NULL,
+        volume DECIMAL(18,2) NOT NULL,
+        open_price DECIMAL(18,5) NOT NULL,
+        close_price DECIMAL(18,5),
+        stop_loss DECIMAL(18,5),
+        take_profit DECIMAL(18,5),
+        profit DECIMAL(18,2),
+        commission DECIMAL(18,2),
+        swap DECIMAL(18,2),
+        open_time TIMESTAMP NOT NULL,
+        close_time TIMESTAMP,
+        status ENUM('OPEN', 'CLOSED', 'CANCELLED') DEFAULT 'OPEN',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        
+        FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id),
+        INDEX idx_user_strategy (user_id, running_strategy_id),
+        INDEX idx_symbol (symbol),
+        INDEX idx_status (status)
+      )
+    `);
+    
      // Sync JSON to MySQL on startup to ensure all users are available
     try {
       const syncResult = await syncJsonToMysql();
@@ -2421,6 +2473,153 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
     } catch (jsonError) {
       console.error('JSON fallback getRunningStrategiesAdmin failed:', jsonError);
       return [];
+    }
+  }
+};
+
+// Master Trades operations
+export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean): Promise<void> => {
+  try {
+    // Clear existing trades for this master
+    await pool.execute('DELETE FROM master_trades WHERE master_id = ?', [masterId]);
+    
+    // Insert new trades
+    if (trades.length > 0) {
+      const values = trades.map(trade => [
+        masterId,
+        trade.position_id,
+        trade.symbol || '',
+        trade.type || 'BUY',
+        trade.volume || 0,
+        trade.price_open || 0,
+        trade.price_close || null,
+        trade.profit || 0,
+        trade.commission || 0,
+        trade.swap || 0,
+        trade.time_open || new Date().toISOString(),
+        trade.time_close || null,
+        isOpen ? 1 : 0,
+        new Date().toISOString()
+      ]);
+      
+      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      
+      await pool.execute(
+        `INSERT INTO master_trades (
+          master_id, position_id, symbol, type, volume, price_open, price_close, 
+          profit, commission, swap, time_open, time_close, is_open, created_at
+        ) VALUES ${placeholders}`,
+        values.flat()
+      );
+    }
+  } catch (error) {
+    console.error('Error upserting master trades:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const masterTrades: any[] = Array.isArray(db.master_trades) ? db.master_trades : [];
+      
+      // Remove existing trades for this master
+      const filteredTrades = masterTrades.filter(t => t.master_id !== masterId);
+      
+      // Add new trades
+      const newTrades = trades.map(trade => ({
+        master_id: masterId,
+        position_id: trade.position_id,
+        symbol: trade.symbol || '',
+        type: trade.type || 'BUY',
+        volume: trade.volume || 0,
+        price_open: trade.price_open || 0,
+        price_close: trade.price_close || null,
+        profit: trade.profit || 0,
+        commission: trade.commission || 0,
+        swap: trade.swap || 0,
+        time_open: trade.time_open || new Date().toISOString(),
+        time_close: trade.time_close || null,
+        is_open: isOpen ? 1 : 0,
+        created_at: new Date().toISOString()
+      }));
+      
+      writeDatabase({ ...db, master_trades: [...filteredTrades, ...newTrades] });
+    } catch (jsonError) {
+      console.error('JSON fallback upsertMasterTrades failed:', jsonError);
+    }
+  }
+};
+
+export const getCachedMasterTrades = async (masterId: string): Promise<{ history: any[], open_positions: any[] }> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM master_trades WHERE master_id = ? ORDER BY time_open DESC',
+      [masterId]
+    );
+    
+    const trades = rows as any[];
+    const history = trades.filter(t => t.is_open === 0);
+    const open_positions = trades.filter(t => t.is_open === 1);
+    
+    return {
+      history: history.map(t => ({
+        position_id: t.position_id,
+        symbol: t.symbol,
+        type: t.type,
+        volume: t.volume,
+        price_open: t.price_open,
+        price_close: t.price_close,
+        profit: t.profit,
+        commission: t.commission,
+        swap: t.swap,
+        time_open: t.time_open,
+        time_close: t.time_close
+      })),
+      open_positions: open_positions.map(t => ({
+        position_id: t.position_id,
+        symbol: t.symbol,
+        type: t.type,
+        volume: t.volume,
+        price_open: t.price_open,
+        profit: t.profit,
+        time_open: t.time_open
+      }))
+    };
+  } catch (error) {
+    console.error('Error getting cached master trades:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const masterTrades: any[] = Array.isArray(db.master_trades) ? db.master_trades : [];
+      const filteredTrades = masterTrades.filter(t => t.master_id === masterId);
+      
+      const history = filteredTrades.filter(t => t.is_open === 0);
+      const open_positions = filteredTrades.filter(t => t.is_open === 1);
+      
+      return {
+        history: history.map(t => ({
+          position_id: t.position_id,
+          symbol: t.symbol,
+          type: t.type,
+          volume: t.volume,
+          price_open: t.price_open,
+          price_close: t.price_close,
+          profit: t.profit,
+          commission: t.commission,
+          swap: t.swap,
+          time_open: t.time_open,
+          time_close: t.time_close
+        })),
+        open_positions: open_positions.map(t => ({
+          position_id: t.position_id,
+          symbol: t.symbol,
+          type: t.type,
+          volume: t.volume,
+          price_open: t.price_open,
+          profit: t.profit,
+          time_open: t.time_open
+        }))
+      };
+    } catch (jsonError) {
+      console.error('JSON fallback getCachedMasterTrades failed:', jsonError);
+      return { history: [], open_positions: [] };
     }
   }
 };
