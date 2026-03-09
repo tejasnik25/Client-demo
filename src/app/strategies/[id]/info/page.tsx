@@ -183,17 +183,34 @@ const StrategyInfoPage: React.FC = () => {
   const withUsVal = strategyParams.withUs || strategyParams.WithUs || strategyParams.withUsDays || strategyParams.WithUsDays || "";
   const chatLink = strategyParams.chatLink || strategyParams.telegram || strategyParams.Telegram || strategyParams.Chat || "";
 
-  // Pagination logic for closed positions (filter by connect time with safe fallback)
-  const filteredHistoryRaw = (() => {
-    const startTs = connectAt ? new Date(connectAt).getTime() : 0;
-    const parseTs = (h: any) => {
-      const ts = h.time_close || h.server_time_close || h.time_open || h.server_time_open;
-      const t = ts ? new Date(ts).getTime() : NaN;
-      return Number.isFinite(t) ? t : 0;
-    };
-    return history.filter((h: any) => parseTs(h) >= startTs);
-  })();
-  const filteredHistory = filteredHistoryRaw.length === 0 && history.length > 0 ? history : filteredHistoryRaw;
+  const toMs = (v: any): number => {
+    if (v == null) return NaN;
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === "string") {
+      let t = Date.parse(v);
+      if (!Number.isFinite(t)) {
+        // Handle dots in date strings (e.g. 2026.02.25)
+        t = Date.parse(v.replace(/\./g, '-'));
+      }
+      return Number.isFinite(t) ? t : NaN;
+    }
+    const num = Number(v);
+    if (!Number.isFinite(num)) return NaN;
+    // If it's a small number (seconds), convert to ms. MT5 uses seconds.
+    return num < 1e12 ? num * 1000 : num;
+  };
+
+  const filteredHistory = useMemo(() => {
+    // Only show trades that were opened AFTER the strategy was approved/connected
+    // If connectAt is null, show all history for the strategy (for public view)
+    if (!connectAt) return history;
+    
+    const startTs = new Date(connectAt).getTime();
+    return history.filter(h => {
+      const openMs = toMs(h.time_open ?? h.server_time_open);
+      return openMs >= startTs;
+    });
+  }, [history, connectAt]);
   const startIndex = (currentPage - 1) * entriesPerPage;
   const endIndex = startIndex + entriesPerPage;
   const currentHistory = filteredHistory.slice(startIndex, endIndex);
@@ -478,7 +495,7 @@ const StrategyInfoPage: React.FC = () => {
                     {openPositions.map((pos: any, idx: number) => (
                       <tr key={pos.ticket || idx} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {pos.server_time || new Date(pos.time * 1000).toLocaleString()}
+                          {pos.server_time || (Number.isFinite(toMs(pos.time)) ? new Date(toMs(pos.time)).toLocaleString() : "-")}
                         </td>
                         <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                         <td className="px-6 py-4">
@@ -539,10 +556,10 @@ const StrategyInfoPage: React.FC = () => {
                     {currentHistory.map((pos: any, idx: number) => (
                       <tr key={pos.position_id || idx} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {pos.server_time_open || new Date(pos.time_open * 1000).toLocaleString()}
+                          {pos.server_time_open || (Number.isFinite(toMs(pos.time_open)) ? new Date(toMs(pos.time_open)).toLocaleString() : "-")}
                         </td>
                         <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {pos.server_time_close || new Date(pos.time_close * 1000).toLocaleString()}
+                          {pos.server_time_close || (Number.isFinite(toMs(pos.time_close)) ? new Date(toMs(pos.time_close)).toLocaleString() : "-")}
                         </td>
                         <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                         <td className="px-6 py-4">

@@ -2480,8 +2480,10 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
 // Master Trades operations
 export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean): Promise<void> => {
   try {
-    // Clear existing trades for this master
-    await pool.execute('DELETE FROM master_trades WHERE master_id = ?', [masterId]);
+    if (isOpen) {
+      // For open positions, we replace the existing set because open trades change frequently
+      await pool.execute('DELETE FROM master_trades WHERE master_id = ? AND is_open = 1', [masterId]);
+    }
     
     // Insert new trades
     if (trades.length > 0) {
@@ -2504,13 +2506,19 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
       
       const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       
-      await pool.execute(
-        `INSERT INTO master_trades (
-          master_id, position_id, symbol, type, volume, price_open, price_close, 
-          profit, commission, swap, time_open, time_close, is_open, created_at
-        ) VALUES ${placeholders}`,
-        values.flat()
-      );
+      // Use INSERT IGNORE for closed trades to avoid duplicates while accumulating history
+      // For open trades, we already cleared them above
+      const sql = isOpen 
+        ? `INSERT INTO master_trades (
+            master_id, position_id, symbol, type, volume, price_open, price_close, 
+            profit, commission, swap, time_open, time_close, is_open, created_at
+          ) VALUES ${placeholders}`
+        : `INSERT IGNORE INTO master_trades (
+            master_id, position_id, symbol, type, volume, price_open, price_close, 
+            profit, commission, swap, time_open, time_close, is_open, created_at
+          ) VALUES ${placeholders}`;
+
+      await pool.execute(sql, values.flat());
     }
   } catch (error) {
     console.error('Error upserting master trades:', error);

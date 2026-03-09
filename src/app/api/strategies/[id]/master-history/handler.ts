@@ -165,8 +165,8 @@ export async function GET(
     // If it's in history (closed), remove it from open_positions.
     open_positions = open_positions.filter(op => !freshHistoryMap.has(op.position_id));
 
-    // Only surface non-404 errors if we found absolutely nothing
-    const errorStr = (history.length === 0 && open_positions.length === 0) ? "No data found from provider" : undefined;
+    // Check if provider fetch was successful
+    const anyFetchSuccess = results.some(r => r.status === 'fulfilled' && r.value.ok);
 
     // Persist to temporary storage (MySQL Cache) before returning
     if (history.length > 0) {
@@ -189,19 +189,31 @@ export async function GET(
     
     const openMap = new Map();
     // For open positions, we only want the ones currently reported as open by MT5
-    // But if fetch failed completely, we might fallback to cache (though risky for open trades)
+    // But if fetch failed completely, we fallback to cache
     if (open_positions.length > 0) {
       open_positions.forEach(t => openMap.set(t.position_id, t));
-    } else if (!errorStr) {
-      // If MT5 says 0 open positions and no error, then 0 are open.
+    } else if (anyFetchSuccess) {
+      // If MT5 says 0 open positions and fetch was successful, then 0 are open.
     } else {
-      // If error, show last known open positions
+      // If fetch failed, show last known open positions from cache
       cached.open_positions.forEach(t => openMap.set(t.position_id, t));
     }
 
+    const finalHistory = Array.from(historyMap.values()).sort((a, b) => (b.time_open || 0) - (a.time_open || 0));
+    const finalOpen = Array.from(openMap.values());
+
+    // Only surface error if we found absolutely nothing even in cache
+    let errorStr: string | undefined = undefined;
+    if (finalHistory.length === 0 && finalOpen.length === 0) {
+      errorStr = "No data found from provider";
+    } else if (!anyFetchSuccess) {
+      // If provider failed but we have cache, don't show error, just a warning in logs
+      console.warn(`[MasterHistory] Provider offline for ${masterId}. Serving ${finalHistory.length + finalOpen.length} trades from cache.`);
+    }
+
     return NextResponse.json({ 
-      history: Array.from(historyMap.values()).sort((a, b) => (b.time_open || 0) - (a.time_open || 0)), 
-      open_positions: Array.from(openMap.values()), 
+      history: finalHistory, 
+      open_positions: finalOpen, 
       error: errorStr 
     });
   } catch (error: any) {
