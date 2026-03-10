@@ -530,8 +530,8 @@ const StrategyInfoPage: React.FC = () => {
                       <th className="px-6 py-3">Volume</th>
                       <th className="px-6 py-3">Price Open</th>
                       <th className="px-6 py-3">Price Current</th>
-                      <th className="px-6 py-3">Profit</th>
                       <th className="px-6 py-3">Swap</th>
+                      <th className="px-6 py-3">Profit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -551,11 +551,11 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
                         <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
                         <td className="px-6 py-4 text-gray-600">{pos.price_current}</td>
-                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
-                        </td>
                         <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
+                        </td>
+                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
                         </td>
                       </tr>
                     ))}
@@ -595,8 +595,8 @@ const StrategyInfoPage: React.FC = () => {
                       <th className="px-6 py-3">Volume</th>
                       <th className="px-6 py-3">Open Price</th>
                       <th className="px-6 py-3">Close Price</th>
-                      <th className="px-6 py-3">Profit</th>
                       <th className="px-6 py-3">Swap</th>
+                      <th className="px-6 py-3">Profit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -619,11 +619,11 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
                         <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
                         <td className="px-6 py-4 text-gray-600">{pos.price_close}</td>
-                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
-                        </td>
                         <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
+                        </td>
+                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
                         </td>
                       </tr>
                     ))}

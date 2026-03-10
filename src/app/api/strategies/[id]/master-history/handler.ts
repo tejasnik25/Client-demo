@@ -171,12 +171,16 @@ export async function GET(
     const anyFetchSuccess = results.some(r => r.status === 'fulfilled' && r.value.ok);
 
     // Persist to temporary storage (MySQL Cache) before returning
+    // We prioritize fresh data. If we have fresh history, we upsert it.
     if (history.length > 0) {
       console.log(`[MasterHistory] Upserting ${history.length} closed trades for ${masterId}`);
       await upsertMasterTrades(masterId, history, false);
     }
-    if (open_positions.length > 0) {
-      console.log(`[MasterHistory] Upserting ${open_positions.length} open positions for ${masterId}`);
+    
+    // For open positions, we ALWAYS upsert if fetch was successful, even if 0.
+    // This ensures that if a trade was closed on MT5, it gets cleared from our 'open' cache.
+    if (anyFetchSuccess) {
+      console.log(`[MasterHistory] Updating ${open_positions.length} open positions for ${masterId}`);
       await upsertMasterTrades(masterId, open_positions, true);
     }
 

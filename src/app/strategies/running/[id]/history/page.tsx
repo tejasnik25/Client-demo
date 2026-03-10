@@ -534,8 +534,8 @@ export default function CopierHistoryPage() {
                     <th className="px-6 py-3">Volume</th>
                     <th className="px-6 py-3">Open Price</th>
                     <th className="px-6 py-3">{filter === "opened" ? "Current Price" : "Close Price"}</th>
-                    <th className="px-6 py-3">Profit</th>
                     <th className="px-6 py-3">Swap</th>
+                    <th className="px-6 py-3">Profit</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -560,11 +560,11 @@ export default function CopierHistoryPage() {
                       <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
                       <td className="px-6 py-4 text-gray-600">{(pos as any).openPrice}</td>
                       <td className="px-6 py-4 text-gray-600">{(pos as any).closeOrCurrentPrice ?? "-"}</td>
-                      <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {(pos as any).profit > 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
-                      </td>
                       <td className={`px-6 py-4 font-medium ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {(pos as any).swap > 0 ? "+" : ""}{Number((pos as any).swap || 0).toFixed(2)}
+                      </td>
+                      <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {(pos as any).profit > 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
                       </td>
                     </tr>
                   ))}
