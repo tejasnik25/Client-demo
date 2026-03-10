@@ -85,19 +85,45 @@ const StrategyInfoPage: React.FC = () => {
             fetch(`/api/strategies/running`, { cache: 'no-store' })
           ]);
           const data = await res.json();
+          console.log('Master history API response:', data); // Debug log
+          
+          if (!res.ok) {
+            console.error('API response not ok:', res.status, res.statusText);
+            setHistoryError(`API error: ${res.status} ${res.statusText}`);
+            setHistory([]);
+            setOpenPositions([]);
+            return;
+          }
+          
           if (data.history) {
             setHistory(data.history);
+          } else {
+            console.warn('No history field in API response:', data);
+            setHistory([]);
           }
+          
           if (data.open_positions) {
             setOpenPositions(data.open_positions);
+          } else {
+            console.warn('No open_positions field in API response:', data);
+            setOpenPositions([]);
           }
+          
           setHistoryError(data.error || null);
           const runData = await runRes.json().catch(() => null);
           const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
           setConnectAt(me?.createdAt || null);
-        } catch (e) {
+        } catch (e: any) {
           console.error("Failed to fetch history:", e);
+          console.error("Error details:", {
+            message: e?.message || 'Unknown error',
+            stack: e?.stack || 'No stack trace',
+            paramsId: params.id
+          });
           setHistoryError('Failed to fetch master history');
+          // Set empty arrays to prevent crashes
+          setHistory([]);
+          setOpenPositions([]);
         } finally {
           setHistoryLoading(false);
         }
