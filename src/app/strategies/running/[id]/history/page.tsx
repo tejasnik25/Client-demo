@@ -140,8 +140,21 @@ export default function CopierHistoryPage() {
     
     setHistoryLoading(true);
     loadHistory();
-    const timer = setInterval(loadHistory, 30000);
-    return () => clearInterval(timer);
+
+    const timer = setInterval(loadHistory, 10000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadHistory();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [params.id]);
 
 
