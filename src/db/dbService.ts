@@ -257,6 +257,7 @@ const ensureMasterTradesTable = async () => {
         price_open DECIMAL(18,5) NOT NULL,
         price_close DECIMAL(18,5),
         profit DECIMAL(18,2) DEFAULT 0,
+        commission DECIMAL(18,2) DEFAULT 0,
         swap DECIMAL(18,2) DEFAULT 0,
         time_open TIMESTAMP NOT NULL,
         time_close TIMESTAMP,
@@ -526,6 +527,7 @@ const initializeDatabase = async () => {
         price_open DECIMAL(18,5) NOT NULL,
         price_close DECIMAL(18,5),
         profit DECIMAL(18,2) DEFAULT 0,
+        commission DECIMAL(18,2) DEFAULT 0,
         swap DECIMAL(18,2) DEFAULT 0,
         time_open TIMESTAMP NOT NULL,
         time_close TIMESTAMP,
@@ -2587,6 +2589,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
     // Insert new trades
     if (trades.length > 0) {
       const values = trades.map(trade => [
+        `${masterId}-${trade.position_id}`, // Generate unique id
         masterId,
         trade.position_id,
         trade.symbol || '',
@@ -2595,6 +2598,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         trade.price_open || 0,
         trade.price_close || null,
         trade.profit || 0,
+        trade.commission || 0,
         trade.swap || 0,
         trade.time_open || new Date().toISOString(),
         trade.time_close || null,
@@ -2602,18 +2606,18 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         new Date().toISOString()
       ]);
       
-      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       
       // Use INSERT IGNORE for closed trades to avoid duplicates while accumulating history
       // For open trades, we already cleared them above
       const sql = isOpen 
         ? `INSERT INTO master_trades_cache (
-            master_id, position_id, symbol, type, volume, price_open, price_close, 
-            profit, swap, time_open, time_close, is_open, created_at
+            id, master_id, position_id, symbol, type, volume, price_open, price_close, 
+            profit, commission, swap, time_open, time_close, is_open, created_at
           ) VALUES ${placeholders}`
         : `INSERT IGNORE INTO master_trades_cache (
-            master_id, position_id, symbol, type, volume, price_open, price_close, 
-            profit, swap, time_open, time_close, is_open, created_at
+            id, master_id, position_id, symbol, type, volume, price_open, price_close, 
+            profit, commission, swap, time_open, time_close, is_open, created_at
           ) VALUES ${placeholders}`;
 
       await pool.execute(sql, values.flat());
@@ -2630,6 +2634,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
       
       // Add new trades
       const newTrades = trades.map(trade => ({
+        id: `${masterId}-${trade.position_id}`, // Generate unique id
         master_id: masterId,
         position_id: trade.position_id,
         symbol: trade.symbol || '',
@@ -2638,6 +2643,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         price_open: trade.price_open || 0,
         price_close: trade.price_close || null,
         profit: trade.profit || 0,
+        commission: trade.commission || 0,
         swap: trade.swap || 0,
         time_open: trade.time_open || new Date().toISOString(),
         time_close: trade.time_close || null,

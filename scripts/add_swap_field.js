@@ -18,7 +18,7 @@ const pool = mysql.createPool({
 
 async function addSwapField() {
   try {
-    console.log('Adding swap field to master_trades_cache table...');
+    console.log('Adding missing fields to master_trades_cache table...');
     
     // Add swap column if it doesn't exist
     try {
@@ -32,6 +32,53 @@ async function addSwapField() {
         console.log('✓ swap field already exists in master_trades_cache table');
       } else {
         throw error;
+      }
+    }
+
+    // Add commission column if it doesn't exist
+    try {
+      await pool.execute(`
+        ALTER TABLE master_trades_cache 
+        ADD COLUMN commission DECIMAL(18,2) DEFAULT 0
+      `);
+      console.log('✓ commission field added to master_trades_cache table');
+    } catch (error) {
+      if (error.code === 'ER_DUP_FIELDNAME') {
+        console.log('✓ commission field already exists in master_trades_cache table');
+      } else {
+        console.warn('Could not add commission to master_trades_cache table:', error.message);
+      }
+    }
+
+    // Add created_at column if it doesn't exist
+    try {
+      await pool.execute(`
+        ALTER TABLE master_trades_cache 
+        ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      `);
+      console.log('✓ created_at field added to master_trades_cache table');
+    } catch (error) {
+      if (error.code === 'ER_DUP_FIELDNAME') {
+        console.log('✓ created_at field already exists in master_trades_cache table');
+      } else {
+        console.warn('Could not add created_at to master_trades_cache table:', error.message);
+      }
+    }
+
+    // Add id column if it doesn't exist (primary key)
+    try {
+      await pool.execute(`
+        ALTER TABLE master_trades_cache 
+        ADD COLUMN id VARCHAR(255) PRIMARY KEY
+      `);
+      console.log('✓ id field added to master_trades_cache table');
+    } catch (error) {
+      if (error.code === 'ER_DUP_FIELDNAME') {
+        console.log('✓ id field already exists in master_trades_cache table');
+      } else if (error.code === 'ER_MULTIPLE_PRI_KEY') {
+        console.log('✓ primary key already exists in master_trades_cache table');
+      } else {
+        console.warn('Could not add id to master_trades_cache table:', error.message);
       }
     }
 
@@ -60,6 +107,8 @@ async function addSwapField() {
     } catch (error) {
       if (error.code === 'ER_DUP_FIELDNAME') {
         console.log('✓ swap field already exists in trades table');
+      } else if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.log('✓ trades table does not exist (expected)');
       } else {
         console.warn('Could not add swap to trades table:', error.message);
       }
