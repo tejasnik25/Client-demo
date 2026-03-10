@@ -134,6 +134,23 @@ const StrategyInfoPage: React.FC = () => {
     }
   }, [params.id]);
 
+  const toMs = (v: any): number => {
+    if (v == null) return NaN;
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === "string") {
+      let t = Date.parse(v);
+      if (!Number.isFinite(t)) {
+        // Handle dots in date strings (e.g. 2026.02.25)
+        t = Date.parse(v.replace(/\./g, '-'));
+      }
+      return Number.isFinite(t) ? t : NaN;
+    }
+    const num = Number(v);
+    if (!Number.isFinite(num)) return NaN;
+    // If it's a small number (seconds), convert to ms. MT5 uses seconds.
+    return num < 1e12 ? num * 1000 : num;
+  };
+
   const filteredHistory = useMemo(() => {
     // Only show trades that were opened AFTER the strategy was approved/connected
     // If connectAt is null, show all history for the strategy (for public view)
@@ -231,23 +248,6 @@ const StrategyInfoPage: React.FC = () => {
   const profit = typeof strategy.profit === 'number' ? strategy.profit : 0;
   const drawdown = strategy.maxDdi !== undefined ? strategy.maxDdi : 0;
   const copiers = strategy.copiers !== undefined ? strategy.copiers : 0;
-
-  const toMs = (v: any): number => {
-    if (v == null) return NaN;
-    if (v instanceof Date) return v.getTime();
-    if (typeof v === "string") {
-      let t = Date.parse(v);
-      if (!Number.isFinite(t)) {
-        // Handle dots in date strings (e.g. 2026.02.25)
-        t = Date.parse(v.replace(/\./g, '-'));
-      }
-      return Number.isFinite(t) ? t : NaN;
-    }
-    const num = Number(v);
-    if (!Number.isFinite(num)) return NaN;
-    // If it's a small number (seconds), convert to ms. MT5 uses seconds.
-    return num < 1e12 ? num * 1000 : num;
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 relative overflow-x-hidden">
