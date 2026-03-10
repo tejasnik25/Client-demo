@@ -2589,7 +2589,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
     // Insert new trades
     if (trades.length > 0) {
       const values = trades.map(trade => [
-        `${masterId}-${trade.position_id}`, // Generate unique id
+        `${masterId}-${trade.position_id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Generate truly unique id
         masterId,
         trade.position_id,
         trade.symbol || '',
@@ -2634,7 +2634,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
       
       // Add new trades
       const newTrades = trades.map(trade => ({
-        id: `${masterId}-${trade.position_id}`, // Generate unique id
+        id: `${masterId}-${trade.position_id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Generate truly unique id
         master_id: masterId,
         position_id: trade.position_id,
         symbol: trade.symbol || '',
