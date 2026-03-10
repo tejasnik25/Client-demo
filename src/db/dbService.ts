@@ -243,9 +243,80 @@ export type Ad = {
   updatedAt: string;
 };
 
+// Ensure master_trades table exists immediately (for Vercel/production)
+const ensureMasterTradesTable = async () => {
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS master_trades (
+        id VARCHAR(255) PRIMARY KEY,
+        master_id VARCHAR(255) NOT NULL,
+        position_id VARCHAR(255) NOT NULL,
+        symbol VARCHAR(50) NOT NULL,
+        type ENUM('BUY', 'SELL') NOT NULL,
+        volume DECIMAL(18,2) NOT NULL,
+        price_open DECIMAL(18,5) NOT NULL,
+        price_close DECIMAL(18,5),
+        profit DECIMAL(18,2) DEFAULT 0,
+        commission DECIMAL(18,2) DEFAULT 0,
+        swap DECIMAL(18,2) DEFAULT 0,
+        time_open TIMESTAMP NOT NULL,
+        time_close TIMESTAMP,
+        is_open BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_master_id (master_id),
+        INDEX idx_position_id (position_id),
+        INDEX idx_time_open (time_open)
+      )
+    `);
+    console.log('master_trades table ensured');
+  } catch (error) {
+    console.warn('Failed to ensure master_trades table:', error);
+  }
+};
+
+// Call immediately when module loads
+ensureMasterTradesTable();
+
 // Initialize database with MySQL connection
 const initializeDatabase = async () => {
   try {
+    try {
+      const conn = await pool.getConnection();
+      console.log('MySQL connection successful');
+      conn.release();
+    } catch (err) {
+      console.log('MySQL connection failed, using JSON fallback');
+    }
+
+    // Create essential tables immediately (especially for Vercel)
+    try {
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS master_trades (
+          id VARCHAR(255) PRIMARY KEY,
+          master_id VARCHAR(255) NOT NULL,
+          position_id VARCHAR(255) NOT NULL,
+          symbol VARCHAR(50) NOT NULL,
+          type ENUM('BUY', 'SELL') NOT NULL,
+          volume DECIMAL(18,2) NOT NULL,
+          price_open DECIMAL(18,5) NOT NULL,
+          price_close DECIMAL(18,5),
+          profit DECIMAL(18,2) DEFAULT 0,
+          commission DECIMAL(18,2) DEFAULT 0,
+          swap DECIMAL(18,2) DEFAULT 0,
+          time_open TIMESTAMP NOT NULL,
+          time_close TIMESTAMP,
+          is_open BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_master_id (master_id),
+          INDEX idx_position_id (position_id),
+          INDEX idx_time_open (time_open)
+        )
+      `);
+      console.log('master_trades table created/verified');
+    } catch (tableError) {
+      console.warn('master_trades table creation failed:', tableError);
+    }
+
     try {
       const conn = await pool.getConnection();
       await conn.ping();
@@ -2615,10 +2686,20 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
       console.warn('master_trades table creation failed:', tableError);
     }
     
-    const [rows] = await pool.execute(
-      'SELECT * FROM master_trades WHERE master_id = ? ORDER BY time_open DESC',
-      [masterId]
-    );
+    let rows;
+    try {
+      [rows] = await pool.execute(
+        'SELECT * FROM master_trades WHERE master_id = ? ORDER BY time_open DESC',
+        [masterId]
+      );
+    } catch (selectError) {
+      // If table still doesn't exist, return empty result instead of crashing
+      if (selectError && typeof selectError === 'object' && 'code' in selectError && selectError.code === 'ER_NO_SUCH_TABLE') {
+        console.warn(`master_trades table still doesn't exist for ${masterId}, returning empty result`);
+        return { history: [], open_positions: [] };
+      }
+      throw selectError;
+    }
     
     const trades = rows as any[];
     const history = trades.filter(t => t.is_open === 0);
