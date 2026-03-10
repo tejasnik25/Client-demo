@@ -272,6 +272,28 @@ CREATE TABLE IF NOT EXISTS master_trades_cache (
   UNIQUE KEY idx_master_pos (master_id, position_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Master Trades Table (Persistent Storage for Master Account Trade History)
+CREATE TABLE IF NOT EXISTS master_trades (
+  id VARCHAR(255) PRIMARY KEY,
+  master_id VARCHAR(255) NOT NULL,
+  position_id VARCHAR(255) NOT NULL,
+  symbol VARCHAR(50) NOT NULL,
+  type ENUM('BUY', 'SELL') NOT NULL,
+  volume DECIMAL(18,2) NOT NULL,
+  price_open DECIMAL(18,5) NOT NULL,
+  price_close DECIMAL(18,5),
+  profit DECIMAL(18,2) DEFAULT 0,
+  commission DECIMAL(18,2) DEFAULT 0,
+  swap DECIMAL(18,2) DEFAULT 0,
+  time_open TIMESTAMP NOT NULL,
+  time_close TIMESTAMP,
+  is_open BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_master_id (master_id),
+  INDEX idx_position_id (position_id),
+  INDEX idx_time_open (time_open)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Payment Transactions Table
 CREATE TABLE IF NOT EXISTS payment_transactions (
   id VARCHAR(36) PRIMARY KEY,
@@ -589,3 +611,40 @@ SET @ddl := IF(@exists_master_platform = 0,
   'SELECT 1'
 );
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Verify master_trades table exists (added for master history functionality)
+SET @table_exists := (
+  SELECT COUNT(*) FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'master_trades'
+);
+SET @ddl := IF(@table_exists = 0,
+  'CREATE TABLE master_trades (
+    id VARCHAR(255) PRIMARY KEY,
+    master_id VARCHAR(255) NOT NULL,
+    position_id VARCHAR(255) NOT NULL,
+    symbol VARCHAR(50) NOT NULL,
+    type ENUM("BUY", "SELL") NOT NULL,
+    volume DECIMAL(18,2) NOT NULL,
+    price_open DECIMAL(18,5) NOT NULL,
+    price_close DECIMAL(18,5),
+    profit DECIMAL(18,2) DEFAULT 0,
+    commission DECIMAL(18,2) DEFAULT 0,
+    swap DECIMAL(18,2) DEFAULT 0,
+    time_open TIMESTAMP NOT NULL,
+    time_close TIMESTAMP,
+    is_open BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_master_id (master_id),
+    INDEX idx_position_id (position_id),
+    INDEX idx_time_open (time_open)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+  'SELECT "master_trades table already exists" as status'
+);
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Final verification
+SELECT 'Database setup completed successfully!' as status;
+SELECT COUNT(*) as user_count FROM users;
+SELECT COUNT(*) as strategy_count FROM strategies;
+SELECT COUNT(*) as master_trades_count FROM master_trades;
+ALTER TABLE payments MODIFY COLUMN status ENUM('pending','in_process','approved','failed','renewal_pending','renewal_approved','rejected') DEFAULT 'pending';
