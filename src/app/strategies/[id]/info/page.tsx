@@ -535,7 +535,7 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
                         <td className="px-6 py-4 text-gray-600">{pos.price_current}</td>
                         <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.profit > 0 ? '+' : ''}{pos.profit.toFixed(2)}
+                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
                         </td>
                       </tr>
                     ))}
@@ -599,7 +599,7 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
                         <td className="px-6 py-4 text-gray-600">{pos.price_close}</td>
                         <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.profit > 0 ? '+' : ''}{pos.profit.toFixed(2)}
+                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
                         </td>
                       </tr>
                     ))}

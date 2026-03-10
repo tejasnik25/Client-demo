@@ -438632,5 +438632,41 @@
     }
   ],
   "ads": [],
-  "running_strategy_modifications": []
+  "running_strategy_modifications": [],
+  "master_trades_cache": [
+    {
+      "id": "270870850-1548638571-1773158297023-dd1hx09j1",
+      "master_id": "270870850",
+      "position_id": "1548638571",
+      "symbol": "BTCUSDm",
+      "type": "buy",
+      "volume": 0.01,
+      "price_open": 67521.28,
+      "price_close": null,
+      "profit": -3.42,
+      "commission": 0,
+      "swap": 0,
+      "time_open": "2026-03-10T15:58:17.023Z",
+      "time_close": null,
+      "is_open": 1,
+      "created_at": "2026-03-10T15:58:17.023Z"
+    },
+    {
+      "id": "270870850-1548638604-1773158297023-4ueaga9dk",
+      "master_id": "270870850",
+      "position_id": "1548638604",
+      "symbol": "BTCUSDm",
+      "type": "buy",
+      "volume": 0.01,
+      "price_open": 67524.58,
+      "price_close": null,
+      "profit": -3.46,
+      "commission": 0,
+      "swap": 0,
+      "time_open": "2026-03-10T15:58:17.023Z",
+      "time_close": null,
+      "is_open": 1,
+      "created_at": "2026-03-10T15:58:17.023Z"
+    }
+  ]
 }

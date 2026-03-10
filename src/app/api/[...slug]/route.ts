@@ -25,18 +25,7 @@ async function handleRequest(req: NextRequest, { params }: { params: { slug: str
        if (handler && handler[method]) return (handler[method] as any)(req);
     }
 
-    // 1. Ads
-    if (slug[0] === 'ads') {
-      if (slug[1] === 'upload') handler = await import('../ads/upload/handler');
-      else if (slug.length === 2) {
-        handler = await import('../ads/[id]/handler');
-        if (handler && handler[method]) return (handler[method] as any)(req, { params: { id: slug[1] } });
-      }
-      else handler = await import('../ads/handler');
-      if (handler && handler[method]) return (handler[method] as any)(req);
-    }
-
-    // 2. Simple paths
+    // 1. Simple paths (removed ads section)
     if (path === 'contact') handler = await import('../contact/handler');
     else if (path === 'email') handler = await import('../email/handler');
     else if (path === 'health') handler = await import('../health/handler');
