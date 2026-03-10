@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 // Catch-all router for all non-admin APIs to stay under Vercel's 12-function limit.
 export const dynamic = 'force-dynamic';
 
-async function handleRequest(req: NextRequest, { params }: { params: { slug: string[] } }) {
-  const slug = params.slug;
+async function handleRequest(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+  const slug = (await params).slug;
   const method = req.method;
   const path = slug.join('/');
 

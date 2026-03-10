@@ -134,6 +134,22 @@ const StrategyInfoPage: React.FC = () => {
     }
   }, [params.id]);
 
+  const filteredHistory = useMemo(() => {
+    // Only show trades that were opened AFTER the strategy was approved/connected
+    // If connectAt is null, show all history for the strategy (for public view)
+    if (!connectAt) return history;
+
+    const startTs = new Date(connectAt).getTime();
+    return history.filter(h => {
+      const openMs = toMs(h.time_open ?? h.server_time_open);
+      return openMs >= startTs;
+    });
+  }, [history, connectAt]);
+  const startIndex = (currentPage - 1) * entriesPerPage;
+  const endIndex = startIndex + entriesPerPage;
+  const currentHistory = filteredHistory.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(filteredHistory.length / entriesPerPage);
+
   const getPlanPrices = (s: Strategy | null) => {
     if (!s) return { Premium: 5000, Expert: 10000, Pro: 20000 };
 
@@ -232,22 +248,6 @@ const StrategyInfoPage: React.FC = () => {
     // If it's a small number (seconds), convert to ms. MT5 uses seconds.
     return num < 1e12 ? num * 1000 : num;
   };
-
-  const filteredHistory = useMemo(() => {
-    // Only show trades that were opened AFTER the strategy was approved/connected
-    // If connectAt is null, show all history for the strategy (for public view)
-    if (!connectAt) return history;
-    
-    const startTs = new Date(connectAt).getTime();
-    return history.filter(h => {
-      const openMs = toMs(h.time_open ?? h.server_time_open);
-      return openMs >= startTs;
-    });
-  }, [history, connectAt]);
-  const startIndex = (currentPage - 1) * entriesPerPage;
-  const endIndex = startIndex + entriesPerPage;
-  const currentHistory = filteredHistory.slice(startIndex, endIndex);
-  const totalPages = Math.ceil(filteredHistory.length / entriesPerPage);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 relative overflow-x-hidden">

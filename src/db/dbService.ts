@@ -2392,6 +2392,124 @@ export const updateRunningStrategyAdminStatus = async (id: string, status: strin
   }
 };
 
+export const createRunningStrategyModification = async (payload: any): Promise<boolean> => {
+  try {
+    await pool.execute(
+      `INSERT INTO running_strategy_modifications
+        (id, running_strategy_id, user_id, platform, mt_account_id, mt_account_password, mt_account_server, status, new_update_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        payload.id,
+        payload.running_strategy_id,
+        payload.user_id,
+        payload.platform || null,
+        payload.mt_account_id || null,
+        payload.mt_account_password || null,
+        payload.mt_account_server || null,
+        payload.status || 'in-process',
+        payload.new_update_json ? JSON.stringify(payload.new_update_json) : null
+      ]
+    );
+    return true;
+  } catch (error) {
+    console.error('Error creating running strategy modification:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const modifications: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      const newEntry = {
+        id: payload.id,
+        running_strategy_id: payload.running_strategy_id,
+        user_id: payload.user_id,
+        platform: payload.platform || null,
+        mt_account_id: payload.mt_account_id || null,
+        mt_account_password: payload.mt_account_password || null,
+        mt_account_server: payload.mt_account_server || null,
+        status: payload.status || 'in-process',
+        new_update_json: payload.new_update_json || null,
+        created_at: new Date().toISOString()
+      };
+      modifications.push(newEntry);
+      writeDatabase({ ...db, running_strategy_modifications: modifications });
+      return true;
+    } catch (jsonError) {
+      console.error('JSON fallback createRunningStrategyModification failed:', jsonError);
+      return false;
+    }
+  }
+};
+
+export const createDisconnectSnapshot = async (snapshot: any): Promise<boolean> => {
+  try {
+    await pool.execute(
+      `INSERT INTO disconnect_snapshots (id, running_strategy_id, snapshot_data)
+       VALUES (?, ?, ?)`,
+      [
+        snapshot.id,
+        snapshot.running_strategy_id,
+        JSON.stringify(snapshot)
+      ]
+    );
+    return true;
+  } catch (error) {
+    // If table not found, create it and retry once
+    if (error && typeof error === 'object' && 'code' in error && (error as any).code === 'ER_NO_SUCH_TABLE') {
+      try {
+        await pool.execute(`
+          CREATE TABLE IF NOT EXISTS disconnect_snapshots (
+            id VARCHAR(255) PRIMARY KEY,
+            running_strategy_id VARCHAR(255) NOT NULL,
+            snapshot_data JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        try {
+          await pool.execute(`
+            ALTER TABLE disconnect_snapshots 
+            ADD CONSTRAINT fk_disconnect_snapshots_running_strategy 
+            FOREIGN KEY (running_strategy_id) REFERENCES running_strategies(id) ON DELETE CASCADE
+          `);
+        } catch (fkError) {
+          console.warn('Could not add foreign key constraint for disconnect_snapshots:', fkError);
+        }
+      } catch (createError) {
+        console.error('Failed to create disconnect_snapshots table:', createError);
+        return false;
+      }
+
+      try {
+        await pool.execute(
+          `INSERT INTO disconnect_snapshots (id, running_strategy_id, snapshot_data)
+           VALUES (?, ?, ?)`,
+          [snapshot.id, snapshot.running_strategy_id, JSON.stringify(snapshot)]
+        );
+        return true;
+      } catch (retryError) {
+        console.error('Retry insert disconnect snapshot failed:', retryError);
+        return false;
+      }
+    }
+
+    console.error('Error creating disconnect snapshot:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const snapshots: any[] = Array.isArray(db.disconnect_snapshots) ? db.disconnect_snapshots : [];
+      snapshots.push({
+        id: snapshot.id,
+        running_strategy_id: snapshot.running_strategy_id,
+        snapshot_data: snapshot,
+        created_at: new Date().toISOString()
+      });
+      writeDatabase({ ...db, disconnect_snapshots: snapshots });
+      return true;
+    } catch (jsonError) {
+      console.error('JSON fallback createDisconnectSnapshot failed:', jsonError);
+      return false;
+    }
+  }
+};
+
 export const getRunningStrategyModifications = async (runningStrategyId: string): Promise<any[]> => {
   try {
     const [rows] = await pool.execute(
