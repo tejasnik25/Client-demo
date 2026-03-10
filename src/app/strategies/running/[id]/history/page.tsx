@@ -18,6 +18,7 @@ type HistoryItem = {
   price_open: number;
   price_close: number;
   profit: number;
+  swap?: number;
 };
 
 type OpenItem = {
@@ -29,6 +30,7 @@ type OpenItem = {
   price_open: number;
   price_current: number;
   profit: number;
+  swap?: number;
 };
 
 type Strategy = {
@@ -292,6 +294,7 @@ export default function CopierHistoryPage() {
       openPrice: h.price_open,
       closeOrCurrentPrice: h.price_close,
       profit: Number(h.profit) * mult,
+      swap: Number(h.swap || 0) * mult,
     }));
   }, [history, lotSize, sessions]);
 
@@ -326,6 +329,7 @@ export default function CopierHistoryPage() {
       openPrice: p.price_open,
       closeOrCurrentPrice: p.price_current,
       profit: Number(p.profit) * mult,
+      swap: Number(p.swap || 0) * mult,
     }));
   }, [openPositions, lotSize, sessions, adminStatus, mtStatus]);
 
@@ -362,6 +366,7 @@ export default function CopierHistoryPage() {
           openPrice: p.price_open,
           closeOrCurrentPrice: p.price_current,
           profit: Number(p.profit) * mult,
+          swap: Number(p.swap || 0) * mult,
         });
       });
     });
@@ -517,6 +522,7 @@ export default function CopierHistoryPage() {
                     <th className="px-6 py-3">Open Price</th>
                     <th className="px-6 py-3">{filter === "opened" ? "Current Price" : "Close Price"}</th>
                     <th className="px-6 py-3">Profit</th>
+                    <th className="px-6 py-3">Swap</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -543,6 +549,9 @@ export default function CopierHistoryPage() {
                       <td className="px-6 py-4 text-gray-600">{(pos as any).closeOrCurrentPrice ?? "-"}</td>
                       <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {(pos as any).profit > 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
+                      </td>
+                      <td className={`px-6 py-4 font-bold ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {(pos as any).swap > 0 ? "+" : ""}{Number((pos as any).swap || 0).toFixed(2)}
                       </td>
                     </tr>
                   ))}

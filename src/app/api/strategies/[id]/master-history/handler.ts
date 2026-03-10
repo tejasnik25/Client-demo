@@ -55,6 +55,7 @@ export async function GET(
       price_open: p.price_open ?? p.open ?? p.entry_price ?? 0,
       price_close: p.price_close ?? p.close ?? p.exit_price ?? p.price_current ?? 0,
       profit: Number(p.profit ?? p.pnl ?? 0),
+      swap: Number(p.swap ?? 0),
     };
   };
 
@@ -73,6 +74,7 @@ export async function GET(
       price_open: p.price_open ?? p.open ?? p.entry_price ?? 0,
       price_current: p.price_current ?? p.current_price ?? p.close ?? 0,
       profit: Number(p.profit ?? p.pnl ?? 0),
+      swap: Number(p.swap ?? 0),
     };
   };
 
