@@ -205,7 +205,16 @@ export async function GET(
     // Only surface error if we found absolutely nothing even in cache
     let errorStr: string | undefined = undefined;
     if (finalHistory.length === 0 && finalOpen.length === 0) {
-      errorStr = "No data found from provider";
+      // Don't show error immediately, try to provide helpful context
+      console.warn(`[MasterHistory] No trades found for master ${masterId}. This could mean:
+        1. Master account has no open/closed trades
+        2. Trading service is temporarily unavailable
+        3. Master account ID is incorrect or account is inactive`);
+      
+      // Only show error if we have no cache at all
+      if (cached.history.length === 0 && cached.open_positions.length === 0) {
+        errorStr = "No trading data available. The master account may have no trades or the trading service is temporarily unavailable.";
+      }
     } else if (!anyFetchSuccess) {
       // If provider failed but we have cache, don't show error, just a warning in logs
       console.warn(`[MasterHistory] Provider offline for ${masterId}. Serving ${finalHistory.length + finalOpen.length} trades from cache.`);
