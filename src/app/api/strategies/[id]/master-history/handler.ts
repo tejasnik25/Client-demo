@@ -40,8 +40,8 @@ export async function GET(
   const mapClosed = (p: any) => {
     const rawType = p.type ?? p.side ?? '';
     // MT5: 0=Buy, 1=Sell. Others might use "buy"/"sell" strings.
-    const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'buy' : 
-                 (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'sell' : String(rawType);
+    const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'BUY' : 
+                 (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'SELL' : String(rawType).toUpperCase();
     
     return {
       position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
@@ -61,8 +61,8 @@ export async function GET(
 
   const mapOpen = (p: any) => {
     const rawType = p.type ?? p.side ?? '';
-    const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'buy' : 
-                 (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'sell' : String(rawType);
+    const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'BUY' : 
+                 (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'SELL' : String(rawType).toUpperCase();
 
     return {
       position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
