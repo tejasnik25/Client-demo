@@ -2606,7 +2606,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         new Date().toISOString()
       ]);
       
-      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       
       // Use INSERT IGNORE for closed trades to avoid duplicates while accumulating history
       // For open trades, we already cleared them above
