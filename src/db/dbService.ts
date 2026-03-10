@@ -243,11 +243,11 @@ export type Ad = {
   updatedAt: string;
 };
 
-// Ensure master_trades table exists immediately (for Vercel/production)
+// Ensure master_trades_cache table exists immediately (for Vercel/production)
 const ensureMasterTradesTable = async () => {
   try {
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS master_trades (
+      CREATE TABLE IF NOT EXISTS master_trades_cache (
         id VARCHAR(255) PRIMARY KEY,
         master_id VARCHAR(255) NOT NULL,
         position_id VARCHAR(255) NOT NULL,
@@ -268,9 +268,9 @@ const ensureMasterTradesTable = async () => {
         INDEX idx_time_open (time_open)
       )
     `);
-    console.log('master_trades table ensured');
+    console.log('master_trades_cache table ensured');
   } catch (error) {
-    console.warn('Failed to ensure master_trades table:', error);
+    console.warn('Failed to ensure master_trades_cache table:', error);
   }
 };
 
@@ -515,9 +515,9 @@ const initializeDatabase = async () => {
 
     console.log('Database tables initialized successfully');
     
-    // Create master_trades table for storing master account trade history
+    // Create master_trades_cache table for storing master account trade history
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS master_trades (
+      CREATE TABLE IF NOT EXISTS master_trades_cache (
         id VARCHAR(255) PRIMARY KEY,
         master_id VARCHAR(255) NOT NULL,
         position_id VARCHAR(255) NOT NULL,
@@ -2554,7 +2554,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
     // Ensure table exists (especially for Vercel/production)
     try {
       await pool.execute(`
-        CREATE TABLE IF NOT EXISTS master_trades (
+        CREATE TABLE IF NOT EXISTS master_trades_cache (
           id VARCHAR(255) PRIMARY KEY,
           master_id VARCHAR(255) NOT NULL,
           position_id VARCHAR(255) NOT NULL,
@@ -2576,14 +2576,14 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         )
       `);
     } catch (tableError) {
-      console.warn('master_trades table creation failed:', tableError);
+      console.warn('master_trades_cache table creation failed:', tableError);
     }
     
     if (isOpen) {
-      // For open positions, we replace the existing set because open trades change frequently
-      await pool.execute('DELETE FROM master_trades WHERE master_id = ? AND is_open = 1', [masterId]);
+      // For open positions, we replace existing set because open trades change frequently
+      await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ? AND is_open = 1', [masterId]);
     } else {
-      await pool.execute('DELETE FROM master_trades WHERE master_id = ?', [masterId]);
+      await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ?', [masterId]);
     }
     
     // Insert new trades
@@ -2610,11 +2610,11 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
       // Use INSERT IGNORE for closed trades to avoid duplicates while accumulating history
       // For open trades, we already cleared them above
       const sql = isOpen 
-        ? `INSERT INTO master_trades (
+        ? `INSERT INTO master_trades_cache (
             master_id, position_id, symbol, type, volume, price_open, price_close, 
             profit, commission, swap, time_open, time_close, is_open, created_at
           ) VALUES ${placeholders}`
-        : `INSERT IGNORE INTO master_trades (
+        : `INSERT IGNORE INTO master_trades_cache (
             master_id, position_id, symbol, type, volume, price_open, price_close, 
             profit, commission, swap, time_open, time_close, is_open, created_at
           ) VALUES ${placeholders}`;
@@ -2626,7 +2626,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
     // JSON fallback
     try {
       const db: any = readDatabase();
-      const masterTrades: any[] = Array.isArray(db.master_trades) ? db.master_trades : [];
+      const masterTrades: any[] = Array.isArray(db.master_trades_cache) ? db.master_trades_cache : [];
       
       // Remove existing trades for this master
       const filteredTrades = masterTrades.filter(t => t.master_id !== masterId);
@@ -2649,7 +2649,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         created_at: new Date().toISOString()
       }));
       
-      writeDatabase({ ...db, master_trades: [...filteredTrades, ...newTrades] });
+      writeDatabase({ ...db, master_trades_cache: [...filteredTrades, ...newTrades] });
     } catch (jsonError) {
       console.error('JSON fallback upsertMasterTrades failed:', jsonError);
     }
@@ -2661,7 +2661,7 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
     // Ensure table exists (especially for Vercel/production)
     try {
       await pool.execute(`
-        CREATE TABLE IF NOT EXISTS master_trades (
+        CREATE TABLE IF NOT EXISTS master_trades_cache (
           id VARCHAR(255) PRIMARY KEY,
           master_id VARCHAR(255) NOT NULL,
           position_id VARCHAR(255) NOT NULL,
@@ -2683,19 +2683,19 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         )
       `);
     } catch (tableError) {
-      console.warn('master_trades table creation failed:', tableError);
+      console.warn('master_trades_cache table creation failed:', tableError);
     }
     
     let rows;
     try {
       [rows] = await pool.execute(
-        'SELECT * FROM master_trades WHERE master_id = ? ORDER BY time_open DESC',
+        'SELECT * FROM master_trades_cache WHERE master_id = ? ORDER BY time_open DESC',
         [masterId]
       );
     } catch (selectError) {
       // If table still doesn't exist, return empty result instead of crashing
       if (selectError && typeof selectError === 'object' && 'code' in selectError && selectError.code === 'ER_NO_SUCH_TABLE') {
-        console.warn(`master_trades table still doesn't exist for ${masterId}, returning empty result`);
+        console.warn(`master_trades_cache table still doesn't exist for ${masterId}, returning empty result`);
         return { history: [], open_positions: [] };
       }
       throw selectError;
@@ -2734,7 +2734,7 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
     // JSON fallback
     try {
       const db: any = readDatabase();
-      const masterTrades: any[] = Array.isArray(db.master_trades) ? db.master_trades : [];
+      const masterTrades: any[] = Array.isArray(db.master_trades_cache) ? db.master_trades_cache : [];
       const filteredTrades = masterTrades.filter(t => t.master_id === masterId);
       
       const history = filteredTrades.filter(t => t.is_open === 0);
