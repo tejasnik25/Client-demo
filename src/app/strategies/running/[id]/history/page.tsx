@@ -550,7 +550,7 @@ export default function CopierHistoryPage() {
                       <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {(pos as any).profit > 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
                       </td>
-                      <td className={`px-6 py-4 font-bold ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      <td className={`px-6 py-4 font-medium ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {(pos as any).swap > 0 ? "+" : ""}{Number((pos as any).swap || 0).toFixed(2)}
                       </td>
                     </tr>

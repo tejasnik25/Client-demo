@@ -2551,7 +2551,8 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
 // Master Trades operations
 export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean): Promise<void> => {
   try {
-    // Ensure table exists (especially for Vercel/production)
+    // Attempt to ensure table exists (Vercel/production environment check)
+    // Wrap in a more silent try-catch to avoid crashing on DB timeouts
     try {
       await pool.execute(`
         CREATE TABLE IF NOT EXISTS master_trades_cache (
@@ -2575,15 +2576,20 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
           INDEX idx_time_open (time_open)
         )
       `);
-    } catch (tableError) {
-      console.warn('master_trades_cache table creation failed:', tableError);
+    } catch (tableError: any) {
+      console.warn('[DB] master_trades_cache table check/creation failed:', tableError?.message || tableError);
+      // If we can't even check the table, the DB might be down. 
+      // We'll proceed to the main query which will likely fail too, but handled by outer catch.
     }
     
     if (isOpen) {
       // For open positions, we replace existing set because open trades change frequently
       await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ? AND is_open = 1', [masterId]);
     } else {
-      await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ?', [masterId]);
+      // For closed trades, we accumulate. We don't delete everything, just use INSERT IGNORE below.
+      // But we might want to clear old ones occasionally or just let INSERT IGNORE handle it.
+      // The previous code was deleting everything for closed trades too, which prevents history accumulation.
+      // Removed: await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ?', [masterId]);
     }
     
     // Insert new trades

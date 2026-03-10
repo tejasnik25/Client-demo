@@ -19,6 +19,8 @@ import {
   FiMail,
   FiPhone,
   FiMessageCircle,
+  FiTrendingUp,
+  FiTrendingDown,
 } from "react-icons/fi";
 import { Strategy } from "@/types/strategy";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -209,6 +211,11 @@ const StrategyInfoPage: React.FC = () => {
   const withUsVal = strategyParams.withUs || strategyParams.WithUs || strategyParams.withUsDays || strategyParams.WithUsDays || "";
   const chatLink = strategyParams.chatLink || strategyParams.telegram || strategyParams.Telegram || strategyParams.Chat || "";
 
+  const roi = strategy.roi !== undefined ? strategy.roi : 0;
+  const profit = typeof strategy.profit === 'number' ? strategy.profit : 0;
+  const drawdown = strategy.maxDdi !== undefined ? strategy.maxDdi : 0;
+  const copiers = strategy.copiers !== undefined ? strategy.copiers : 0;
+
   const toMs = (v: any): number => {
     if (v == null) return NaN;
     if (v instanceof Date) return v.getTime();
@@ -279,173 +286,182 @@ const StrategyInfoPage: React.FC = () => {
         {/* Wider container for the embedded HTML/PDF */}
         <div className="mx-auto max-w-[1400px]">
           {/* Strategy Profile Card - OctaFX Style */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 p-6">
-            <div className="flex flex-col md:flex-row md:items-start gap-6">
-              {/* Profile Section */}
-              <div className="flex items-start gap-4 flex-1">
-                <div className="relative">
-  {strategy.imageUrl ? (
-    <img
-      src={strategy.imageUrl}
-      alt={strategy.name}
-      className="w-20 h-20 rounded-full object-cover border border-gray-200 bg-gray-50"
-    />
-  ) : (
-    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center border border-gray-200">
-      <span className="text-white font-bold text-xl">
-        {strategy.name?.charAt(0)?.toUpperCase() || 'S'}
-      </span>
-    </div>
-  )}
-  {(() => {
-    const cc = String(strategy.parameters?.countryFlag || '').toLowerCase();
-    const isCC = /^[a-z]{2}$/.test(cc);
-    const url = isCC ? `https://flagcdn.com/24x18/${cc}.png` : '';
-    return url ? (
-      <img
-        src={url}
-        alt={cc}
-        className="absolute -left-1 bottom-0 w-7 h-5 rounded-sm border border-white shadow-sm"
-      />
-    ) : null;
-  })()}
-</div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-lg mb-8 overflow-hidden">
+            <div className="bg-gradient-to-r from-black to-gray-900 p-8 text-white">
+              <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
+                {/* Profile Image & Basic Info */}
+                <div className="relative group">
+                  <div className="absolute -inset-1 bg-gradient-to-r from-green-400 to-blue-500 rounded-full blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+                  <div className="relative">
+                    {strategy.imageUrl ? (
+                      <img
+                        src={strategy.imageUrl}
+                        alt={strategy.name}
+                        className="w-32 h-32 rounded-full object-cover border-4 border-white/10 bg-gray-800"
+                      />
+                    ) : (
+                      <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center border-4 border-white/10">
+                        <span className="text-white font-bold text-4xl">
+                          {strategy.name?.charAt(0)?.toUpperCase() || 'S'}
+                        </span>
+                      </div>
+                    )}
+                    {(() => {
+                      const cc = String(strategy.parameters?.countryFlag || '').toLowerCase();
+                      const isCC = /^[a-z]{2}$/.test(cc);
+                      const url = isCC ? `https://flagcdn.com/24x18/${cc}.png` : '';
+                      return url ? (
+                        <img
+                          src={url}
+                          alt={cc}
+                          className="absolute -right-1 bottom-2 w-8 h-6 rounded-sm border-2 border-white shadow-lg"
+                        />
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
 
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h2 className="text-2xl font-bold text-gray-900">{strategy.name}</h2>
-                    {strategy.mastersTag && (
-                      <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-100">
-                        {strategy.mastersTag}
-                      </span>
+                <div className="flex-1 text-center md:text-left space-y-4">
+                  <div className="flex flex-col md:flex-row items-center gap-3">
+                    <h2 className="text-4xl font-extrabold tracking-tight">{strategy.name}</h2>
+                    <div className="flex gap-2">
+                      {strategy.mastersTag && (
+                        <span className="text-xs px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 backdrop-blur-md font-semibold">
+                          {strategy.mastersTag}
+                        </span>
+                      )}
+                      {strategy.tag && (
+                        <span className="text-xs px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md rounded-full font-semibold">
+                          {strategy.tag}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap justify-center md:justify-start gap-4 text-sm text-gray-400">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                      <span>Active Strategy</span>
+                    </div>
+                    {strategy.parameters?.timeframe && (
+                      <div className="flex items-center gap-2">
+                        <FiActivity className="text-blue-400" />
+                        <span>{strategy.parameters.timeframe}</span>
+                      </div>
                     )}
                   </div>
 
-                  {/* Status and Risk Badges (removed as requested) */}
-
-                  {/* Tags */}
-                  <div className="flex flex-wrap gap-2 mb-10  ">
-                    {strategy.tag && (
-                      <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full">
-                        {strategy.tag}
-                      </span>
-                    )}
-                    {/* {strategy.category && (
-                      <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full uppercase">
-                        {strategy.category}
-                      </span>
-                    )} */}
-                  </div>
-
-                  {/* SET UP COPYING Button */}
-                  <div className="mt-4">
+                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 pt-2">
                     <button
-                      className="h-12 px-8 rounded-full bg-green-600 text-white font-semibold w-full rounded-xl md:w-auto"
+                      className="h-14 px-10 rounded-xl bg-[#00d09c] hover:bg-[#00b085] text-black font-bold text-lg shadow-xl shadow-green-500/20 transition-all active:scale-95 flex items-center gap-2 group"
                       onClick={handleSetupCopying}
                     >
-                      Set Up Copy
+                      <FiActivity className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                      SET UP COPYING
                     </button>
-                    <div className="text-sm text-gray-600 mt-2">
-                      Minimum investment: ${strategy.planPrices?.Pro || 50}
+                    <div className="text-left">
+                      <div className="text-xs text-gray-400 uppercase tracking-widest font-bold">Min. Investment</div>
+                      <div className="text-xl font-bold text-white">${strategy.planPrices?.Pro || 50}</div>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Right Column: Metrics + Description */}
-              <div className="flex-1 md:max-w-[640px]">
-                {/* Metrics Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-6 md:gap-8 text-l w-full md:w-auto">
-                  <div>
-                    <div className="flex items-center gap-1 text-gray-600">
-                      <span>Risk score</span>
-                      <TooltipProvider>
-                        <Tooltip delayDuration={0}>
-                          <TooltipTrigger asChild>
-                            <div className="cursor-help inline-flex items-center justify-center">
-                              <FiHelpCircle className="w-3 h-3 text-gray-600" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent 
-                            side="right" 
-                            align="start"
-                            className="z-50 bg-[#1a1d24] border-none text-white p-4 max-w-[280px] shadow-2xl rounded-xl"
-                          >
-                            <div className="space-y-3 font-sans">
-                              <h4 className="font-bold text-[15px] text-white">Risk score</h4>
-                              <p className="text-[11px] text-gray-300 leading-relaxed font-normal">
-                                The higher it is, the greater the chance of losing your investment. The score depends on the Master Trader&apos;s average profit, number of orders, and how stable their strategy is.
-                              </p>
-                              <div className="space-y-2 pt-1">
-                                <div className="flex items-center gap-3">
-                                  <span className="bg-[#22c55e] text-black text-[10px] font-semibold px-1.5 py-0.5 rounded-sm min-w-[28px] text-center">1-2</span>
-                                  <span className={`text-xs font-medium ${strategy.riskScore && strategy.riskScore <= 2 ? 'text-white' : 'text-gray-500'}`}>Low risk</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="bg-[#f97316] text-black text-[10px] font-semibold px-1.5 py-0.5 rounded-sm min-w-[28px] text-center">3-4</span>
-                                  <span className={`text-xs font-medium ${strategy.riskScore && strategy.riskScore > 2 && strategy.riskScore <= 4 ? 'text-white' : 'text-gray-500'}`}>Medium risk</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="bg-[#ef4444] text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-sm min-w-[28px] text-center">5-6</span>
-                                  <span className={`text-xs font-medium ${strategy.riskScore && strategy.riskScore > 4 ? 'text-white' : 'text-gray-500'}`}>High risk</span>
-                                </div>
-                              </div>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <div className="mt-3 text-gray-600">
-                      {strategy.riskScore !== undefined ? (
-                        <span className={`px-2 py-1 rounded-full text-white text-s ${
-                          strategy.riskScore <= 2 ? 'bg-[#22c55e]' : 
-                          strategy.riskScore <= 4 ? 'bg-[#f97316]' : 'bg-[#ef4444]'
-                        }`}>
-                          {strategy.riskScore} risk
-                        </span>
-                      ) : (
-                        <span className="text-gray-600">—</span>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-gray-600">ROI</div>
-                    <div className="font-bold text-gray-900 mt-3">{strategy.roi !== undefined ? `${strategy.roi}%` : "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-600">Profit &amp; Loss</div>
-                    <div className={`font-bold ${typeof strategy.profit === 'number' ? (strategy.profit >= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-900'} mt-3`}>
-                      {typeof strategy.profit === 'number' ? `${strategy.profit >= 0 ? '+' : '-'}${Math.abs(strategy.profit)}` : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-gray-600">Drawdown</div>
-                    <div className="font-bold text-gray-900 mt-3">{strategy.maxDdi !== undefined ? `${strategy.maxDdi}%` : "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-600">Copiers</div>
-                    <div className="font-bold text-gray-900 mt-3">{strategy.copiers !== undefined ? `${strategy.copiers}` : "—"}</div>
-                  </div>
+            {/* Metrics Dashboard */}
+            <div className="grid grid-cols-2 md:grid-cols-4 border-t border-gray-100">
+              <div className="p-8 border-r border-gray-100 hover:bg-gray-50 transition-colors group">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Risk Score</span>
+                  <TooltipProvider>
+                    <Tooltip delayDuration={0}>
+                      <TooltipTrigger asChild>
+                        <button className="text-gray-400 hover:text-gray-600 transition-colors">
+                          <FiHelpCircle className="w-4 h-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-gray-900 text-white p-4 rounded-xl border-none shadow-2xl max-w-xs">
+                        <p className="text-sm">Determined by account stability, drawdowns, and trading style.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
-                <div className="mt-6">
-                  <div className="text-gray-500">Detailed Description</div>
-                  <div className="mt-1">
-                    {strategy.description ? (
-                      <p className="text-sm text-gray-700 leading-relaxed">{'\u00A0'}{strategy.description}</p>
-                    ) : (
-                      <span className="text-gray-400 text-sm">No description</span>
+                <div className="flex items-baseline gap-2">
+                  <span className={`text-3xl font-black ${
+                    (strategy.riskScore || 0) <= 2 ? 'text-green-500' : 
+                    (strategy.riskScore || 0) <= 4 ? 'text-orange-500' : 'text-red-500'
+                  }`}>
+                    {strategy.riskScore || "—"}
+                  </span>
+                  <span className="text-sm font-bold text-gray-400 uppercase">
+                    {(strategy.riskScore || 0) <= 2 ? 'Low' : 
+                     (strategy.riskScore || 0) <= 4 ? 'Medium' : 'High'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-8 border-r border-gray-100 hover:bg-gray-50 transition-colors">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">All-Time ROI</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-black text-gray-900">{roi}%</span>
+                  <FiTrendingUp className="text-green-500 w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="p-8 border-r border-gray-100 hover:bg-gray-50 transition-colors">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Net Profit</div>
+                <div className={`text-3xl font-black ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {profit >= 0 ? '+' : ''}{profit.toLocaleString()}
+                </div>
+              </div>
+
+              <div className="p-8 hover:bg-gray-50 transition-colors">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Max Drawdown</div>
+                <div className="flex items-baseline gap-1 text-gray-900">
+                  <span className="text-3xl font-black">{drawdown}%</span>
+                  <FiTrendingDown className="text-red-400 w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Description & Social */}
+            <div className="p-8 bg-gray-50/50 border-t border-gray-100">
+              <div className="grid md:grid-cols-3 gap-8">
+                <div className="md:col-span-2 space-y-4">
+                  <h4 className="text-sm font-bold text-gray-900 uppercase tracking-widest">Strategy Philosophy</h4>
+                  <div className="text-gray-600 leading-relaxed space-y-4">
+                    <p className="text-lg italic font-medium text-gray-700">
+                      &quot;{strategy.description || "No description available."}&quot;
+                    </p>
+                    {strategy.details && (
+                      <p className="text-sm border-l-4 border-blue-500 pl-4 py-1">{strategy.details}</p>
                     )}
                   </div>
-                  {strategy.details && (
-                    <p className="text-sm text-gray-700 leading-relaxed mt-2">{strategy.details}</p>
-                  )}
-                  {chatLink && (
-                    <div className="mt-2 text-sm">
-                      <span className="text-gray-600">Join chat: </span>
-                      <a href={chatLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                        {chatLink}
-                      </a>
+                </div>
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Master Stats</h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-500">Active Copiers</span>
+                        <span className="font-bold text-gray-900">{copiers}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-500">Equity</span>
+                        <span className="font-bold text-gray-900">{equityVal || "—"}</span>
+                      </div>
                     </div>
+                  </div>
+                  {chatLink && (
+                    <a 
+                      href={chatLink} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full p-4 rounded-xl bg-blue-50 text-blue-600 font-bold hover:bg-blue-100 transition-colors"
+                    >
+                      <FiMessageCircle className="w-5 h-5" />
+                      JOIN TELEGRAM CHAT
+                    </a>
                   )}
                 </div>
               </div>
@@ -515,6 +531,7 @@ const StrategyInfoPage: React.FC = () => {
                       <th className="px-6 py-3">Price Open</th>
                       <th className="px-6 py-3">Price Current</th>
                       <th className="px-6 py-3">Profit</th>
+                      <th className="px-6 py-3">Swap</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -536,6 +553,9 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 text-gray-600">{pos.price_current}</td>
                         <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
+                        </td>
+                        <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
                         </td>
                       </tr>
                     ))}
@@ -576,6 +596,7 @@ const StrategyInfoPage: React.FC = () => {
                       <th className="px-6 py-3">Open Price</th>
                       <th className="px-6 py-3">Close Price</th>
                       <th className="px-6 py-3">Profit</th>
+                      <th className="px-6 py-3">Swap</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -600,6 +621,9 @@ const StrategyInfoPage: React.FC = () => {
                         <td className="px-6 py-4 text-gray-600">{pos.price_close}</td>
                         <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
+                        </td>
+                        <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
                         </td>
                       </tr>
                     ))}
