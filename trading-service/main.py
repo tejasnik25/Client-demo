@@ -1770,6 +1770,10 @@ def copy_trade_worker():
     master_last_check = {} # { m_id: timestamp }
     master_has_activity = {} # { m_id: bool }
 
+    # Track the last seen set of master positions (by ticket).
+    # When a ticket disappears, the master has closed a trade and we should refresh history immediately.
+    last_master_position_tickets: Dict[str, set] = {}
+
     # last_config_mtime is a GLOBAL variable, but we are shadowing it here as a local variable
     # This causes the error if we don't declare it global or use a different name.
     # However, since this is a loop, we want to track the local worker's view of the file.
@@ -2156,6 +2160,17 @@ def copy_trade_worker():
                                 # This prevents infinite loops if we accidentally read Slave positions as Master
                                 master_positions = [p for p in pos if p.magic != 123456]
                                 
+                                # Detect if any master trades closed since last loop.
+                                # If so, force an immediate history refresh so the frontend sees the closure.
+                                current_tickets = set([str(p.ticket) for p in master_positions])
+                                last_tickets = last_master_position_tickets.get(str(m_id), set())
+                                history_needs_refresh = False
+                                if last_tickets and current_tickets != last_tickets:
+                                    # If a ticket disappeared, it means a trade was closed.
+                                    # Also refresh if new tickets appear (open trades) to keep history up-to-date.
+                                    history_needs_refresh = True
+                                last_master_position_tickets[str(m_id)] = current_tickets
+
                                 # [NEW] Save open positions for display
                                 # Convert to dict list for JSON serialization
                                 # Add server_time string to preserve MT5 server timing
@@ -2180,50 +2195,48 @@ def copy_trade_worker():
                                 master_has_activity[m_id] = has_trades
                                 if has_trades:
                                     log_print(f"📊 Master {m_id} has {len(pos)} open positions.")
-                                else:
-                                    # DEBUG: Check History if no active trades
-                                    # Helps verify if trades are opening/closing instantly
-                                    try:
-                                        # [NEW] Check if we should refresh history for display
-                                        if should_refresh_history:
-                                            log_print(f"🕒 Periodic history update for Master {m_id}...")
-                                            from_date_hist = datetime.now() - timedelta(days=30)
-                                            # Fetch closed positions (not just deals) for the History page
-                                            history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
-                                            history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
-                                            
-                                            # In MT5, "History" tab usually shows positions. 
-                                            # To reconstruct positions from deals/orders is complex, 
-                                            # but we can fetch history_deals and filter for those that close positions.
-                                            # However, the user specifically asked for "Position" page data from history.
-                                            # MT5 doesn't have a direct 'history_positions_get'. 
-                                            # We use history_deals and provide fields that represent the closed position.
-                                            
-                                            if history_deals:
-                                                # Include both opening and closing deals for each position
-                                                # so we can reconstruct accurate open/close times.
-                                                trade_deals = []
-                                                for d in history_deals:
-                                                    try:
-                                                        if getattr(d, "position_id", 0):
-                                                            if d.entry in [mt5.DEAL_ENTRY_IN, mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
-                                                                trade_deals.append(d._asdict())
-                                                    except Exception:
-                                                        pass
-                                                save_master_history({str(m_id): trade_deals})
-                                                master_last_check[f"{m_id}_history"] = now
-                                                log_print(f"✅ Saved {len(trade_deals)} closed position deals for Master {m_id}")
-                                        
-                                        from_date = datetime.now() - timedelta(minutes=5)
-                                        history = mt5.history_deals_get(from_date, datetime.now())
-                                        if history:
-                                            log_print(f"   � Recent History (Last 5 mins): {len(history)} deals found.")
-                                            for deal in history[-3:]: # Show last 3
-                                                 log_print(f"      - Deal {deal.ticket}: {deal.symbol} {deal.volume} {deal.type} (Profit: {deal.profit})")
-                                        else:
-                                            log_print("   ℹ No recent history (deals) found in last 5 minutes.")
-                                    except Exception as hist_e: 
-                                        log_print(f"   ⚠ History check failed: {hist_e}")
+
+                                # DEBUG: Check History regularly or when we detect an update (trade close/open)
+                                try:
+                                    if should_refresh_history or history_needs_refresh:
+                                        log_print(f"🕒 Periodic history update for Master {m_id}...")
+                                        from_date_hist = datetime.now() - timedelta(days=30)
+                                        # Fetch closed positions (not just deals) for the History page
+                                        history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
+                                        history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
+
+                                        # In MT5, "History" tab usually shows positions.
+                                        # To reconstruct positions from deals/orders is complex,
+                                        # but we can fetch history_deals and filter for those that close positions.
+                                        # However, the user specifically asked for "Position" page data from history.
+                                        # MT5 doesn't have a direct 'history_positions_get'.
+                                        # We use history_deals and provide fields that represent the closed position.
+
+                                        if history_deals:
+                                            # Include both opening and closing deals for each position
+                                            # so we can reconstruct accurate open/close times.
+                                            trade_deals = []
+                                            for d in history_deals:
+                                                try:
+                                                    if getattr(d, "position_id", 0):
+                                                        if d.entry in [mt5.DEAL_ENTRY_IN, mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
+                                                            trade_deals.append(d._asdict())
+                                                except Exception:
+                                                    pass
+                                            save_master_history({str(m_id): trade_deals})
+                                            master_last_check[f"{m_id}_history"] = now
+                                            log_print(f"✅ Saved {len(trade_deals)} closed position deals for Master {m_id}")
+
+                                    from_date = datetime.now() - timedelta(minutes=5)
+                                    history = mt5.history_deals_get(from_date, datetime.now())
+                                    if history:
+                                        log_print(f"   � Recent History (Last 5 mins): {len(history)} deals found.")
+                                        for deal in history[-3:]: # Show last 3
+                                            log_print(f"      - Deal {deal.ticket}: {deal.symbol} {deal.volume} {deal.type} (Profit: {deal.profit})")
+                                    else:
+                                        log_print("   ℹ No recent history (deals) found in last 5 minutes.")
+                                except Exception as hist_e:
+                                    log_print(f"   ⚠ History check failed: {hist_e}")
                             else:
                                 log_print(f"⚠ Could not get positions for Master {m_id}")
                         else:
