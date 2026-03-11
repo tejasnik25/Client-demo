@@ -81,8 +81,10 @@ def get_subscriptions_from_db():
 
     # -1. Try MySQL Database (Ultimate Source of Truth)
     try:
+        # INCREASED TIMEOUT: Added connection_timeout to prevent hanging if RDS is slow or unreachable
         conn = mysql.connector.connect(
-            host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME
+            host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME,
+            connection_timeout=10
         )
         cursor = conn.cursor(dictionary=True)
         

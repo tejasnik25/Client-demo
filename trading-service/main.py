@@ -264,8 +264,10 @@ def get_subscriptions_from_db():
     # Copied from manager.py to ensure standalone main.py can fetch data
     try:
         if mysql:
+            # INCREASED TIMEOUT: Added connection_timeout to prevent hanging if RDS is slow or unreachable
             conn = mysql.connector.connect(
-                host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME, connection_timeout=5
+                host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME,
+                connection_timeout=10
             )
             cursor = conn.cursor(dictionary=True)
             
@@ -463,6 +465,40 @@ def save_subscriptions():
     except Exception as e:
         print(f"Failed to save subscriptions: {e}")
 
+
+@app.get("/health", dependencies=[Depends(verify_api_key)])
+async def health_check():
+    """
+    Returns the health status of the service, including MT5 connection
+    and worker thread activity.
+    """
+    try:
+        with mt5_lock:
+            term_info = mt5.terminal_info()
+            acc_info = mt5.account_info()
+        
+        # Check Worker Activity
+        last_worker_tick = master_last_check.get("worker_tick", 0)
+        worker_alive = (time.time() - last_worker_tick) < 60 if last_worker_tick > 0 else False
+        
+        return {
+            "status": "online",
+            "mt5": {
+                "initialized": term_info is not None,
+                "connected": term_info.connected if term_info else False,
+                "trade_allowed": term_info.trade_allowed if term_info else False,
+                "current_login": acc_info.login if acc_info else None,
+                "broker": acc_info.server if acc_info else None
+            },
+            "worker": {
+                "active": worker_alive,
+                "last_tick": datetime.fromtimestamp(last_worker_tick).strftime('%Y-%m-%d %H:%M:%S') if last_worker_tick > 0 else "Never",
+                "subscriptions": len(active_subscriptions)
+            },
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 @app.get("/")
 async def root():
@@ -1752,6 +1788,9 @@ def copy_trade_worker():
     worker_last_config_mtime = 0
 
     while True:
+        # Record tick for health check
+        master_last_check["worker_tick"] = time.time()
+        
         # 0. Auto-Reload Subscriptions (Hot-Reload)
         try:
             if os.path.exists(PERSISTENCE_FILE):
@@ -1829,17 +1868,19 @@ def copy_trade_worker():
                         log_print(f"   -> Using path: {MT5_PATH}")
 
                     # Attempt 1: Connect to existing terminal (or launch)
-                    # We loop here to aggressively close popups if init fails
                     for attempt in range(5):
                         try:
                             # Pre-emptive popup closing
                             close_popup_windows()
                             
-                            # Increased timeout for IPC
-                            # IMPORTANT: Must shutdown first to clear stale handles
-                            mt5.shutdown()
+                            # CRITICAL: mt5.shutdown() is synchronous and can hang if terminal is stuck.
+                            # We'll use a timeout-based approach for initialization.
+                            try:
+                                mt5.shutdown()
+                            except: pass
                             
-                            if mt5.initialize(timeout=60000, **path_arg):
+                            # Use a generous timeout for initialization (MT5 can take time to start)
+                            if mt5.initialize(timeout=120000, **path_arg): # Increased to 120s
                                 init_success = True
                                 log_print("   ✓ mt5.initialize() Success")
                                 break
@@ -1850,7 +1891,7 @@ def copy_trade_worker():
                                 # FAIL-SAFE: Try connecting without path (Active Terminal)
                                 if err[0] in [-10005, -10004]:
                                      log_print("     ⚠ IPC Error. Trying fallback: Connect to ANY active terminal...")
-                                     if mt5.initialize(timeout=60000):
+                                     if mt5.initialize(timeout=120000):
                                           log_print("     ✅ Fallback Success: Connected to active terminal!")
                                           init_success = True
                                           break
