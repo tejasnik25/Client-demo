@@ -279,20 +279,20 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
   async getSubscriptionStatus(id: string) {
     try {
       const res = await this.request(`/subscriptions/${id}/status`, 'GET');
-      return { 
-        status: res.status, 
-        error: res.error, // Pass through error from backend
-        detail: res.detail, 
+      return {
+        status: res.status,
+        error: res.error,
+        detail: res.detail,
         updated_at: res.updated_at,
         master_positions: res.master_positions,
         slave_positions: res.slave_positions,
         last_action: res.last_action
       };
     } catch (e: any) {
-      // Return the error message which now includes the target URL
+      // Treat any connection failure as a temporary disconnection so the UI can still show cached history.
       const target = this.baseUrl.includes('localhost') ? `${this.baseUrl} (Env Var COPY_TRADING_API_URL/COPY_TRADING_URL missing)` : this.baseUrl;
       const errorMsg = e.message || String(e);
-      return { status: 'error' as CopyTradingStatus, error: `${errorMsg} [Target: ${target}]` };
+      return { status: 'disconnected' as CopyTradingStatus, error: `${errorMsg} [Target: ${target}]` };
     }
   }
 }

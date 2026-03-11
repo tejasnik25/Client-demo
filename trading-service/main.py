@@ -34,7 +34,12 @@ DB_USER = os.environ.get("DB_USER", "admin")
 DB_PASS = os.environ.get("DB_PASS", "Client_demo_25")
 DB_NAME = os.environ.get("DB_NAME", "stock_analysis_db")
 
+# API Key used by frontend/backend to authenticate with this service.
+# It must match the one used by the client (COPY_TRADING_API_KEY).
+API_KEY = os.environ.get("COPY_TRADING_API_KEY") or os.environ.get("API_KEY") or "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
+
 print(f"🔌 DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
+print(f"🔐 API Key set: {'(hidden)' if API_KEY else '(missing)'}")
 
 def update_slave_db_status(slave_id, status, error_reason=None):
     """
@@ -2719,25 +2724,35 @@ async def delete_subscription(id: str, action: SubscriptionAction):
 
 @app.get("/subscriptions/{id}/status", dependencies=[Depends(verify_api_key)])
 async def get_status(id: str):
-    # reload_subscriptions_if_changed() # Removed to prevent blocking. Worker handles reloading.
-    with lock:
+    """Return the latest known status for the given subscription.
 
-        exists = any(x['id'] == id for x in active_subscriptions)
-        if not exists:
-             return {"status": "disconnected", "detail": "Subscription not found"}
-        
-        state = subscription_states.get(id)
-        if state:
-            return {
-                "status": state['status'], 
-                "detail": state.get('detail') or state.get('error'), 
-                "updated_at": state.get('updated_at'),
-                "master_positions": state.get('master_positions'),
-                "slave_positions": state.get('slave_positions'),
-                "last_action": state.get('last_action')
-            }
-        
-        return {"status": "initializing", "detail": "Waiting for worker cycle"}
+    This endpoint is polled frequently by the frontend, so it must be reliable
+    and never raise an internal exception.
+    """
+    try:
+        # reload_subscriptions_if_changed() # Removed to prevent blocking. Worker handles reloading.
+        with lock:
+            exists = any(x['id'] == id for x in active_subscriptions)
+            if not exists:
+                return {"status": "disconnected", "detail": "Subscription not found"}
+
+            state = subscription_states.get(id)
+            if state:
+                # Ensure we only return JSON-serializable values
+                detail = state.get('detail') or state.get('error')
+                return {
+                    "status": state.get('status', 'error'),
+                    "detail": str(detail) if detail is not None else None,
+                    "updated_at": state.get('updated_at'),
+                    "master_positions": state.get('master_positions'),
+                    "slave_positions": state.get('slave_positions'),
+                    "last_action": str(state.get('last_action')) if state.get('last_action') is not None else None
+                }
+
+            return {"status": "initializing", "detail": "Waiting for worker cycle"}
+    except Exception as e:
+        log_print(f"⚠️ get_status({id}) failed: {e}")
+        return {"status": "error", "detail": str(e)}
 
 @app.post("/system/reset", dependencies=[Depends(verify_api_key)])
 async def reset_system():
