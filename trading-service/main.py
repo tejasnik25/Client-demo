@@ -466,6 +466,35 @@ def save_subscriptions():
         print(f"Failed to save subscriptions: {e}")
 
 
+def verify_api_key(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
+):
+    if x_api_key:
+        if x_api_key != API_KEY:
+             raise HTTPException(status_code=403, detail="Invalid API Key")
+        return
+    if authorization:
+        if authorization != f"Bearer {API_KEY}":
+             raise HTTPException(status_code=403, detail="Invalid API Key")
+        return
+    raise HTTPException(status_code=401, detail="Missing Authorization Header")
+
+class MtAccountDetails(BaseModel):
+    id: str
+    password: str
+    server: str
+    platform: Literal['MT4', 'MT5']
+
+class SubscriptionRequest(BaseModel):
+    externalId: str
+    master: MtAccountDetails
+    slave: MtAccountDetails
+    settings: dict
+
+class SubscriptionAction(BaseModel):
+    action: str
+
 @app.get("/health", dependencies=[Depends(verify_api_key)])
 async def health_check():
     """
@@ -503,38 +532,6 @@ async def health_check():
 @app.get("/")
 async def root():
     return {"status": "online", "service": "MT5 Copy Trading Engine", "active_pairs": len(active_subscriptions)}
-
-# This must match the COPY_TRADING_API_KEY in your Next.js .env
-API_KEY = "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
-
-def verify_api_key(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None)
-):
-    if x_api_key:
-        if x_api_key != API_KEY:
-             raise HTTPException(status_code=403, detail="Invalid API Key")
-        return
-    if authorization:
-        if authorization != f"Bearer {API_KEY}":
-             raise HTTPException(status_code=403, detail="Invalid API Key")
-        return
-    raise HTTPException(status_code=401, detail="Missing Authorization Header")
-
-class MtAccountDetails(BaseModel):
-    id: str
-    password: str
-    server: str
-    platform: Literal['MT4', 'MT5']
-
-class SubscriptionRequest(BaseModel):
-    externalId: str
-    master: MtAccountDetails
-    slave: MtAccountDetails
-    settings: dict
-
-class SubscriptionAction(BaseModel):
-    action: str
 
 # ---------------------------------------------------------
 # HELPER: VOLUME NORMALIZATION
