@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import MetaTrader5 as mt5
 import subprocess  # Added for robust launching
 
@@ -2182,7 +2182,6 @@ def copy_trade_worker():
                                     # DEBUG: Check History if no active trades
                                     # Helps verify if trades are opening/closing instantly
                                     try:
-                                        from datetime import datetime, timedelta
                                         # [NEW] Check if we should refresh history for display
                                         if should_refresh_history:
                                             log_print(f"🕒 Periodic history update for Master {m_id}...")
