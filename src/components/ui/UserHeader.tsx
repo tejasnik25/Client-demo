@@ -1,15 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { usePathname } from 'next/navigation';
-import { FiBell, FiSearch } from 'react-icons/fi';
+import { usePathname, useRouter } from 'next/navigation';
+import { FiBell, FiSearch, FiCreditCard } from 'react-icons/fi';
 import ThemeColorToggle from '@/components/ui/ThemeColorToggle';
 
 export function UserHeader() {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      fetch('/api/profile')
+        .then(res => res.json())
+        .then(data => {
+          if (data?.success && typeof data.user?.wallet_balance === 'number') {
+            setWalletBalance(data.user.wallet_balance);
+          }
+        })
+        .catch(err => console.error('Failed to fetch wallet balance:', err));
+    }
+  }, [session?.user?.id]);
 
   // Get page title from pathname
   const getPageTitle = () => {
@@ -44,12 +59,28 @@ export function UserHeader() {
       </div>
       
       <div className="flex items-center space-x-4">
+        {/* Wallet Balance Display */}
+        {session?.user && (
+          <button 
+            onClick={() => router.push('/wallet')}
+            className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors border border-gray-200 group"
+          >
+            <FiCreditCard className="w-4 h-4 text-blue-600 group-hover:scale-110 transition-transform" />
+            <div className="flex flex-col items-start leading-none">
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Wallet</span>
+              <span className="text-sm font-black text-gray-900">
+                ${walletBalance !== null ? walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+              </span>
+            </div>
+          </button>
+        )}
+
         <div className="relative">
-          <button className="text-gray-500 hover:text-gray-700 border border-red-500 rounded px-2 py-1">
+          <button className="text-gray-500 hover:text-gray-700 border border-gray-200 rounded p-1.5 transition-colors">
             <span className="fx-3d-icon">
               <FiBell size={20} />
             </span>
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">2</span>
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center border-2 border-white">2</span>
           </button>
         </div>
         

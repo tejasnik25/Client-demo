@@ -1761,11 +1761,18 @@ export const updateTransactionStatus = async (
 
     let updatedUser = null;
     
-    // If approved and tokens specified, add tokens to user account
-    if (status === 'completed' && tokensToAdd && tokensToAdd > 0) {
-      const tokenResult = await updateUserTokens(transaction.user_id, tokensToAdd);
-      if (tokenResult.success) {
-        updatedUser = tokenResult.user;
+    // If approved, update user's wallet balance
+    if (status === 'completed') {
+      // Use tokensToAdd if provided (legacy), otherwise use transaction amount
+      const amountToAdd = tokensToAdd && tokensToAdd > 0 ? tokensToAdd : (transaction.amount || 0);
+      
+      if (amountToAdd > 0) {
+        await pool.execute(
+          'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
+          [amountToAdd, transaction.user_id]
+        );
+        const user = await getUserById(transaction.user_id);
+        updatedUser = user as any;
       }
     }
 
@@ -1793,11 +1800,12 @@ export const updateTransactionStatus = async (
       }
 
       let updatedUser: Omit<User, 'password'> | undefined = undefined;
-      if (status === 'completed' && tokensToAdd && tokensToAdd > 0) {
+      if (status === 'completed') {
         const users: any[] = Array.isArray(db.users) ? db.users : [];
         const uIdx = users.findIndex(u => u.id === txs[idx].user_id);
         if (uIdx !== -1) {
-          users[uIdx].wallet_balance = (users[uIdx].wallet_balance || 0) + tokensToAdd;
+          const amountToAdd = tokensToAdd && tokensToAdd > 0 ? tokensToAdd : (txs[idx].amount || 0);
+          users[uIdx].wallet_balance = (users[uIdx].wallet_balance || 0) + amountToAdd;
           users[uIdx].updated_at = new Date().toISOString();
           updatedUser = { ...(users[uIdx] as Omit<User, 'password'>) };
         }
@@ -2154,6 +2162,32 @@ export const updateUserAdmin = async (
   }
 };
 
+export const deleteUserAdmin = async (id: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const [result] = await pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    if ((result as any).affectedRows === 0) {
+      throw new Error('User not found in MySQL');
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('MySQL deleteUserAdmin failed, falling back to JSON:', error);
+    try {
+      const db: any = readDatabase();
+      const arr: any[] = Array.isArray(db.users) ? db.users : [];
+      const filtered = arr.filter((u: any) => u.id !== id);
+      if (filtered.length === arr.length) {
+        return { success: false, error: 'User not found' };
+      }
+      db.users = filtered;
+      writeDatabase(db);
+      return { success: true };
+    } catch (jsonError) {
+      console.error('JSON fallback deleteUserAdmin failed:', jsonError);
+      return { success: false, error: 'Failed to delete user locally' };
+    }
+  }
+};
+
 // Running Strategies operations
 export const getRunningStrategiesForUser = async (userId: string): Promise<any[]> => {
   try {
@@ -2388,6 +2422,234 @@ export const updateRunningStrategyAdminStatus = async (id: string, status: strin
     } catch (jsonError) {
       console.error('JSON fallback updateRunningStrategyAdminStatus failed:', jsonError);
       return false;
+    }
+  }
+};
+
+export const deleteRunningStrategyForUserStrategy = async (userId: string, strategyId: string): Promise<boolean> => {
+  try {
+    await pool.execute(
+      'DELETE FROM running_strategies WHERE user_id = ? AND strategy_id = ?',
+      [userId, strategyId]
+    );
+    return true;
+  } catch (error) {
+    console.error('Error deleting running strategy for user/strategy:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const filtered = runningStrategies.filter((r: any) => !(r.user_id === userId && r.strategy_id === strategyId));
+      
+      if (filtered.length < runningStrategies.length) {
+        db.running_strategies = filtered;
+        writeDatabase(db);
+        return true;
+      }
+      return false;
+    } catch (jsonError) {
+      console.error('JSON fallback deleteRunningStrategyForUserStrategy failed:', jsonError);
+      return false;
+    }
+  }
+};
+
+export const updateRunningStrategyMtDetails = async (
+  id: string,
+  updates: { platform?: 'MT4' | 'MT5'; mt_account_id?: string; mt_account_password?: string; mt_account_server?: string }
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.platform) { fields.push('platform = ?'); values.push(updates.platform); }
+    if (updates.mt_account_id) { fields.push('mt_account_id = ?'); values.push(updates.mt_account_id); }
+    if (updates.mt_account_password) { fields.push('mt_account_password = ?'); values.push(updates.mt_account_password); }
+    if (updates.mt_account_server) { fields.push('mt_account_server = ?'); values.push(updates.mt_account_server); }
+
+    if (fields.length === 0) return { success: true };
+
+    values.push(id);
+    await pool.execute(
+      `UPDATE running_strategies SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      values
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating running strategy MT details:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const index = runningStrategies.findIndex((r: any) => r.id === id);
+      
+      if (index !== -1) {
+        if (updates.platform) runningStrategies[index].platform = updates.platform;
+        if (updates.mt_account_id) runningStrategies[index].mt_account_id = updates.mt_account_id;
+        if (updates.mt_account_password) runningStrategies[index].mt_account_password = updates.mt_account_password;
+        if (updates.mt_account_server) runningStrategies[index].mt_account_server = updates.mt_account_server;
+        runningStrategies[index].updated_at = new Date().toISOString();
+        writeDatabase({ ...db, running_strategies: runningStrategies });
+        return { success: true };
+      }
+      return { success: false, error: 'Not found' };
+    } catch (jsonError) {
+      return { success: false, error: 'JSON fallback failed' };
+    }
+  }
+};
+
+export const getRunningStrategyModificationById = async (id: string): Promise<any | null> => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM running_strategy_modifications WHERE id = ?', [id]);
+    const mods = rows as any[];
+    return mods.length > 0 ? mods[0] : null;
+  } catch (error) {
+    console.error('Error getting running strategy modification by ID:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const modifications: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      return modifications.find((m: any) => m.id === id) || null;
+    } catch (jsonError) {
+      return null;
+    }
+  }
+};
+
+export const getPendingModificationsForStrategy = async (runningStrategyId: string): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM running_strategy_modifications WHERE running_strategy_id = ? AND status = "in-process" ORDER BY created_at ASC',
+      [runningStrategyId]
+    );
+    return rows as any[];
+  } catch (error) {
+    console.error('Error getting pending modifications for strategy:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const modifications: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      return modifications.filter((m: any) => m.running_strategy_id === runningStrategyId && m.status === 'in-process');
+    } catch (jsonError) {
+      return [];
+    }
+  }
+};
+
+export const deleteRunningStrategyModification = async (id: string): Promise<boolean> => {
+  try {
+    await pool.execute('DELETE FROM running_strategy_modifications WHERE id = ?', [id]);
+    return true;
+  } catch (error) {
+    console.error('Error deleting running strategy modification:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const modifications: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      const filtered = modifications.filter((m: any) => m.id !== id);
+      if (filtered.length < modifications.length) {
+        db.running_strategy_modifications = filtered;
+        writeDatabase(db);
+        return true;
+      }
+      return false;
+    } catch (jsonError) {
+      return false;
+    }
+  }
+};
+
+export const countRunningStrategyModificationsForRun = async (runningStrategyId: string): Promise<number> => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT COUNT(*) as count FROM running_strategy_modifications WHERE running_strategy_id = ? AND status = "in-process"',
+      [runningStrategyId]
+    );
+    return (rows as any[])[0].count;
+  } catch (error) {
+    console.error('Error counting running strategy modifications:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const modifications: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      return modifications.filter((m: any) => m.running_strategy_id === runningStrategyId && m.status === 'in-process').length;
+    } catch (jsonError) {
+      return 0;
+    }
+  }
+};
+
+export const getRunningStrategyModificationsAdmin = async (): Promise<any[]> => {
+  try {
+    const [rows] = await pool.execute(`
+      SELECT m.*, u.name as userName, u.email as userEmail, s.name as strategyName
+      FROM running_strategy_modifications m
+      LEFT JOIN users u ON m.user_id = u.id
+      LEFT JOIN running_strategies rs ON m.running_strategy_id = rs.id
+      LEFT JOIN strategies s ON rs.strategy_id = s.id
+      ORDER BY m.created_at DESC
+    `);
+    return (rows as any[]).map(row => ({
+      ...row,
+      created_at: row.created_at.toISOString()
+    }));
+  } catch (error) {
+    console.error('Error getting admin running strategy modifications:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const modifications: any[] = Array.isArray(db.running_strategy_modifications) ? db.running_strategy_modifications : [];
+      const users: any[] = Array.isArray(db.users) ? db.users : [];
+      const runningStrategies: any[] = Array.isArray(db.running_strategies) ? db.running_strategies : [];
+      const strategies: any[] = Array.isArray(db.strategies) ? db.strategies : [];
+
+      return modifications.map(m => {
+        const user = users.find(u => u.id === m.user_id);
+        const rs = runningStrategies.find(r => r.id === m.running_strategy_id);
+        const strategy = rs ? strategies.find(s => s.id === rs.strategy_id) : null;
+        return {
+          ...m,
+          userName: user?.name || 'Unknown',
+          userEmail: user?.email || '',
+          strategyName: strategy?.name || 'Unknown'
+        };
+      });
+    } catch (jsonError) {
+      return [];
+    }
+  }
+};
+
+export const setTransactionAdminMessage = async (
+  transactionId: string,
+  adminId: string,
+  message: string,
+  messageStatus: 'pending' | 'sent' | 'read' = 'pending'
+): Promise<WalletTransaction | null> => {
+  try {
+    await pool.execute(
+      'UPDATE wallet_transactions SET admin_message = ?, admin_message_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [message, messageStatus, transactionId]
+    );
+    return await getTransactionById(transactionId);
+  } catch (error) {
+    console.error('Error setting transaction admin message:', error);
+    // JSON fallback
+    try {
+      const db: any = readDatabase();
+      const txs: any[] = Array.isArray(db.wallet_transactions) ? db.wallet_transactions : [];
+      const idx = txs.findIndex(t => t.id === transactionId);
+      if (idx !== -1) {
+        txs[idx].admin_message = message;
+        txs[idx].admin_message_status = messageStatus;
+        txs[idx].updated_at = new Date().toISOString();
+        writeDatabase({ ...db, wallet_transactions: txs });
+        return txs[idx];
+      }
+      return null;
+    } catch (jsonError) {
+      return null;
     }
   }
 };

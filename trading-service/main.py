@@ -2219,7 +2219,19 @@ def copy_trade_worker():
                                             for d in history_deals:
                                                 try:
                                                     if getattr(d, "position_id", 0):
-                                                        if d.entry in [mt5.DEAL_ENTRY_IN, mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
+                                                        # FIX: In MT5, a position is only truly 'closed' if there is an OUT or INOUT deal.
+                                                        # If it's only an IN deal, it's an open position and should NOT be in history.
+                                                        # However, history_deals_get returns all deals. 
+                                                        # We should only consider it a 'closed trade' for the history page 
+                                                        # if the deal type is OUT (close) or if the position is no longer active.
+                                                        
+                                                        # We check if this position is currently open. 
+                                                        # If it's still open, we skip its deals for the 'Closed History' save.
+                                                        is_still_open = any(str(p.ticket) == str(d.position_id) for p in master_positions)
+                                                        if is_still_open:
+                                                            continue
+
+                                                        if d.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
                                                             trade_deals.append(d._asdict())
                                                 except Exception:
                                                     pass

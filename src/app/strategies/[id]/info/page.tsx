@@ -211,7 +211,7 @@ const StrategyInfoPage: React.FC = () => {
 
   const handleSetupCopying = () => {
     if (!session || (session.user as any)?.role !== 'USER') {
-      return router.push('/login?redirect=/strategies');
+      return router.push(`/login?redirect=${encodeURIComponent(`/strategies/${params.id}/info`)}`);
     }
     // Redirect directly to payment page - plan selection will be step 1
     router.push(`/payment?strategy=${params.id}`);

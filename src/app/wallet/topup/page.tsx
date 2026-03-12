@@ -46,7 +46,12 @@ const TopupDetailsContent: React.FC = () => {
   }, [amountParam]);
 
   useEffect(() => {
-    if (paymentMethod !== 'QR') return;
+    // Only fetch for non-crypto methods or if USD is needed
+    if (paymentMethod !== 'QR') {
+      // Default rate for USDT is 1:1, but we can still fetch for display
+      setInrToUsdRate(1);
+      return;
+    }
 
     const fetchRate = async () => {
       try {
@@ -144,8 +149,10 @@ const TopupDetailsContent: React.FC = () => {
 
     try {
       if (user) {
+        // For USDT, amount is already in USD. For QR (UPI), it might be INR.
         const amountValue = paymentMethod === 'QR' ? parseFloat(usdAmount) : parseFloat(inrAmount);
-      const response = await fetch('/api/wallet/transactions', {
+        
+        const response = await fetch('/api/wallet/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -255,17 +262,22 @@ const TopupDetailsContent: React.FC = () => {
 
             {/* Amount INR and USD */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300">Amount (₹ INR)</label>
+              <label className="block text-sm font-medium text-gray-300">
+                {paymentMethod?.startsWith('USDT') ? 'Amount ($ USD)' : 'Amount (₹ INR)'}
+              </label>
               <input
                 type="number"
                 className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
                 placeholder="0.00"
                 value={inrAmount}
                 onChange={(e) => setInrAmount(e.target.value)}
-                min="1"
+                min={paymentMethod?.startsWith('USDT') ? "50" : "1"}
                 step="0.01"
                 disabled={!!amountParam}
               />
+              {paymentMethod?.startsWith('USDT') && (
+                <p className="mt-1 text-xs text-amber-400 font-medium">Minimum deposit is $50.00 USD</p>
+              )}
               {paymentMethod === 'QR' && (
                 <>
                   <p className="mt-1 text-sm text-gray-400">USD is calculated automatically in real-time.</p>
@@ -386,12 +398,28 @@ const TopupDetailsContent: React.FC = () => {
         <div className="bg-[#161d31] border border-[#283046] text-white rounded-2xl shadow p-6">
           <h4 className="text-lg font-semibold mb-4">Order Summary</h4>
           <div className="space-y-3 text-sm">
-            <div className="flex justify-between"><span className="text-gray-400">Method</span><span>{paymentMethod || '—'}</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">Amount (₹)</span><span>{inrAmount || '0.00'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-400">Method</span><span className="font-bold">{paymentMethod?.replace('_', ' ') || '—'}</span></div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Amount</span>
+              <span className="font-bold">
+                {paymentMethod?.startsWith('USDT') ? `$${inrAmount || '0.00'}` : `₹${inrAmount || '0.00'}`}
+              </span>
+            </div>
+            {paymentMethod === 'QR' && usdAmount && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Est. USD</span>
+                <span className="text-green-400 font-bold">${usdAmount}</span>
+              </div>
+            )}
             <div className="flex justify-between"><span className="text-gray-400">Fee</span><span>0.00</span></div>
-            <div className="flex justify-between font-semibold"><span>Total</span><span>{inrAmount || '0.00'}</span></div>
+            <div className="flex justify-between font-semibold border-t border-[#283046] pt-3">
+              <span>Total</span>
+              <span className="text-lg text-blue-400">
+                {paymentMethod?.startsWith('USDT') ? `$${inrAmount || '0.00'}` : `₹${inrAmount || '0.00'}`}
+              </span>
+            </div>
           </div>
-          <p className="mt-4 text-xs text-gray-400">By continuing, you accept our Terms of Service and Privacy Policy.</p>
+          <p className="mt-4 text-xs text-gray-400 italic">Payments are processed manually by our finance team for your security.</p>
         </div>
       </div>
     </div>

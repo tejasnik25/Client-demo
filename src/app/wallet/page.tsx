@@ -8,264 +8,175 @@ import Image from 'next/image';
 import UserLayout from '@/components/UserLayout';
 import Card, { CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import { FiPlus, FiArrowUpRight, FiDollarSign, FiClock, FiCheckCircle, FiXCircle } from 'react-icons/fi';
 
 const WalletPageContent: React.FC = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const [paymentMethod, setPaymentMethod] = useState<'QR' | 'USDT_ERC20' | 'USDT_TRC20' | null>(null);
-  const [transactionId, setTransactionId] = useState<string>('');
-  const [amount, setAmount] = useState<string>('');
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>('');
-  const [success, setSuccess] = useState<boolean>(false);
-  const [showQRCode, setShowQRCode] = useState<boolean>(false);
-  const [platform, setPlatform] = useState<'MT4' | 'MT5' | null>(null);
-  const [mtAccountId, setMtAccountId] = useState<string>('');
-  const [mtAccountPassword, setMtAccountPassword] = useState<string>('');
-  const [termsAccepted, setTermsAccepted] = useState<boolean>(false);
-  const [step, setStep] = useState<'select-payment' | 'payment-details'>(
-    'select-payment'
-  );
-  // INR/USD conversion state and env-configured USDT details
-  const [inrAmount, setInrAmount] = useState<string>('');
-  const [usdAmount, setUsdAmount] = useState<string>('');
-  const [inrToUsdRate, setInrToUsdRate] = useState<number | null>(null);
-  const [rateError, setRateError] = useState<string>('');
-  const [isLoadingRate, setIsLoadingRate] = useState<boolean>(false);
-  const USDT_ERC20_ADDRESS = process.env.NEXT_PUBLIC_USDT_ERC20_ADDRESS || '';
-  const USDT_TRC20_ADDRESS = process.env.NEXT_PUBLIC_USDT_TRC20_ADDRESS || '';
-  const WALLET_APP_DEEPLINK = process.env.NEXT_PUBLIC_USDT_WALLET_APP_LINK || '';
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    if (paymentMethod !== 'QR') return;
-    
-    const fetchRate = async () => {
+    const fetchData = async () => {
       try {
-        setRateError('');
-        setIsLoadingRate(true);
-        // Using a more reliable API for real-time exchange rates
-        const res = await fetch('https://api.exchangerate-api.com/v4/latest/INR');
-        const data = await res.json();
-        const rate = data?.rates?.USD;
-        if (typeof rate === 'number') {
-          setInrToUsdRate(rate);
-        } else {
-          throw new Error('Rate not available');
+        setLoading(true);
+        const [balanceRes, txRes] = await Promise.all([
+          fetch('/api/profile'),
+          fetch('/api/wallet/transactions')
+        ]);
+        
+        const balanceData = await balanceRes.json();
+        if (balanceData?.success) {
+          setWalletBalance(balanceData.user?.wallet_balance || 0);
         }
-      } catch (err) {
-        console.error('Failed to fetch INR→USD rate', err);
-        setRateError('Unable to fetch conversion rate. Please try again.');
-        setInrToUsdRate(null);
+
+        const txData = await txRes.json();
+        if (txData?.success) {
+          setTransactions(txData.transactions || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch wallet data:', error);
       } finally {
-        setIsLoadingRate(false);
+        setLoading(false);
       }
     };
-    
-    fetchRate();
-    
-    // Set up interval for real-time updates (every 60 seconds)
-    const intervalId = setInterval(fetchRate, 60000);
-    
-    return () => clearInterval(intervalId);
-  }, [paymentMethod]);
 
-  useEffect(() => {
-    if (paymentMethod === 'QR' && inrToUsdRate && inrAmount) {
-      const inr = parseFloat(inrAmount);
-      if (!isNaN(inr) && inr > 0) {
-        setUsdAmount((inr * inrToUsdRate).toFixed(2));
-      } else {
-        setUsdAmount('');
-      }
-    } else if (paymentMethod === 'QR') {
-      setUsdAmount('');
-    }
-  }, [inrAmount, inrToUsdRate, paymentMethod]);
+    fetchData();
+  }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      
-      // Create a preview URL
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreview(reader.result as string);
-      };
-      reader.readAsDataURL(selectedFile);
+  const getStatusIcon = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'completed': return <FiCheckCircle className="text-green-500" />;
+      case 'failed': return <FiXCircle className="text-red-500" />;
+      default: return <FiClock className="text-amber-500" />;
     }
   };
 
-  const handlePaymentMethodSelect = (method: 'QR' | 'USDT_ERC20' | 'USDT_TRC20') => {
-    router.push(`/wallet/topup?method=${method}`);
-  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!paymentMethod) {
-      setError('Please select a payment method');
-      return;
-    }
-    
-    if (!transactionId) {
-      setError('Please enter the transaction ID');
-      return;
-    }
-    
-    if (!inrAmount || isNaN(parseFloat(inrAmount)) || parseFloat(inrAmount) <= 0) {
-      setError('Please enter a valid INR amount');
-      return;
-    }
-
-    if (!usdAmount || isNaN(parseFloat(usdAmount)) || parseFloat(usdAmount) <= 0) {
-      setError('Conversion rate unavailable. Please try again later.');
-      return;
-    }
-    
-    if (!file) {
-      setError('Please upload a payment receipt');
-      return;
-    }
-
-    if (!platform) {
-      setError('Please select a platform (MT4 or MT5)');
-      return;
-    }
-
-    if (!mtAccountId) {
-      setError('Please enter your MT account ID');
-      return;
-    }
-
-    if (!mtAccountPassword) {
-      setError('Please enter your MT account password');
-      return;
-    }
-
-    if (!termsAccepted) {
-      setError('You must accept the Terms and Conditions to proceed');
-      return;
-    }
-    
-    setLoading(true);
-    setError('');
-    
-    try {
-      if (user) {
-        const amountValue = parseFloat(usdAmount);
-        
-        // Create transaction via API
-        const response = await fetch('/api/wallet/transactions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: user.id,
-            user_name: user.name,
-            user_email: user.email,
-            amount: amountValue,
-            transaction_type: 'deposit',
-            payment_method: paymentMethod,
-            transaction_id: transactionId,
-            receipt_path: file ? file.name : null, // Use filename as placeholder; avoid large base64 strings
-            platform: platform,
-            mt_account_id: mtAccountId,
-            mt_account_password: mtAccountPassword,
-            terms_accepted: termsAccepted,
-            status: 'pending',
-            inr_amount: inrAmount ? parseFloat(inrAmount) : null,
-            inr_to_usd_rate: inrToUsdRate,
-            crypto_network: paymentMethod === 'USDT_ERC20' ? 'ERC20' : paymentMethod === 'USDT_TRC20' ? 'TRC20' : null,
-            crypto_wallet_address: paymentMethod === 'USDT_ERC20' ? USDT_ERC20_ADDRESS : paymentMethod === 'USDT_TRC20' ? USDT_TRC20_ADDRESS : null,
-            wallet_app_deeplink: paymentMethod?.startsWith('USDT') ? WALLET_APP_DEEPLINK : null,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to create transaction');
-        }
-
-        const transactionResult = await response.json();
-        
-        if (transactionResult.success) {
-          // Show success message
-          setSuccess(true);
-          
-          // Redirect to dashboard after a delay
-          setTimeout(() => {
-            router.push('/dashboard');
-          }, 2000);
-        } else {
-          setError('Failed to create transaction. Please try again.');
-        }
-      }
-    } catch (error) {
-      console.error('Error processing payment:', error);
-      setError('An error occurred while processing your payment. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
   return (
-    <div className="w-full py-6 space-y-6">
-        <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
-          <div className="px-4 py-5 sm:px-6">
-            <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
-              Wallet Top-up
-            </h3>
-            <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-              Add funds to your wallet to continue using stock analysis features.
-            </p>
+    <div className="max-w-4xl mx-auto space-y-8">
+      {/* Wallet Balance Card */}
+      <div className="bg-gradient-to-br from-gray-900 to-black rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 blur-[100px] -mr-32 -mt-32 rounded-full" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-600/10 blur-[100px] -ml-32 -mb-32 rounded-full" />
+        
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-8">
+          <div className="text-center md:text-left">
+            <p className="text-gray-400 font-medium uppercase tracking-widest text-xs mb-2">Total Balance</p>
+            <h2 className="text-5xl font-black flex items-center gap-2">
+              <span className="text-blue-500">$</span>
+              {walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h2>
           </div>
-
-          <div className="border-t border-gray-200 dark:border-gray-700">
-            <div className="px-4 py-5 sm:p-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Select a Payment Method</label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-                <Card className="hover:shadow-lg transition-shadow">
-                  <CardHeader>
-                    <CardTitle>USDT (ERC 20)</CardTitle>
-                    <CardDescription>Pay with USDT on Ethereum network</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-center">
-                    <img src="/usdt_erc20-qr.svg" alt="USDT ERC20 QR" className="mt-3 w-32 h-32 object-contain opacity-60" />
-                  </CardContent>
-                  <CardFooter>
-                    <Button className="w-full" onClick={() => router.push('/wallet/topup?method=USDT_ERC20')}>Proceed</Button>
-                  </CardFooter>
-                </Card>
-                <Card className="hover:shadow-lg transition-shadow">
-                  <CardHeader>
-                    <CardTitle>USDT (TRC 20)</CardTitle>
-                    <CardDescription>Pay with USDT on TRON network</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-center">
-                    <img src="/usdt_trc20-qr.svg" alt="USDT TRC20 QR" className="mt-3 w-32 h-32 object-contain opacity-60" />
-                  </CardContent>
-                  <CardFooter>
-                    <Button className="w-full" onClick={() => router.push('/wallet/topup?method=USDT_TRC20')}>Proceed</Button>
-                  </CardFooter>
-                </Card>
-                <Card className="hover:shadow-lg transition-shadow">
-                  <CardHeader>
-                    <CardTitle>QR Code Payment</CardTitle>
-                    <CardDescription>Scan and pay via QR</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-center">
-                    <img src="/upi-qr.svg" alt="QR Payment" className="mt-3 w-32 h-32 object-contain opacity-60" />
-                  </CardContent>
-                  <CardFooter>
-                    <Button className="w-full" onClick={() => router.push('/wallet/topup?method=QR')}>Proceed</Button>
-                  </CardFooter>
-                </Card>
-              </div>
-              <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Choose a method to proceed.</p>
-            </div>
+          
+          <div className="flex gap-4">
+            <button 
+              onClick={() => router.push('/wallet/topup')}
+              className="flex items-center gap-2 px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-2xl font-bold transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+            >
+              <FiPlus className="w-5 h-5" />
+              Deposit
+            </button>
+            <button 
+              className="flex items-center gap-2 px-8 py-4 bg-white/5 hover:bg-white/10 rounded-2xl font-bold transition-all border border-white/10 active:scale-95"
+            >
+              <FiArrowUpRight className="w-5 h-5" />
+              Withdrawal
+            </button>
           </div>
         </div>
+      </div>
+
+      {/* Quick Deposit Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button 
+          onClick={() => router.push('/wallet/topup?method=USDT_TRC20')}
+          className="flex flex-col items-center gap-4 p-6 bg-white border border-gray-100 rounded-3xl hover:shadow-xl transition-all group"
+        >
+          <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+            <Image src="/usdt_trc20-qr.svg" alt="Tether" width={24} height={24} className="opacity-80" />
+          </div>
+          <div className="text-center">
+            <p className="font-bold text-gray-900">Tether (TRC20)</p>
+            <p className="text-xs text-gray-500">Instant Deposit</p>
+          </div>
+        </button>
+
+        <button 
+          onClick={() => router.push('/wallet/topup?method=USDT_ERC20')}
+          className="flex flex-col items-center gap-4 p-6 bg-white border border-gray-100 rounded-3xl hover:shadow-xl transition-all group"
+        >
+          <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+            <Image src="/usdt_erc20-qr.svg" alt="Tether" width={24} height={24} className="opacity-80" />
+          </div>
+          <div className="text-center">
+            <p className="font-bold text-gray-900">Tether (ERC20)</p>
+            <p className="text-xs text-gray-500">Secure Payment</p>
+          </div>
+        </button>
+
+        <button 
+          onClick={() => router.push('/wallet/topup?method=QR')}
+          className="flex flex-col items-center gap-4 p-6 bg-white border border-gray-100 rounded-3xl hover:shadow-xl transition-all group"
+        >
+          <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+            <Image src="/upi-qr.svg" alt="UPI" width={24} height={24} className="opacity-80" />
+          </div>
+          <div className="text-center">
+            <p className="font-bold text-gray-900">UPI / QR Code</p>
+            <p className="text-xs text-gray-500">Local Payment</p>
+          </div>
+        </button>
+      </div>
+
+      {/* Transaction History */}
+      <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+        <div className="px-8 py-6 border-b border-gray-50 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-gray-900">Transaction History</h3>
+          <button className="text-sm font-bold text-blue-600 hover:text-blue-700">View All</button>
+        </div>
+        
+        <div className="divide-y divide-gray-50">
+          {transactions.length > 0 ? transactions.slice(0, 5).map((tx) => (
+            <div key={tx.id} className="px-8 py-5 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
+              <div className="flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  tx.transaction_type === 'deposit' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
+                }`}>
+                  {tx.transaction_type === 'deposit' ? <FiPlus /> : <FiDollarSign />}
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900 capitalize">{tx.payment_method?.replace('_', ' ') || tx.transaction_type}</p>
+                  <p className="text-xs text-gray-500">{new Date(tx.created_at).toLocaleString()}</p>
+                </div>
+              </div>
+              
+              <div className="text-right">
+                <p className={`font-black ${tx.transaction_type === 'deposit' ? 'text-green-600' : 'text-red-600'}`}>
+                  {tx.transaction_type === 'deposit' ? '+' : '-'}${tx.amount.toFixed(2)}
+                </p>
+                <div className="flex items-center justify-end gap-1 mt-1">
+                  {getStatusIcon(tx.status)}
+                  <span className="text-[10px] font-bold uppercase tracking-tight text-gray-400">{tx.status}</span>
+                </div>
+              </div>
+            </div>
+          )) : (
+            <div className="p-12 text-center text-gray-500">
+              <FiClock className="mx-auto mb-2 h-8 w-8 opacity-20" />
+              <p className="font-medium">No transactions found</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
@@ -274,7 +185,9 @@ const WalletPageContent: React.FC = () => {
 const WalletPageInner: React.FC = () => {
   return (
     <UserLayout>
-      <WalletPageContent />
+      <div className="p-6">
+        <WalletPageContent />
+      </div>
     </UserLayout>
   );
 };
