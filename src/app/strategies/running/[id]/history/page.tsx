@@ -235,14 +235,33 @@ export default function CopierHistoryPage() {
 
   const sessions = useMemo(() => {
     const list: Array<{ start: number; end: number | null }> = [];
-    if (!connectAt) return [];
-    
-    // First session starts at the original connectAt (approvedAt)
+
+    // Determine the starting point for sessions. In some cases we may not have a
+    // reliable `connectAt` timestamp (e.g. missing data from the backend), so we
+    // fall back to the earliest known modification time or the unix epoch.
+    let startMs = Number.isFinite(new Date(connectAt || '').getTime())
+      ? new Date(connectAt!).getTime()
+      : Number.POSITIVE_INFINITY;
+
+    const modTimes = modifications
+      .map((m) => (m.created_at ? new Date(m.created_at).getTime() : NaN))
+      .filter((t) => Number.isFinite(t));
+
+    if (modTimes.length > 0) {
+      startMs = Math.min(startMs, ...modTimes);
+    }
+
+    if (!Number.isFinite(startMs)) {
+      // If we still don't have a valid start time, show everything.
+      return [{ start: 0, end: null }];
+    }
+
+    // First session starts at the resolved start time (connectAt or earliest modification)
     let currentSession: { start: number; end: number | null } | null = {
-      start: new Date(connectAt).getTime(),
+      start: startMs,
       end: null
     };
-    
+
     // Sort modifications by time
     const sortedMods = [...modifications].sort((a, b) => {
       const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -253,7 +272,7 @@ export default function CopierHistoryPage() {
     for (const mod of sortedMods) {
       const modTime = mod.created_at ? new Date(mod.created_at).getTime() : 0;
       const status = String(mod.status || '').toLowerCase();
-      
+
       if (status === 'disconnected' || status === 'stopped') {
         if (currentSession && currentSession.end === null) {
           currentSession.end = modTime;
@@ -266,11 +285,16 @@ export default function CopierHistoryPage() {
         }
       }
     }
-    
+
     if (currentSession) {
       list.push(currentSession);
     }
-    
+
+    // If no sessions were derived, show everything.
+    if (list.length === 0) {
+      return [{ start: 0, end: null }];
+    }
+
     return list;
   }, [connectAt, modifications]);
 
@@ -312,24 +336,20 @@ export default function CopierHistoryPage() {
   }, [history, lotSize, sessions]);
 
   const filteredOpen = useMemo(() => {
-    const aStatus = String(adminStatus || '').toLowerCase();
-    const mStatus = String(mtStatus || '').toLowerCase();
-    
-    const isActuallyRunning = (aStatus === 'running' || aStatus === 'active' || aStatus === 'in-process' || aStatus === 'in process') && 
-                               (mStatus === 'running' || mStatus === 'active');
-
-    if (!isActuallyRunning) return [];
-
     const mult = Number(lotSize) || 1;
-    
-    // Find the currently active session (the one with end === null)
+
+    // Find the currently active session (the one with end === null). This is used
+    // to filter open positions to those opened during the most recent running window.
+    // If we cannot locate such a session, we still show all open positions as a best-effort.
     const currentSession = sessions.find(s => s.end === null);
-    if (!currentSession) return [];
 
     const rows = openPositions.filter((p) => {
       const openMs = toMs(p.time ?? p.server_time);
-      // Only show if opened during the CURRENT active session
-      return Number.isFinite(openMs) && openMs >= currentSession.start;
+      if (!Number.isFinite(openMs)) return false;
+
+      if (!currentSession) return true;
+
+      return openMs >= currentSession.start;
     });
     
     return rows.map((p) => ({
@@ -344,7 +364,7 @@ export default function CopierHistoryPage() {
       profit: Number(p.profit) * mult,
       swap: Number(p.swap || 0) * mult,
     }));
-  }, [openPositions, lotSize, sessions, adminStatus, mtStatus]);
+  }, [openPositions, lotSize, sessions]);
 
   // Synthesize closures for trades that were open at the end of a session
   const syntheticClosures = useMemo(() => {
@@ -395,14 +415,14 @@ export default function CopierHistoryPage() {
     
     const closedRows = [...filteredClosed, ...(!isActuallyRunning ? syntheticClosures : [])];
     
-    if (filter === "opened") return isActuallyRunning ? filteredOpen : [];
+    if (filter === "opened") return filteredOpen;
     if (filter === "closed") return closedRows.sort((a, b) => {
       const ta = Date.parse(a.openTimeStr || "") || 0;
       const tb = Date.parse(b.openTimeStr || "") || 0;
       return tb - ta;
     });
     // For 'all' tab, combine both
-    const all = [...(isActuallyRunning ? filteredOpen : []), ...closedRows];
+    const all = [...filteredOpen, ...closedRows];
     return all.sort((a, b) => {
       const ta = Date.parse(a.openTimeStr || "") || 0;
       const tb = Date.parse(b.openTimeStr || "") || 0;
