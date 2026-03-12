@@ -177,11 +177,16 @@ export async function GET(
       await upsertMasterTrades(masterId, history, false);
     }
     
-    // For open positions, we ALWAYS upsert if fetch was successful, even if 0.
-    // This ensures that if a trade was closed on MT5, it gets cleared from our 'open' cache.
+    // For open positions, we prefer to keep the last-known cache when the API returns zero
+    // (this can happen due to transient service failures or partial data). We only overwrite
+    // the cache when we get a non-empty list of open positions.
     if (anyFetchSuccess) {
-      console.log(`[MasterHistory] Updating ${open_positions.length} open positions for ${masterId}`);
-      await upsertMasterTrades(masterId, open_positions, true);
+      if (open_positions.length > 0) {
+        console.log(`[MasterHistory] Updating ${open_positions.length} open positions for ${masterId}`);
+        await upsertMasterTrades(masterId, open_positions, true);
+      } else {
+        console.log(`[MasterHistory] API returned 0 open positions for ${masterId}; retaining cached open positions.`);
+      }
     }
 
     // Always merge with cached data to ensure completeness
@@ -194,15 +199,17 @@ export async function GET(
     history.forEach(t => historyMap.set(t.position_id, t));
     
     const openMap = new Map();
-    // For open positions, we only want the ones currently reported as open by MT5
-    // But if fetch failed completely, we fallback to cache
-    if (open_positions.length > 0) {
-      open_positions.forEach(t => openMap.set(t.position_id, t));
-    } else if (anyFetchSuccess) {
-      // If MT5 says 0 open positions and fetch was successful, then 0 are open.
-    } else {
-      // If fetch failed, show last known open positions from cache
-      cached.open_positions.forEach(t => openMap.set(t.position_id, t));
+    // Start with the cached open positions so we can fall back when the API returns partial/empty results.
+    // This ensures the UI can still show the last-known open trades when the trading service is flaky.
+    cached.open_positions.forEach(t => openMap.set(t.position_id, t));
+
+    // Merge in any fresh open positions from the API responses (overwrites cached entries with the same position_id).
+    // If the fetch succeeded but returns 0 open positions, we'll keep the cached ones to avoid accidentally wiping them.
+    open_positions.forEach(t => openMap.set(t.position_id, t));
+
+    // Remove any open positions that are now marked as closed in history
+    for (const closedId of freshHistoryMap.keys()) {
+      openMap.delete(closedId);
     }
 
     const finalHistory = Array.from(historyMap.values()).sort((a, b) => (b.time_open || 0) - (a.time_open || 0));
