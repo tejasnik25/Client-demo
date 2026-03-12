@@ -2200,7 +2200,10 @@ def copy_trade_worker():
                                 try:
                                     if should_refresh_history or history_needs_refresh:
                                         log_print(f"🕒 Periodic history update for Master {m_id}...")
-                                        from_date_hist = datetime.now() - timedelta(days=30)
+                                        # OPTIMIZATION: Fetch a shorter period for live requests to avoid timeouts.
+                                        # A full 30-day history can be slow. We do a quick 7-day fetch here.
+                                        # The full history can be fetched less frequently if needed.
+                                        from_date_hist = datetime.now() - timedelta(days=7)
                                         # Fetch closed positions (not just deals) for the History page
                                         history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
                                         history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
