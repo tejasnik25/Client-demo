@@ -154,18 +154,28 @@ export async function GET(
       }
     }
 
-    // Deduplicate fresh history and open_positions
-    const freshHistoryMap = new Map();
-    history.forEach(t => freshHistoryMap.set(t.position_id, t));
+    // Deduplicate fresh history and open_positions.
+    // Some providers may return trades without a stable `position_id`, so we fall back to a deterministic key.
+    const makeUniqKey = (t: any, idx: number) => {
+      if (t.position_id) return String(t.position_id);
+      // Fallback: combine symbol + timestamp + index to avoid collapsing multiple trades
+      const prefix = `${t.symbol ?? ''}@${t.time ?? t.time_open ?? t.open_time ?? t.server_time ?? ''}`;
+      return `${prefix}#${idx}`;
+    };
+
+    const freshHistoryMap = new Map<string, any>();
+    history.forEach((t, idx) => freshHistoryMap.set(makeUniqKey(t, idx), t));
     history = Array.from(freshHistoryMap.values());
 
-    const freshOpenMap = new Map();
-    open_positions.forEach(t => freshOpenMap.set(t.position_id, t));
+    const freshOpenMap = new Map<string, any>();
+    open_positions.forEach((t, idx) => freshOpenMap.set(makeUniqKey(t, idx), t));
     open_positions = Array.from(freshOpenMap.values());
 
     // CRITICAL: A trade cannot be in both history and open_positions.
     // If it's in history (closed), remove it from open_positions.
-    open_positions = open_positions.filter(op => !freshHistoryMap.has(op.position_id));
+    // Use the stable position_id when available.
+    const closedPositionIds = new Set<string>(history.filter(t => t.position_id).map(t => String(t.position_id)));
+    open_positions = open_positions.filter(op => !closedPositionIds.has(String(op.position_id || '')));
 
     // Check if provider fetch was successful
     const anyFetchSuccess = results.some(r => r.status === 'fulfilled' && r.value.ok);
