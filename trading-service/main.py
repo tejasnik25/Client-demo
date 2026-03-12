@@ -111,51 +111,54 @@ COPY_TRADE_MAGIC_NUMBER = 123456 # Unique ID for copied trades to prevent self-c
 # Persistent Cache for Trade History (Prevents Re-Copying closed trades)
 processed_orders_cache = {}
 MASTER_HISTORY_FILE = "master_history.json"
+master_history_lock = threading.Lock() # Lock for file R/W
 
 def load_master_history():
-    if os.path.exists(MASTER_HISTORY_FILE):
-        try:
-            with open(MASTER_HISTORY_FILE, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            log_print(f"⚠ Failed to load master history: {e}")
-    return {}
+    with master_history_lock:
+        if os.path.exists(MASTER_HISTORY_FILE):
+            try:
+                with open(MASTER_HISTORY_FILE, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                log_print(f"⚠ Failed to load master history: {e}")
+        return {}
 
 def save_master_history(history_data, open_positions=None):
-    try:
-        # Load existing to merge
-        existing = load_master_history()
-        
-        # history_data is a dict {master_id: [deals]}
-        # We store it under "history" key for that master_id
-        for m_id, deals in history_data.items():
-            if m_id not in existing:
-                existing[m_id] = {"history": [], "open_positions": []}
+    with master_history_lock:
+        try:
+            # Load existing to merge
+            existing = load_master_history()
             
-            # If it's a dict structure already, handle it, otherwise wrap it
-            if not isinstance(existing[m_id], dict):
-                existing[m_id] = {"history": existing[m_id], "open_positions": []}
-                
-            existing[m_id]["history"] = deals
-            
-        if open_positions:
-            for m_id, positions in open_positions.items():
+            # history_data is a dict {master_id: [deals]}
+            # We store it under "history" key for that master_id
+            for m_id, deals in history_data.items():
                 if m_id not in existing:
                     existing[m_id] = {"history": [], "open_positions": []}
+                
+                # If it's a dict structure already, handle it, otherwise wrap it
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
+                    
+                existing[m_id]["history"] = deals
                 
-                # Add server_time string to each open position for frontend consistency
-                for pos in positions:
-                    if 'time' in pos and 'server_time' not in pos:
-                        pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
-                
-                existing[m_id]["open_positions"] = positions
+            if open_positions:
+                for m_id, positions in open_positions.items():
+                    if m_id not in existing:
+                        existing[m_id] = {"history": [], "open_positions": []}
+                    if not isinstance(existing[m_id], dict):
+                        existing[m_id] = {"history": existing[m_id], "open_positions": []}
+                    
+                    # Add server_time string to each open position for frontend consistency
+                    for pos in positions:
+                        if 'time' in pos and 'server_time' not in pos:
+                            pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
+                    
+                    existing[m_id]["open_positions"] = positions
 
-        with open(MASTER_HISTORY_FILE, 'w') as f:
-            json.dump(existing, f, indent=2)
-    except Exception as e:
-        log_print(f"⚠ Failed to save master history: {e}")
+            with open(MASTER_HISTORY_FILE, 'w') as f:
+                json.dump(existing, f, indent=2)
+        except Exception as e:
+            log_print(f"⚠ Failed to save master history: {e}")
 
 def load_trade_cache():
     global processed_orders_cache
@@ -2203,7 +2206,7 @@ def copy_trade_worker():
                                         # OPTIMIZATION: Fetch a shorter period for live requests to avoid timeouts.
                                         # A full 30-day history can be slow. We do a quick 7-day fetch here.
                                         # The full history can be fetched less frequently if needed.
-                                        from_date_hist = datetime.now() - timedelta(days=7)
+                                        from_date_hist = datetime.now() - timedelta(days=1)
                                         # Fetch closed positions (not just deals) for the History page
                                         history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
                                         history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
