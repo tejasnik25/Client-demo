@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       const mappedOpen = open_positions.map(t => ({
         position_id: String(t.ticket || t.position_id),
         symbol: t.symbol,
-        type: t.type === 0 || t.type === '0' || String(t.type).toLowerCase().includes('buy') ? 'BUY' : 'SELL',
+        type: t.type_str || (t.type === 0 || t.type === '0' || String(t.type).toLowerCase().includes('buy') ? 'BUY' : 'SELL'),
         volume: Number(t.volume),
         price_open: Number(t.price_open),
         price_current: Number(t.price_current), // Ensure price_current is passed for open trades
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
         commission: Number(t.commission || 0),
         swap: Number(t.swap || 0),
         time_open: typeof t.time === 'number' ? new Date(t.time * 1000).toISOString() : (t.time_open || t.time),
+        time_close: null // Explicitly null for open positions
       }));
       await upsertMasterTrades(master_id, mappedOpen, true);
     }

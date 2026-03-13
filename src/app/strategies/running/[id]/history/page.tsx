@@ -28,6 +28,7 @@ type OpenItem = {
   server_time?: string;
   time?: number;
   open_time?: number;
+  time_open?: number;
   server_time_open?: string;
   symbol: string;
   type: number | string;
@@ -332,17 +333,24 @@ export default function CopierHistoryPage() {
       const unitProfit = Number(h.profit) / masterVolume;
       const unitSwap = Number(h.swap || 0) / masterVolume;
       
+      // Calculate adjusted profit and swap based on user's purchased lot size
+      // mult is the user's lot size (e.g., 0.01, 0.1, 1.0)
+      // Master volume is the master's lot size (e.g., 0.1, 1.0)
+      // Formula: Adjusted = (Master Value / Master Volume) * User Volume
+      const adjustedProfit = unitProfit * mult;
+      const adjustedSwap = unitSwap * mult;
+
       return {
         isOpen: false as const,
-        openTimeStr: h.server_time_open || (Number.isFinite(h.time_open) ? new Date(toMs(h.time_open!)).toISOString() : ""),
-        closeTimeStr: h.server_time_close || (Number.isFinite(h.time_close) ? new Date(toMs(h.time_close!)).toISOString() : ""),
+        openTimeStr: h.server_time_open || (h.time_open ? new Date(toMs(h.time_open)).toISOString() : ""),
+        closeTimeStr: h.server_time_close || (h.time_close ? new Date(toMs(h.time_close)).toISOString() : ""),
         symbol: h.symbol,
         type: h.type,
         volume: mult, // Use the lot size purchased by the user
         openPrice: h.price_open,
         closeOrCurrentPrice: h.price_close,
-        profit: unitProfit * mult,
-        swap: unitSwap * mult,
+        profit: adjustedProfit,
+        swap: adjustedSwap,
       };
     });
   }, [history, lotSize, sessions]);
@@ -371,17 +379,21 @@ export default function CopierHistoryPage() {
       const unitProfit = Number(p.profit) / masterVolume;
       const unitSwap = Number(p.swap || 0) / masterVolume;
 
+      // Adjusted for user lot size
+      const adjustedProfit = unitProfit * mult;
+      const adjustedSwap = unitSwap * mult;
+
       return {
         isOpen: true as const,
-        openTimeStr: p.server_time || (Number.isFinite(p.time) ? new Date(toMs(p.time!)).toISOString() : ""),
+        openTimeStr: p.server_time || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
         closeTimeStr: "",
         symbol: p.symbol,
         type: p.type,
         volume: mult, // Use the lot size purchased by the user
         openPrice: p.price_open,
         closeOrCurrentPrice: p.price_current,
-        profit: unitProfit * mult,
-        swap: unitSwap * mult,
+        profit: adjustedProfit,
+        swap: adjustedSwap,
       };
     });
   }, [openPositions, lotSize, sessions]);
@@ -413,17 +425,20 @@ export default function CopierHistoryPage() {
         const unitProfit = Number(p.profit) / masterVolume;
         const unitSwap = Number(p.swap || 0) / masterVolume;
 
+        const adjustedProfit = unitProfit * mult;
+        const adjustedSwap = unitSwap * mult;
+
         closures.push({
           isOpen: false as const,
-          openTimeStr: p.server_time || (Number.isFinite(p.time) ? new Date(toMs(p.time!)).toISOString() : ""),
+          openTimeStr: p.server_time || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
           closeTimeStr: new Date(session.end!).toISOString(),
           symbol: p.symbol,
           type: p.type,
           volume: mult, // Use the lot size purchased by the user
           openPrice: p.price_open,
           closeOrCurrentPrice: p.price_current,
-          profit: unitProfit * mult,
-          swap: unitSwap * mult,
+          profit: adjustedProfit,
+          swap: adjustedSwap,
         });
       });
     });
@@ -602,20 +617,24 @@ export default function CopierHistoryPage() {
                       <td className="px-6 py-4">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                            String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                           }`}
                         >
-                          {String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? "BUY" : "SELL"}
+                          {String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 ? "BUY" : "SELL"}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
-                      <td className="px-6 py-4 text-gray-600">{(pos as any).openPrice}</td>
-                      <td className="px-6 py-4 text-gray-600">{(pos as any).closeOrCurrentPrice ?? "-"}</td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {pos.openPrice && Number(pos.openPrice) !== 0 ? pos.openPrice : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0 ? pos.closeOrCurrentPrice : "-"}
+                      </td>
                       <td className={`px-6 py-4 font-medium ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {(pos as any).swap > 0 ? "+" : ""}{Number((pos as any).swap || 0).toFixed(2)}
                       </td>
                       <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {(pos as any).profit > 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
+                        {(pos as any).profit >= 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
                       </td>
                     </tr>
                   ))}

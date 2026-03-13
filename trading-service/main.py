@@ -2230,6 +2230,7 @@ def copy_trade_worker():
                                 open_positions_list = []
                                 for p in master_positions:
                                     pd = p._asdict()
+                                    pd['type_str'] = "BUY" if pd.get('type') == 0 else "SELL"
                                     pd['server_time'] = datetime.fromtimestamp(pd.get('time', time.time())).strftime('%Y.%m.%d %H:%M:%S')
                                     open_positions_list.append(pd)
                                     
@@ -2605,20 +2606,10 @@ def aggregate_deals_to_positions(deals):
         pid = d.get('position_id')
         if not pid: continue
         
-        entry = d.get('entry')
         if pid not in positions:
             positions[pid] = {
                 'position_id': pid,
                 'symbol': d.get('symbol'),
-                'type': d.get('type'),
-                'volume': d.get('volume'),
-                'time_open': None,
-                'time_close': None,
-                'price_open': None,
-                'price_close': None,
-                'profit': 0,
-                'commission': 0,
-                'swap': 0,
                 'magic': d.get('magic'),
                 'comment': d.get('comment'),
                 'deals': []
@@ -2629,32 +2620,57 @@ def aggregate_deals_to_positions(deals):
     # Now process each position
     result = []
     for pid, p in positions.items():
-        deals_list = sorted(p['deals'], key=lambda x: x.get('time', 0))
+        # Sort deals by time then by ticket to handle multiple deals in same second
+        deals_list = sorted(p['deals'], key=lambda x: (x.get('time', 0), x.get('ticket', 0)))
         
         open_deal = None
         close_deal = None
+        total_profit = 0
+        total_commission = 0
+        total_swap = 0
+        total_volume = 0
         
         for d in deals_list:
             entry = d.get('entry')
-            if entry == mt5.DEAL_ENTRY_IN:
+            # mt5.DEAL_ENTRY_IN = 0
+            if entry == 0: 
                 if not open_deal:
                     open_deal = d
-            elif entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
+                total_volume += d.get('volume', 0)
+            # mt5.DEAL_ENTRY_OUT = 1, mt5.DEAL_ENTRY_INOUT = 2
+            elif entry in [1, 2]:
                 close_deal = d  # Last closing deal
+            
+            total_profit += d.get('profit', 0)
+            total_commission += d.get('commission', 0)
+            total_swap += d.get('swap', 0)
         
         if open_deal and close_deal:
+            # Determine type from the opening deal
+            # mt5.ORDER_TYPE_BUY = 0, mt5.ORDER_TYPE_SELL = 1
+            raw_type = open_deal.get('type')
+            trade_type = "BUY" if raw_type == 0 else "SELL"
+
+            # Use the price of the first IN deal as the Open Price
+            # Use the price of the last OUT deal as the Close Price
+            open_price = open_deal.get('price')
+            close_price = close_deal.get('price')
+
+            # Ensure volume is consistent
+            final_volume = total_volume if total_volume > 0 else open_deal.get('volume', 0)
+
             result.append({
                 'position_id': pid,
                 'symbol': open_deal.get('symbol'),
-                'type': open_deal.get('type'),
-                'volume': open_deal.get('volume'),
+                'type': trade_type,
+                'volume': final_volume,
                 'time_open': open_deal.get('time'),
                 'time_close': close_deal.get('time'),
-                'price_open': open_deal.get('price'),
-                'price_close': close_deal.get('price'),
-                'profit': close_deal.get('profit', 0),
-                'commission': close_deal.get('commission', 0),
-                'swap': close_deal.get('swap', 0),
+                'price_open': open_price,
+                'price_close': close_price,
+                'profit': total_profit,
+                'commission': total_commission,
+                'swap': total_swap,
                 'magic': open_deal.get('magic'),
                 'comment': open_deal.get('comment'),
                 'server_time_open': datetime.fromtimestamp(open_deal.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
@@ -2709,20 +2725,32 @@ async def get_master_history(master_id: str):
                     # Fetch LIVE open positions
                     raw_positions = mt5.positions_get() or []
                     master_positions = [p for p in raw_positions if getattr(p, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
-                    open_positions = [p._asdict() for p in master_positions]
+                    open_positions = []
+                    for p in master_positions:
+                        pd = p._asdict()
+                        # Determine type
+                        # mt5.ORDER_TYPE_BUY = 0, mt5.ORDER_TYPE_SELL = 1
+                        pd['type_str'] = "BUY" if pd.get('type') == 0 else "SELL"
+                        # Add server_time
+                        pd['server_time'] = datetime.fromtimestamp(pd.get('time', time.time())).strftime('%Y.%m.%d %H:%M:%S')
+                        open_positions.append(pd)
 
                     # Fetch LIVE history (last 365 days)
                     from_date = datetime.now() - timedelta(days=365)
                     deals = mt5.history_deals_get(from_date, datetime.now()) or []
-                    closed_deals = [d._asdict() for d in deals if getattr(d, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
+                    # Filter out deals with magic number 123456 (copied trades)
+                    raw_deals = [d._asdict() for d in deals if getattr(d, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
 
-                    log_print(f"   ✅ Fetched {len(open_positions)} open, {len(closed_deals)} history deals from MT5")
+                    log_print(f"   ✅ Fetched {len(open_positions)} open, {len(raw_deals)} raw history deals from MT5")
 
+                    # Aggregate deals to positions BEFORE saving and returning
+                    aggregated_history = aggregate_deals_to_positions(raw_deals)
+                    
                     # Save to local cache for future fallbacks
-                    save_master_history({master_id_str: closed_deals}, open_positions={master_id_str: open_positions})
+                    # Important: We save the RAW deals in the history file to allow re-aggregation if logic changes,
+                    # BUT the PUSH architecture uses the aggregated positions.
+                    save_master_history({master_id_str: raw_deals}, open_positions={master_id_str: open_positions})
 
-                    # Aggregate deals to positions
-                    aggregated_history = aggregate_deals_to_positions(closed_deals)
                     return {
                         "master_id": master_id,
                         "history": aggregated_history,
@@ -2744,12 +2772,12 @@ async def get_master_history(master_id: str):
     if isinstance(master_data, list):
         master_data = {"history": master_data, "open_positions": []}
 
-    deals = master_data.get("history", [])
+    raw_deals = master_data.get("history", [])
     open_positions = master_data.get("open_positions", [])
     
     return {
         "master_id": master_id,
-        "history": aggregate_deals_to_positions(deals),
+        "history": aggregate_deals_to_positions(raw_deals),
         "open_positions": open_positions
     }
 
