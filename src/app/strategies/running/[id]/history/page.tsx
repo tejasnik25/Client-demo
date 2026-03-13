@@ -327,18 +327,24 @@ export default function CopierHistoryPage() {
       return true;
     });
     
-    return rows.map((h) => ({
-      isOpen: false as const,
-      openTimeStr: h.server_time_open || (Number.isFinite(h.time_open) ? new Date(toMs(h.time_open!)).toISOString() : ""),
-      closeTimeStr: h.server_time_close || (Number.isFinite(h.time_close) ? new Date(toMs(h.time_close!)).toISOString() : ""),
-      symbol: h.symbol,
-      type: h.type,
-      volume: Number(h.volume) * mult,
-      openPrice: h.price_open,
-      closeOrCurrentPrice: h.price_close,
-      profit: Number(h.profit) * mult,
-      swap: Number(h.swap || 0) * mult,
-    }));
+    return rows.map((h) => {
+      const masterVolume = Number(h.volume) || 1;
+      const unitProfit = Number(h.profit) / masterVolume;
+      const unitSwap = Number(h.swap || 0) / masterVolume;
+      
+      return {
+        isOpen: false as const,
+        openTimeStr: h.server_time_open || (Number.isFinite(h.time_open) ? new Date(toMs(h.time_open!)).toISOString() : ""),
+        closeTimeStr: h.server_time_close || (Number.isFinite(h.time_close) ? new Date(toMs(h.time_close!)).toISOString() : ""),
+        symbol: h.symbol,
+        type: h.type,
+        volume: mult, // Use the lot size purchased by the user
+        openPrice: h.price_open,
+        closeOrCurrentPrice: h.price_close,
+        profit: unitProfit * mult,
+        swap: unitSwap * mult,
+      };
+    });
   }, [history, lotSize, sessions]);
 
   const filteredOpen = useMemo(() => {
@@ -360,18 +366,24 @@ export default function CopierHistoryPage() {
       return openMs >= currentSession.start;
     });
     
-    return rows.map((p) => ({
-      isOpen: true as const,
-      openTimeStr: p.server_time || (Number.isFinite(p.time) ? new Date(toMs(p.time!)).toISOString() : ""),
-      closeTimeStr: "",
-      symbol: p.symbol,
-      type: p.type,
-      volume: Number(p.volume) * mult,
-      openPrice: p.price_open,
-      closeOrCurrentPrice: p.price_current,
-      profit: Number(p.profit) * mult,
-      swap: Number(p.swap || 0) * mult,
-    }));
+    return rows.map((p) => {
+      const masterVolume = Number(p.volume) || 1;
+      const unitProfit = Number(p.profit) / masterVolume;
+      const unitSwap = Number(p.swap || 0) / masterVolume;
+
+      return {
+        isOpen: true as const,
+        openTimeStr: p.server_time || (Number.isFinite(p.time) ? new Date(toMs(p.time!)).toISOString() : ""),
+        closeTimeStr: "",
+        symbol: p.symbol,
+        type: p.type,
+        volume: mult, // Use the lot size purchased by the user
+        openPrice: p.price_open,
+        closeOrCurrentPrice: p.price_current,
+        profit: unitProfit * mult,
+        swap: unitSwap * mult,
+      };
+    });
   }, [openPositions, lotSize, sessions]);
 
   // Synthesize closures for trades that were open at the end of a session
@@ -397,17 +409,21 @@ export default function CopierHistoryPage() {
       });
 
       sessionOpenTrades.forEach((p: any) => {
+        const masterVolume = Number(p.volume) || 1;
+        const unitProfit = Number(p.profit) / masterVolume;
+        const unitSwap = Number(p.swap || 0) / masterVolume;
+
         closures.push({
           isOpen: false as const,
           openTimeStr: p.server_time || (Number.isFinite(p.time) ? new Date(toMs(p.time!)).toISOString() : ""),
           closeTimeStr: new Date(session.end!).toISOString(),
           symbol: p.symbol,
           type: p.type,
-          volume: Number(p.volume) * mult,
+          volume: mult, // Use the lot size purchased by the user
           openPrice: p.price_open,
           closeOrCurrentPrice: p.price_current,
-          profit: Number(p.profit) * mult,
-          swap: Number(p.swap || 0) * mult,
+          profit: unitProfit * mult,
+          swap: unitSwap * mult,
         });
       });
     });
@@ -462,6 +478,13 @@ export default function CopierHistoryPage() {
       totalLoss: totalLoss.toFixed(2)
     };
   }, [displayRows]);
+
+  const formatDate = (dateStr: string | undefined) => {
+    if (!dateStr) return "-";
+    const ms = toMs(dateStr);
+    if (!Number.isFinite(ms)) return dateStr;
+    return new Date(ms).toLocaleString();
+  };
 
   if (loading) {
     return (
@@ -570,10 +593,10 @@ export default function CopierHistoryPage() {
                   {displayRows.map((pos, idx) => (
                     <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                        {pos.openTimeStr ? new Date(pos.openTimeStr).toLocaleString() : "-"}
+                        {formatDate(pos.openTimeStr)}
                       </td>
                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                        {pos.closeTimeStr ? new Date(pos.closeTimeStr).toLocaleString() : "-"}
+                        {formatDate(pos.closeTimeStr)}
                       </td>
                       <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
                       <td className="px-6 py-4">

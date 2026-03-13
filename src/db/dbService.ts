@@ -3089,7 +3089,9 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         type: t.type,
         volume: t.volume,
         price_open: t.price_open,
+        price_current: t.price_close, // price_close stores price_current for open trades
         profit: t.profit,
+        swap: t.swap,
         time_open: t.time_open
       })),
       last_updated: lastUpdate
@@ -3124,7 +3126,9 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
           type: t.type,
           volume: t.volume,
           price_open: t.price_open,
+          price_current: t.price_close,
           profit: t.profit,
+          swap: t.swap,
           time_open: t.time_open
         }))
       };
