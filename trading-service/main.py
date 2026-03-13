@@ -2645,25 +2645,23 @@ def aggregate_deals_to_positions(deals):
             total_commission += d.get('commission', 0)
             total_swap += d.get('swap', 0)
         
+        # We only return closed positions (those that have both an entry and an exit)
         if open_deal and close_deal:
             # Determine type from the opening deal
             # mt5.ORDER_TYPE_BUY = 0, mt5.ORDER_TYPE_SELL = 1
             raw_type = open_deal.get('type')
             trade_type = "BUY" if raw_type == 0 else "SELL"
 
-            # Use the price of the first IN deal as the Open Price
-            # Use the price of the last OUT deal as the Close Price
+            # Open price from the very first deal
             open_price = open_deal.get('price')
+            # Close price from the very last deal
             close_price = close_deal.get('price')
-
-            # Ensure volume is consistent
-            final_volume = total_volume if total_volume > 0 else open_deal.get('volume', 0)
 
             result.append({
                 'position_id': pid,
                 'symbol': open_deal.get('symbol'),
                 'type': trade_type,
-                'volume': final_volume,
+                'volume': total_volume,
                 'time_open': open_deal.get('time'),
                 'time_close': close_deal.get('time'),
                 'price_open': open_price,

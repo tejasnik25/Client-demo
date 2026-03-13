@@ -34,8 +34,8 @@ export async function POST(req: NextRequest) {
         profit: Number(t.profit),
         commission: Number(t.commission || 0),
         swap: Number(t.swap || 0),
-        time_open: typeof t.time_open === 'number' ? new Date(t.time_open * 1000).toISOString() : t.time_open,
-        time_close: typeof t.time_close === 'number' ? new Date(t.time_close * 1000).toISOString() : t.time_close,
+        time_open: typeof t.time_open === 'number' ? new Date(t.time_open * 1000).toISOString() : (t.time_open || t.open_time),
+        time_close: typeof t.time_close === 'number' ? new Date(t.time_close * 1000).toISOString() : (t.time_close || t.close_time),
       }));
       await upsertMasterTrades(master_id, mappedHistory, false);
     }
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
         profit: Number(t.profit),
         commission: Number(t.commission || 0),
         swap: Number(t.swap || 0),
-        time_open: typeof t.time === 'number' ? new Date(t.time * 1000).toISOString() : (t.time_open || t.time),
+        time_open: typeof t.time === 'number' ? new Date(t.time * 1000).toISOString() : (t.time_open || t.time || t.open_time),
         time_close: null // Explicitly null for open positions
       }));
       await upsertMasterTrades(master_id, mappedOpen, true);

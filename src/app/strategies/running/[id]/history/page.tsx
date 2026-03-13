@@ -329,16 +329,10 @@ export default function CopierHistoryPage() {
     });
     
     return rows.map((h) => {
-      const masterVolume = Number(h.volume) || 1;
-      const unitProfit = Number(h.profit) / masterVolume;
-      const unitSwap = Number(h.swap || 0) / masterVolume;
-      
-      // Calculate adjusted profit and swap based on user's purchased lot size
-      // mult is the user's lot size (e.g., 0.01, 0.1, 1.0)
-      // Master volume is the master's lot size (e.g., 0.1, 1.0)
-      // Formula: Adjusted = (Master Value / Master Volume) * User Volume
-      const adjustedProfit = unitProfit * mult;
-      const adjustedSwap = unitSwap * mult;
+      // NEW PROFIT LOGIC: Profit = User Lot Size * Master Profit
+      // No volume normalization as requested by the user
+      const adjustedProfit = Number(h.profit) * mult;
+      const adjustedSwap = Number(h.swap || 0) * mult;
 
       return {
         isOpen: false as const,
@@ -346,7 +340,7 @@ export default function CopierHistoryPage() {
         closeTimeStr: h.server_time_close || (h.time_close ? new Date(toMs(h.time_close)).toISOString() : ""),
         symbol: h.symbol,
         type: h.type,
-        volume: mult, // Use the lot size purchased by the user
+        volume: mult, // User's purchased lot size
         openPrice: h.price_open,
         closeOrCurrentPrice: h.price_close,
         profit: adjustedProfit,
@@ -364,7 +358,8 @@ export default function CopierHistoryPage() {
     const currentSession = sessions.find(s => s.end === null);
 
     const rows = openPositions.filter((p) => {
-      const openMs = toMs(p.time ?? p.server_time ?? p.open_time ?? p.server_time_open);
+      // Handle server_time string vs timestamp
+      const openMs = toMs(p.time ?? p.server_time ?? p.open_time ?? p.server_time_open ?? p.time_open);
       if (!Number.isFinite(openMs)) {
         return true;
       }
@@ -375,21 +370,17 @@ export default function CopierHistoryPage() {
     });
     
     return rows.map((p) => {
-      const masterVolume = Number(p.volume) || 1;
-      const unitProfit = Number(p.profit) / masterVolume;
-      const unitSwap = Number(p.swap || 0) / masterVolume;
-
-      // Adjusted for user lot size
-      const adjustedProfit = unitProfit * mult;
-      const adjustedSwap = unitSwap * mult;
+      // NEW PROFIT LOGIC: Profit = User Lot Size * Master Profit
+      const adjustedProfit = Number(p.profit) * mult;
+      const adjustedSwap = Number(p.swap || 0) * mult;
 
       return {
         isOpen: true as const,
-        openTimeStr: p.server_time || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
+        openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
         closeTimeStr: "",
         symbol: p.symbol,
         type: p.type,
-        volume: mult, // Use the lot size purchased by the user
+        volume: mult, // User's purchased lot size
         openPrice: p.price_open,
         closeOrCurrentPrice: p.price_current,
         profit: adjustedProfit,
@@ -421,20 +412,17 @@ export default function CopierHistoryPage() {
       });
 
       sessionOpenTrades.forEach((p: any) => {
-        const masterVolume = Number(p.volume) || 1;
-        const unitProfit = Number(p.profit) / masterVolume;
-        const unitSwap = Number(p.swap || 0) / masterVolume;
-
-        const adjustedProfit = unitProfit * mult;
-        const adjustedSwap = unitSwap * mult;
+        // NEW PROFIT LOGIC: Profit = User Lot Size * Master Profit
+        const adjustedProfit = Number(p.profit) * mult;
+        const adjustedSwap = Number(p.swap || 0) * mult;
 
         closures.push({
           isOpen: false as const,
-          openTimeStr: p.server_time || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
+          openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
           closeTimeStr: new Date(session.end!).toISOString(),
           symbol: p.symbol,
           type: p.type,
-          volume: mult, // Use the lot size purchased by the user
+          volume: mult, // User's purchased lot size
           openPrice: p.price_open,
           closeOrCurrentPrice: p.price_current,
           profit: adjustedProfit,

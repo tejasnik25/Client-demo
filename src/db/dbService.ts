@@ -2956,8 +2956,8 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         trade.profit || 0,
         trade.commission || 0,
         trade.swap || 0,
-        trade.time_open || trade.time || new Date().toISOString(),
-        trade.time_close || trade.time_close || null,
+        trade.time_open || trade.time || trade.open_time || null,
+        trade.time_close || trade.close_time || null,
         isOpen ? 1 : 0,
         new Date().toISOString() // This will be the `created_at` timestamp
       ];
