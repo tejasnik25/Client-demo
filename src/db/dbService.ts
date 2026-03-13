@@ -3044,7 +3044,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
   }
 };
 
-export const getCachedMasterTrades = async (masterId: string): Promise<{ history: any[], open_positions: any[] }> => {
+export const getCachedMasterTrades = async (masterId: string): Promise<{ history: any[], open_positions: any[], last_updated?: string }> => {
   try {
     // Ensure table exists (especially for Vercel/production)
     try {
@@ -3065,6 +3065,7 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
           time_close TIMESTAMP,
           is_open BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           INDEX idx_master_id (master_id),
           INDEX idx_position_id (position_id),
           INDEX idx_time_open (time_open)
@@ -3093,6 +3094,9 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
     const history = trades.filter(t => t.is_open === 0);
     const open_positions = trades.filter(t => t.is_open === 1);
     
+    // Get the latest updated_at timestamp
+    const lastUpdate = trades.length > 0 ? new Date(Math.max(...trades.map(t => new Date(t.updated_at || t.created_at).getTime()))).toISOString() : undefined;
+    
     return {
       history: history.map(t => ({
         position_id: t.position_id,
@@ -3114,7 +3118,8 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         price_open: t.price_open,
         profit: t.profit,
         time_open: t.time_open
-      }))
+      })),
+      last_updated: lastUpdate
     };
   } catch (error) {
     console.error('Error getting cached master trades:', error);

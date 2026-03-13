@@ -26,6 +26,7 @@ import logging
 from datetime import datetime, timedelta
 import MetaTrader5 as mt5
 import subprocess  # Added for robust launching
+import requests # Added for pushing data to Next.js API
 
 # DB CONFIG
 # Updated Defaults to match Production .env (Client_demo_25)
@@ -38,8 +39,14 @@ DB_NAME = os.environ.get("DB_NAME", "stock_analysis_db")
 # It must match the one used by the client (COPY_TRADING_API_KEY).
 API_KEY = os.environ.get("COPY_TRADING_API_KEY") or os.environ.get("API_KEY") or "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
 
+# Next.js Sync URL (for PUSHing data to Vercel)
+NEXTJS_SYNC_URL = os.environ.get("NEXTJS_SYNC_URL") or os.environ.get("NEXTAUTH_URL") or "https://copy-trade-project.vercel.app/"
+if not NEXTJS_SYNC_URL.endswith("/"): NEXTJS_SYNC_URL += "/"
+NEXTJS_SYNC_ENDPOINT = f"{NEXTJS_SYNC_URL}api/trading-service/sync/trades"
+
 print(f"🔌 DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
 print(f"🔐 API Key set: {'(hidden)' if API_KEY else '(missing)'}")
+print(f"📡 Next.js Sync Target: {NEXTJS_SYNC_ENDPOINT}")
 
 def update_slave_db_status(slave_id, status, error_reason=None):
     """
@@ -167,6 +174,32 @@ def save_master_history(history_data, open_positions=None):
 
             with open(MASTER_HISTORY_FILE, 'w') as f:
                 json.dump(existing, f, indent=2)
+            
+            # [PUSH ARCHITECTURE] Push data to Next.js API
+            # Trigger push in background thread to avoid blocking worker loop
+            def push_sync():
+                try:
+                    for m_id in existing:
+                        m_data = existing[m_id]
+                        payload = {
+                            "master_id": m_id,
+                            "history": m_data.get("history", []),
+                            "open_positions": m_data.get("open_positions", [])
+                        }
+                        headers = {"Authorization": f"Bearer {API_KEY}"}
+                        # We use a short timeout for the push
+                        res = requests.post(NEXTJS_SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
+                        if res.status_code == 200:
+                            # log_print(f"📡 Successfully pushed {m_id} trades to Vercel")
+                            pass
+                        else:
+                            log_print(f"⚠️ Push failed for {m_id}: {res.status_code} {res.text}")
+                except Exception as push_err:
+                    # log_print(f"❌ Push error: {push_err}")
+                    pass
+
+            threading.Thread(target=push_sync, daemon=True).start()
+
         except Exception as e:
             log_print(f"⚠ Failed to save master history: {e}")
 
