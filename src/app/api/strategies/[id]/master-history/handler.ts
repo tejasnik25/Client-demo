@@ -105,12 +105,20 @@ export async function GET(
 
   try {
     const started = Date.now();
-    const TOTAL_BUDGET_MS = 20000;
-    const PER_REQ_TIMEOUT_MS = 12000; // Increased to 12s for MT5 stability
     
-    const timedFetch = async (url: string, init?: RequestInit) => {
+    // 1. FAST CACHE FETCH (Architecture: Fast-First)
+    // Always get what we already have in the database first.
+    const cached = await getCachedMasterTrades(masterId);
+    console.log(`[MasterHistory] DB Cache for ${masterId}: ${cached.history.length} closed, ${cached.open_positions.length} open`);
+
+    // 2. DETERMINE IF WE NEED A LIVE REFRESH
+    // If we have no data, or if we want to try a refresh, we prepare the fetch.
+    // We use a much tighter timeout to prevent Vercel 30s timeouts.
+    const LIVE_FETCH_TIMEOUT = cached.history.length > 0 ? 5000 : 15000; // 5s if we have cache, 15s if we don't
+    
+    const timedFetch = async (url: string, timeout: number, init?: RequestInit) => {
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), PER_REQ_TIMEOUT_MS);
+      const id = setTimeout(() => controller.abort(), timeout);
       try {
         const res = await fetch(url, { ...init, signal: controller.signal });
         clearTimeout(id);
@@ -121,22 +129,14 @@ export async function GET(
       }
     };
 
-    const pathsClosed = [
-      `/master/${masterId}/history`,
-    ];
-    const pathsOpen = [
-      `/master/${masterId}/open`,
-    ];
-
     let history: any[] = [];
     let open_positions: any[] = [];
+    let fetchError = false;
 
-    // We only need to fetch the primary history route now, as it returns both history and open positions.
-    // The separate /open route is kept as a fallback if the main one fails.
+    // Trigger live fetch
     const primaryPath = `/master/${masterId}/history`;
-    
     try {
-      const response = await timedFetch(`${apiUrl}${primaryPath}`, { 
+      const response = await timedFetch(`${apiUrl}${primaryPath}`, LIVE_FETCH_TIMEOUT, { 
         headers: { Authorization: `Bearer ${apiKey}` }, 
         cache: 'no-store' 
       });
@@ -144,111 +144,28 @@ export async function GET(
       if (response.ok) {
         const json = await response.json().catch(() => null);
         if (json) {
-          // New optimized route returns both
-          if (json.history && Array.isArray(json.history)) {
-            history = json.history.map(mapClosed);
-          }
-          if (json.open_positions && Array.isArray(json.open_positions)) {
-            open_positions = json.open_positions.map(mapOpen);
-          }
-          
-          // Legacy support for plain arrays
-          if (Array.isArray(json)) {
-             const isHistory = json.length > 0 && ('time_close' in json[0] || 'close_time' in json[0] || 'price_close' in json[0]);
-             if (isHistory) history = json.map(mapClosed);
-             else open_positions = json.map(mapOpen);
-          }
+          if (json.history && Array.isArray(json.history)) history = json.history.map(mapClosed);
+          if (json.open_positions && Array.isArray(json.open_positions)) open_positions = json.open_positions.map(mapOpen);
         }
-      }
-    } catch (e) {
-      console.warn(`[MasterHistory] Primary fetch failed for ${masterId}:`, e);
-    }
-
-    // Fallback parallel fetch if we still have nothing
-    if (history.length === 0 && open_positions.length === 0) {
-      const allPaths = [...pathsClosed, ...pathsOpen];
-      const results = await Promise.allSettled(
-        allPaths.map(p => timedFetch(`${apiUrl}${p}`, { 
-          headers: { Authorization: `Bearer ${apiKey}` }, 
-          cache: 'no-store' 
-        }))
-      );
-      
-      for (let i = 0; i < results.length; i++) {
-        const r = results[i];
-        if (r.status === 'fulfilled' && r.value.ok) {
-          const json = await r.value.json().catch(() => null);
-          if (!json) continue;
-
-          if (Array.isArray(json)) {
-            const isHistory = json.length > 0 && ('time_close' in json[0] || 'close_time' in json[0] || 'price_close' in json[0]);
-            if (isHistory) {
-              const mapped = json.map(mapClosed);
-              history = [...history, ...mapped];
-            } else {
-              const mapped = json.map(mapOpen);
-              open_positions = [...open_positions, ...mapped];
-            }
-          } else {
-            const extract = (obj: any, keys: string[]) => {
-              for (const k of keys) {
-                if (Array.isArray(obj[k])) return obj[k];
-                if (obj.data && Array.isArray(obj.data[k])) return obj.data[k];
-              }
-              return null;
-            };
-
-            const hRaw = extract(json, ['history', 'closed_positions', 'closed', 'trades', 'results']);
-            const oRaw = extract(json, ['open_positions', 'open', 'positions', 'results']);
-            
-            if (hRaw) history = [...history, ...hRaw.map(mapClosed)];
-            if (oRaw) open_positions = [...open_positions, ...oRaw.map(mapOpen)];
-          }
-        }
-      }
-    }
-
-    // Check if any fetch was successful (either primary or fallbacks)
-    const anyFetchSuccess = history.length > 0 || open_positions.length > 0;
-
-    // Persist to temporary storage (MySQL Cache) before returning
-    // We prioritize fresh data. If we have fresh history, we upsert it.
-    if (history.length > 0) {
-      console.log(`[MasterHistory] Upserting ${history.length} closed trades for ${masterId}`);
-      await upsertMasterTrades(masterId, history, false);
-    }
-    
-    // For open positions, we prefer to keep the last-known cache when the API returns zero
-    // (this can happen due to transient service failures or partial data). We only overwrite
-    // the cache when we get a non-empty list of open positions.
-    if (anyFetchSuccess) {
-      if (open_positions.length > 0) {
-        console.log(`[MasterHistory] Updating ${open_positions.length} open positions for ${masterId}`);
-        await upsertMasterTrades(masterId, open_positions, true);
       } else {
-        console.log(`[MasterHistory] API returned 0 open positions for ${masterId}; retaining cached open positions.`);
+        fetchError = true;
       }
+    } catch (e: any) {
+      console.warn(`[MasterHistory] Live fetch failed or timed out for ${masterId} (${e.name === 'AbortError' ? 'Timeout' : 'Error'})`);
+      fetchError = true;
     }
 
-    // Always merge with cached data to ensure completeness
-    const cached = await getCachedMasterTrades(masterId);
-    console.log(`[MasterHistory] Cache for ${masterId}: ${cached.history.length} closed, ${cached.open_positions.length} open`);
-    
-    // Create map for deduplication, preferring fresh data
+    // 3. DATA MERGING & DEDUPLICATION
+    // We merge fresh data with cached data, preferring fresh data.
     const historyMap = new Map();
     cached.history.forEach(t => historyMap.set(String(t.position_id), t));
     history.forEach(t => historyMap.set(String(t.position_id), t));
     
     const openMap = new Map();
-    // Start with the cached open positions so we can fall back when the API returns partial/empty results.
-    // This ensures the UI can still show the last-known open trades when the trading service is flaky.
     cached.open_positions.forEach(t => openMap.set(String(t.position_id), t));
-
-    // Merge in any fresh open positions from the API responses (overwrites cached entries with the same position_id).
-    // If the fetch succeeded but returns 0 open positions, we'll keep the cached ones to avoid accidentally wiping them.
     open_positions.forEach(t => openMap.set(String(t.position_id), t));
 
-    // Remove any open positions that are now marked as closed in history
+    // Cleanup: Remove any open positions that are now definitively closed in history
     const closedPositionIds = new Set(Array.from(historyMap.values()).map(t => String(t.position_id)));
     for (const closedId of closedPositionIds) {
       openMap.delete(closedId);
@@ -258,29 +175,24 @@ export async function GET(
       const getTime = (t: any) => {
         if (!t) return 0;
         if (t instanceof Date) return t.getTime();
-        if (typeof t === 'number') return t > 10000000000 ? t : t * 1000; // Handle seconds vs milliseconds
+        if (typeof t === 'number') return t > 10000000000 ? t : t * 1000;
         try { return new Date(t).getTime(); } catch { return 0; }
       };
       return getTime(b.time_open) - getTime(a.time_open);
     });
     const finalOpen = Array.from(openMap.values());
 
-    // Only surface error if we found absolutely nothing even in cache
+    // 4. PERSIST FRESH DATA TO DB (ASYNCHRONOUSLY)
+    // We don't 'await' these so we can return the response faster
+    if (history.length > 0) upsertMasterTrades(masterId, history, false).catch(e => console.error('[DB] History upsert failed:', e));
+    if (open_positions.length > 0) upsertMasterTrades(masterId, open_positions, true).catch(e => console.error('[DB] Open positions upsert failed:', e));
+
+    // 5. FINAL RESPONSE
     let errorStr: string | undefined = undefined;
     if (finalHistory.length === 0 && finalOpen.length === 0) {
-      // Don't show error immediately, try to provide helpful context
-      console.warn(`[MasterHistory] No trades found for master ${masterId}. This could mean:
-        1. Master account has no open/closed trades
-        2. Trading service is temporarily unavailable
-        3. Master account ID is incorrect or account is inactive`);
-      
-      // Only show error if we have no cache at all
-      if (cached.history.length === 0 && cached.open_positions.length === 0) {
-        errorStr = "No trading data available. The master account may have no trades or the trading service is temporarily unavailable.";
-      }
-    } else if (!anyFetchSuccess) {
-      // If provider failed but we have cache, don't show error, just a warning in logs
-      console.warn(`[MasterHistory] Provider offline for ${masterId}. Serving ${finalHistory.length + finalOpen.length} trades from cache.`);
+      errorStr = fetchError 
+        ? "Connection to trading service failed. No cached data available." 
+        : "No trading data found for this master account.";
     }
 
     return NextResponse.json({ 
