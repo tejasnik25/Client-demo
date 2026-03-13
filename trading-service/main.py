@@ -2635,31 +2635,14 @@ def aggregate_deals_to_positions(deals):
 
 @app.get("/master/{master_id}/history", dependencies=[Depends(verify_api_key)])
 async def get_master_history(master_id: str):
+    """
+    Returns trade history (closed positions) and live open positions for a master account.
+    This endpoint always attempts a live fetch from MT5 first.
+    """
     master_id_str = str(master_id)
     
-    # 1. LOAD FROM CACHE AND CHECK FRESHNESS
-    history_data = load_master_history()
-    master_data = history_data.get(master_id_str)
-    
-    is_fresh = False
-    if master_data and isinstance(master_data, dict):
-        last_updated = master_data.get('updated_at', 0)
-        # Data is fresh if updated in the last 20 seconds
-        if (time.time() - last_updated) < 20:
-            is_fresh = True
-            
-    if is_fresh:
-        log_print(f"✅ Fresh cache found for master {master_id_str}. Returning cached data.")
-        deals = master_data.get("history", [])
-        aggregated_positions = aggregate_deals_to_positions(deals)
-        return {
-            "master_id": master_id,
-            "history": aggregated_positions,
-            "open_positions": master_data.get("open_positions", [])
-        }
-
-    # 2. ATTEMPT LIVE FETCH (CACHE IS STALE OR MISSING)
-    log_print(f"Cache stale for {master_id_str}. Attempting live fetch...")
+    # 1. ATTEMPT LIVE FETCH FROM MT5 (High Priority)
+    log_print(f"🔄 Fetching LIVE master history from MT5 for {master_id_str}...")
     try:
         with lock:
             subs = [s for s in active_subscriptions if str(s.get('master', {}).get('id')) == master_id_str]
@@ -2670,7 +2653,7 @@ async def get_master_history(master_id: str):
             m_pass = master_info.get('password') or master_info.get('pwd') or master_info.get('pass')
             m_server = master_info.get('server')
 
-        # CRITICAL FALLBACK: If no active subscription, get creds from wallet_transactions
+        # Fallback to DB for credentials if no active subscription
         if not m_server and mysql:
             try:
                 conn = mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME, connection_timeout=5)
@@ -2684,55 +2667,59 @@ async def get_master_history(master_id: str):
                 if row:
                     m_pass = m_pass or row.get('mt_account_password')
                     m_server = row.get('mt_account_server')
-                    if m_server: log_print(f"   ℹ Found master credentials in DB for {master_id_str}")
+                    if m_server: log_print(f"   ℹ Found credentials in DB for {master_id_str}")
             except Exception as e:
-                log_print(f"   ⚠ Could not read master credentials from DB: {e}")
+                log_print(f"   ⚠ DB credential lookup failed: {e}")
 
         if master_id_str and m_server:
             with mt5_lock:
                 logged, err = safe_mt5_login(master_id_str, m_pass, m_server)
                 if logged:
-                    log_print(f"   ✓ Live login success for {master_id_str}")
+                    # Fetch LIVE open positions
                     raw_positions = mt5.positions_get() or []
                     master_positions = [p for p in raw_positions if getattr(p, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
-
                     open_positions = [p._asdict() for p in master_positions]
 
+                    # Fetch LIVE history (last 365 days)
                     from_date = datetime.now() - timedelta(days=365)
                     deals = mt5.history_deals_get(from_date, datetime.now()) or []
-                    log_print(f"   ✅ Fetched {len(deals)} deals for master {master_id_str} from last 365 days")
-
                     closed_deals = [d._asdict() for d in deals if getattr(d, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
-                    log_print(f"   ✅ Filtered to {len(closed_deals)} master deals (excluding copied trades)")
 
+                    log_print(f"   ✅ Fetched {len(open_positions)} open, {len(closed_deals)} history deals from MT5")
+
+                    # Save to local cache for future fallbacks
                     save_master_history({master_id_str: closed_deals}, open_positions={master_id_str: open_positions})
 
-                    aggregated_positions = aggregate_deals_to_positions(closed_deals)
+                    # Aggregate deals to positions
+                    aggregated_history = aggregate_deals_to_positions(closed_deals)
                     return {
                         "master_id": master_id,
-                        "history": aggregated_positions,
+                        "history": aggregated_history,
                         "open_positions": open_positions
                     }
                 else:
-                    log_print(f"   ❌ Live login failed for {master_id_str}: {err}")
-
+                    log_print(f"   ❌ MT5 Login failed for {master_id_str}: {err}")
     except Exception as live_err:
-        log_print(f"⚠ Live fetch failed for master {master_id}: {live_err}")
+        log_print(f"⚠ Live fetch error for {master_id_str}: {live_err}")
 
-    # 3. ABSOLUTE FALLBACK (use stale cache if live fetch fails)
-    log_print(f"Returning stale cache for {master_id_str} after failed live fetch.")
+    # 2. FALLBACK TO LOCAL CACHE (If MT5 fails)
+    log_print(f"⚠️ Falling back to cache for master {master_id_str}...")
+    history_data = load_master_history()
+    master_data = history_data.get(master_id_str)
+    
     if not master_data:
-        master_data = {"history": [], "open_positions": []}
+        return {"master_id": master_id, "history": [], "open_positions": [], "error": "No live or cached data available"}
+
     if isinstance(master_data, list):
         master_data = {"history": master_data, "open_positions": []}
 
     deals = master_data.get("history", [])
-    aggregated_positions = aggregate_deals_to_positions(deals)
-
+    open_positions = master_data.get("open_positions", [])
+    
     return {
         "master_id": master_id,
-        "history": aggregated_positions,
-        "open_positions": master_data.get("open_positions", [])
+        "history": aggregate_deals_to_positions(deals),
+        "open_positions": open_positions
     }
 
 @app.get("/system/debug-files")

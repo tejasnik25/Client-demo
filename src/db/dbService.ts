@@ -2996,9 +2996,9 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
 
       const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       
-      // Use REPLACE INTO for open trades to update price/profit, and INSERT IGNORE for closed to avoid overwriting
-      const verb = isOpen ? 'REPLACE' : 'INSERT IGNORE';
-      const sql = `${verb} INTO master_trades_cache (
+      // Use REPLACE INTO for ALL trades to ensure status (is_open), close prices, and profit are updated correctly.
+      // This allows a position to transition from 'open' to 'closed' in the database.
+      const sql = `REPLACE INTO master_trades_cache (
             id, master_id, position_id, symbol, type, volume, price_open, price_close, 
             profit, commission, swap, time_open, time_close, is_open, created_at
           ) VALUES ${placeholders}`;
