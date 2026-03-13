@@ -45,12 +45,17 @@ export async function GET(
     
     // Ensure time is in ISO format for MySQL
     const formatTime = (t: any) => {
-      if (!t) return undefined;
-      if (typeof t === 'number') {
-        // MT5 timestamps are in seconds, JS needs milliseconds
-        return new Date(t * 1000).toISOString();
+      // A timestamp of 0 is technically epoch time, but in this context, it often represents a missing or invalid date.
+      if (t === null || t === undefined || t === 0) return null;
+      try {
+        // Handle unix timestamps (seconds or ms) and date strings
+        const d = new Date(typeof t === 'number' && t < 100000000000 ? t * 1000 : t);
+        // Check for invalid date
+        if (isNaN(d.getTime())) return null;
+        return d.toISOString();
+      } catch (e) {
+        return null;
       }
-      return new Date(t).toISOString();
     };
 
     return {
@@ -101,7 +106,7 @@ export async function GET(
   try {
     const started = Date.now();
     const TOTAL_BUDGET_MS = 20000;
-    const PER_REQ_TIMEOUT_MS = 4000;
+    const PER_REQ_TIMEOUT_MS = 12000; // Increased to 12s for MT5 stability
     
     const timedFetch = async (url: string, init?: RequestInit) => {
       const controller = new AbortController();
@@ -231,24 +236,32 @@ export async function GET(
     
     // Create map for deduplication, preferring fresh data
     const historyMap = new Map();
-    cached.history.forEach(t => historyMap.set(t.position_id, t));
-    history.forEach(t => historyMap.set(t.position_id, t));
+    cached.history.forEach(t => historyMap.set(String(t.position_id), t));
+    history.forEach(t => historyMap.set(String(t.position_id), t));
     
     const openMap = new Map();
     // Start with the cached open positions so we can fall back when the API returns partial/empty results.
     // This ensures the UI can still show the last-known open trades when the trading service is flaky.
-    cached.open_positions.forEach(t => openMap.set(t.position_id, t));
+    cached.open_positions.forEach(t => openMap.set(String(t.position_id), t));
 
     // Merge in any fresh open positions from the API responses (overwrites cached entries with the same position_id).
     // If the fetch succeeded but returns 0 open positions, we'll keep the cached ones to avoid accidentally wiping them.
-    open_positions.forEach(t => openMap.set(t.position_id, t));
+    open_positions.forEach(t => openMap.set(String(t.position_id), t));
 
     // Remove any open positions that are now marked as closed in history
-    for (const closedId of freshHistoryMap.keys()) {
-      openMap.delete(closedId);
+    for (const closedTrade of historyMap.values()) {
+      openMap.delete(String(closedTrade.position_id));
     }
 
-    const finalHistory = Array.from(historyMap.values()).sort((a, b) => (b.time_open || 0) - (a.time_open || 0));
+    const finalHistory = Array.from(historyMap.values()).sort((a, b) => {
+      const getTime = (t: any) => {
+        if (!t) return 0;
+        if (t instanceof Date) return t.getTime();
+        if (typeof t === 'number') return t > 10000000000 ? t : t * 1000; // Handle seconds vs milliseconds
+        try { return new Date(t).getTime(); } catch { return 0; }
+      };
+      return getTime(b.time_open) - getTime(a.time_open);
+    });
     const finalOpen = Array.from(openMap.values());
 
     // Only surface error if we found absolutely nothing even in cache

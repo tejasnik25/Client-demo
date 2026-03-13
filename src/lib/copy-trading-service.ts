@@ -155,9 +155,8 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
         const url = `${base}${endpoint}`;
         try {
           const controller = new AbortController();
-          // INCREASED TIMEOUT: 5s is too short for some MT5 operations (e.g. cold start / login).
-          // Increased to 30s to prevent "Operation Aborted" errors during high load.
-          const timeoutId = setTimeout(() => controller.abort(), 30000); 
+          // Increased timeout to 60s for operations like login/initialization
+          const timeoutId = setTimeout(() => controller.abort(), 60000); 
 
           const res = await fetch(url, {
             method,
@@ -173,42 +172,36 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
           
           if (!res.ok) {
             const errorText = await res.text().catch(() => res.statusText);
-            // If it's a 404, the subscription simply doesn't exist on this provider.
-            // We should NOT log this as a scary "Request failed" warning if we have multiple URLs,
-            // but we need to know if it's a 404.
             if (res.status === 404) {
-              console.log(`[CopyTrading] Subscription not found on ${base} (404).`);
-              throw new Error(`404: Not Found`);
+              lastError = new Error(`404: Not Found`);
+              continue; // Try next provider (it might be on another server)
             }
             throw new Error(`HTTP ${res.status}: ${errorText}`);
           }
           return res.json();
         } catch (e: any) {
-          if (e.message.includes('404')) {
-            lastError = e;
-            continue; // Try next URL
+          if (e.name === 'AbortError') {
+            console.warn(`[CopyTrading] Request to ${url} timed out (60s).`);
+          } else {
+            // Only log if it's NOT a 404 (which is expected if multi-server)
+            if (!e.message.includes('404')) {
+              console.warn(`[CopyTrading] Connection failed to ${url}: ${e.message}`);
+            }
           }
-          console.warn(`[CopyTrading] Request failed to ${url}: ${e.message}`);
           lastError = e;
           // Continue to next URL
         }
     }
 
-    // If we exhausted all URLs
-    if (lastError?.message?.includes('404')) {
-      console.log(`[CopyTrading] Subscription not found on any provider.`);
-      throw new Error('Subscription not found (404)');
-    }
-    
-    console.error(`[CopyTrading] All connection attempts failed.`);
+    // If we exhausted all URLs and have an error
     if (lastError) {
-        // Create a new error to avoid "Cannot set property message of which has only a getter"
-        // (common with DOMException or certain fetch errors)
-        const errorMessage = lastError.message || 'Unknown Error';
-        const enhancedError = new Error(`${errorMessage} (Target: ${this.baseUrl})`);
-        throw enhancedError;
+        if (lastError.message.includes('404')) {
+          throw new Error('Subscription not found (404)');
+        }
+        console.error(`[CopyTrading] All ${urls.length} connection attempts failed.`);
+        throw lastError;
     }
-    throw new Error('Connection failed');
+    throw new Error('Connection failed: No provider available');
   }
 
   async validateAccount(details: MtAccountDetails): Promise<{ isValid: boolean; error?: string }> {
