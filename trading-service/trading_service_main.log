@@ -1,0 +1,18 @@
+2026-03-13 14:35:00,835 - INFO - \U0001f504 Loading Subscriptions from Database...
+2026-03-13 14:35:01,275 - INFO -    \u26a0 Skipping Dummy Account: 433062757
+2026-03-13 14:35:01,275 - INFO -    \u26a0 Retrying subscription for Slave 51261 (Status was: failed)
+2026-03-13 14:35:01,277 - INFO - \u2705 Loaded 2 subscriptions from MySQL.
+2026-03-13 14:35:01,279 - INFO - \u2705 Loaded 2 active subscriptions from DB.
+2026-03-13 14:35:01,279 - INFO -    - Master: 270852965 -> Slave: 51261
+2026-03-13 14:35:01,280 - INFO -    - Master: 270870850 -> Slave: 270852996
+2026-03-13 14:35:01,926 - INFO - \U0001f50d Auto-detected running MT5 Terminal: C:\Program Files\MetaTrader 5\terminal64.exe
+2026-03-13 14:35:01,947 - INFO - \u26a0 MT5 not initialized. Attempting initialize()...
+2026-03-13 14:35:01,948 - INFO -    -> Using path: C:\Program Files\MetaTrader 5\terminal64.exe
+2026-03-13 14:35:01,961 - INFO -    \u2713 mt5.initialize() Success
+2026-03-13 14:35:01,965 - INFO -    \u23f3 Waiting 5s for MT5 GUI to stabilize...
+2026-03-13 14:35:06,966 - INFO - \U0001f527 Force-Login Triggered for 270852965...
+2026-03-13 14:35:06,967 - INFO -    \U0001f511 Credentials: ID=270852965 Server=Exness-MT5Trial17 Pass=Vi***45 (Len=11)
+2026-03-13 14:35:08,110 - INFO - \u2705 Login Successful: 270852965
+2026-03-13 14:35:09,731 - INFO -    \U0001f4ca Master Info: Master Account Vijay | Server: Exness-MT5Trial17 | ID: 270852965
+2026-03-13 14:35:09,731 - INFO -       Status: Connected=True | Mode=HEDGING | Balance=5066.87
+2026-03-13 14:35:09,732 - INFO -       \u2139 Raw Positions Found: 0

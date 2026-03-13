@@ -139,7 +139,14 @@ def save_master_history(history_data, open_positions=None):
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
                     
-                existing[m_id]["history"] = deals
+                # Append new deals and deduplicate by 'ticket' (unique deal ID)
+                existing_history = existing[m_id]["history"]
+                existing_tickets = {d.get('ticket') for d in existing_history if d.get('ticket')}
+                for deal in deals:
+                    ticket = deal.get('ticket')
+                    if ticket and ticket not in existing_tickets:
+                        existing_history.append(deal)
+                        existing_tickets.add(ticket)
                 
             if open_positions:
                 for m_id, positions in open_positions.items():
@@ -2548,56 +2555,69 @@ async def list_server_definitions():
 def aggregate_deals_to_positions(deals):
     """
     Groups MT5 history deals into an aggregated 'Positions' view.
-    Ensures server timing is preserved and values match MT5.
+    Only includes closed positions (those with a closing deal).
     """
     positions = {}
     for d in deals:
         pid = d.get('position_id')
         if not pid: continue
         
-        # MT5 Deal types for ENTRY: 0=Entry In, 1=Entry Out, 2=Entry In/Out
-        # We focus on the timing and prices associated with the position ID
-        
+        entry = d.get('entry')
         if pid not in positions:
-            # First deal for this position ID in history
             positions[pid] = {
                 'position_id': pid,
                 'symbol': d.get('symbol'),
-                'type': d.get('type'), # Initial type (Buy/Sell)
+                'type': d.get('type'),
                 'volume': d.get('volume'),
-                'time_open': d.get('time'),
-                'time_close': d.get('time'),
-                'price_open': d.get('price'),
-                'price_close': d.get('price'),
-                'profit': d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0),
+                'time_open': None,
+                'time_close': None,
+                'price_open': None,
+                'price_close': None,
+                'profit': 0,
+                'commission': 0,
+                'swap': 0,
                 'magic': d.get('magic'),
                 'comment': d.get('comment'),
-                'server_time': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
-                # Add formatted server strings to avoid client-side timezone shifts
-                'server_time_open': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
-                'server_time_close': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
+                'deals': []
             }
-        else:
-            p = positions[pid]
-            # Update lifecycle based on entry time
-            if d.get('time') < p['time_open']:
-                p['time_open'] = d.get('time')
-                p['price_open'] = d.get('price')
-                p['server_time_open'] = datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
-            if d.get('time') > p['time_close']:
-                p['time_close'] = d.get('time')
-                p['price_close'] = d.get('price')
-                p['server_time_close'] = datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
-            
-            # Accumulate values exactly as MT5 does
-            p['profit'] += (d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0))
-            
-            # Use the largest volume seen for the position as the display volume
-            if d.get('volume') > p['volume']:
-                p['volume'] = d.get('volume')
+        
+        positions[pid]['deals'].append(d)
     
-    # Convert to list and sort by close time descending
-    result = list(positions.values())
+    # Now process each position
+    result = []
+    for pid, p in positions.items():
+        deals_list = sorted(p['deals'], key=lambda x: x.get('time', 0))
+        
+        open_deal = None
+        close_deal = None
+        
+        for d in deals_list:
+            entry = d.get('entry')
+            if entry == mt5.DEAL_ENTRY_IN:
+                if not open_deal:
+                    open_deal = d
+            elif entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
+                close_deal = d  # Last closing deal
+        
+        if open_deal and close_deal:
+            result.append({
+                'position_id': pid,
+                'symbol': open_deal.get('symbol'),
+                'type': open_deal.get('type'),
+                'volume': open_deal.get('volume'),
+                'time_open': open_deal.get('time'),
+                'time_close': close_deal.get('time'),
+                'price_open': open_deal.get('price'),
+                'price_close': close_deal.get('price'),
+                'profit': close_deal.get('profit', 0),
+                'commission': close_deal.get('commission', 0),
+                'swap': close_deal.get('swap', 0),
+                'magic': open_deal.get('magic'),
+                'comment': open_deal.get('comment'),
+                'server_time_open': datetime.fromtimestamp(open_deal.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
+                'server_time_close': datetime.fromtimestamp(close_deal.get('time')).strftime('%Y.%m.%d %H:%M:%S')
+            })
+    
     result.sort(key=lambda x: x['time_close'], reverse=True)
     return result
 
@@ -2666,9 +2686,12 @@ async def get_master_history(master_id: str):
 
                     open_positions = [p._asdict() for p in master_positions]
 
-                    from_date = datetime.now() - timedelta(days=90)
+                    from_date = datetime.now() - timedelta(days=365)
                     deals = mt5.history_deals_get(from_date, datetime.now()) or []
-                    closed_deals = [d._asdict() for d in deals if getattr(d, 'magic', None) != COPY_TRADE_MAGIC_NUMBER and getattr(d, 'entry', None) in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]]
+                    log_print(f"   ✅ Fetched {len(deals)} deals for master {master_id_str} from last 365 days")
+
+                    closed_deals = [d._asdict() for d in deals if getattr(d, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
+                    log_print(f"   ✅ Filtered to {len(closed_deals)} master deals (excluding copied trades)")
 
                     save_master_history({master_id_str: closed_deals}, open_positions={master_id_str: open_positions})
 
