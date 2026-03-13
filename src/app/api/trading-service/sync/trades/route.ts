@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
         type: t.type === 0 || t.type === '0' || String(t.type).toLowerCase().includes('buy') ? 'BUY' : 'SELL',
         volume: t.volume,
         price_open: t.price_open,
+        price_current: t.price_current, // Ensure price_current is passed for open trades
         profit: t.profit,
         commission: t.commission || 0,
         swap: t.swap || 0,

@@ -154,6 +154,7 @@ def save_master_history(history_data, open_positions=None):
                     existing[m_id] = {"history": [], "open_positions": []}
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
+<<<<<<< Updated upstream
                 # Add server_time string to each open position for frontend consistency
                 for pos in positions:
                     if 'time' in pos and 'server_time' not in pos:
@@ -165,9 +166,45 @@ def save_master_history(history_data, open_positions=None):
                 json.dump(existing, f, indent=2)
                     # log_print(f"❌ Push error: {push_err}")
                     pass
+=======
+                
+                # Add server_time string to each open position for frontend consistency
+                for pos in positions:
+                    if 'time' in pos and 'server_time' not in pos:
+                        pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
+                
+                existing[m_id]["open_positions"] = positions
 
-            threading.Thread(target=push_sync, daemon=True).start()
+        with open(MASTER_HISTORY_FILE, 'w') as f:
+            json.dump(existing, f, indent=2)
+        
+        # [PUSH ARCHITECTURE] Push data to Next.js API
+        # Trigger push in background thread to avoid blocking worker loop
+        def push_sync():
+            try:
+                for m_id in existing:
+                    m_data = existing[m_id]
+                    payload = {
+                        "master_id": m_id,
+                        "history": m_data.get("history", []),
+                        "open_positions": m_data.get("open_positions", [])
+                    }
+                    headers = {"Authorization": f"Bearer {API_KEY}"}
+                    # We use a short timeout for the push
+                    res = requests.post(NEXTJS_SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
+                    if res.status_code == 200:
+                        # log_print(f"📡 Successfully pushed {m_id} trades to Vercel")
+                        pass
+                    else:
+                        log_print(f"⚠️ Push failed for {m_id}: {res.status_code} {res.text}")
+            except Exception as push_err:
+                # log_print(f"❌ Push error: {push_err}")
+                pass
+>>>>>>> Stashed changes
 
+        threading.Thread(target=push_sync, daemon=True).start()
+
+<<<<<<< Updated upstream
         except Exception as e:
             log_print(f"⚠ Failed to save master history: {e}")
 =======
@@ -176,6 +213,10 @@ def save_master_history(history_data, open_positions=None):
     except Exception as e:
         log_print(f"⚠ Failed to save master history: {e}")
 >>>>>>> parent of 37e83aa (main.py script updated)
+=======
+    except Exception as e:
+        log_print(f"⚠ Failed to save master history: {e}")
+>>>>>>> Stashed changes
 
 def load_trade_cache():
     global processed_orders_cache

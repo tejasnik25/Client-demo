@@ -2931,80 +2931,47 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
 // Master Trades operations
 export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean): Promise<void> => {
   try {
-    // Attempt to ensure table exists (Vercel/production environment check)
-    try {
-      await pool.execute(`
-        CREATE TABLE IF NOT EXISTS master_trades_cache (
-          id VARCHAR(255) PRIMARY KEY,
-          master_id VARCHAR(255) NOT NULL,
-          position_id VARCHAR(255) NOT NULL,
-          symbol VARCHAR(50) NOT NULL,
-          type ENUM('BUY', 'SELL') NOT NULL,
-          volume DECIMAL(18,2) NOT NULL,
-          price_open DECIMAL(18,5) NOT NULL,
-          price_close DECIMAL(18,5),
-          profit DECIMAL(18,2) DEFAULT 0,
-          commission DECIMAL(18,2) DEFAULT 0,
-          swap DECIMAL(18,2) DEFAULT 0,
-          time_open TIMESTAMP NOT NULL,
-          time_close TIMESTAMP,
-          is_open BOOLEAN DEFAULT TRUE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          INDEX idx_master_id (master_id),
-          INDEX idx_position_id (position_id),
-          UNIQUE KEY idx_master_pos (master_id, position_id)
-        )
-      `);
-    } catch (tableError: any) {
-      console.warn('[DB] master_trades_cache table check/creation failed:', tableError?.message || tableError);
-    }
-    
-    if (isOpen) {
-      // For open positions, we replace existing set because open trades change frequently
-      await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ? AND is_open = 1', [masterId]);
-    }
-    
-    // Insert new trades
-    if (trades.length > 0) {
-      const values = trades.map(trade => {
-        const positionId = String(trade.position_id || trade.ticket || trade.id);
-        if (!positionId || positionId === 'undefined') return null;
+    if (trades.length === 0) return;
 
-        // Use a deterministic ID to prevent duplicates for closed trades
-        const uniqueId = `${masterId}_${positionId}`;
-        
-        return [
-          uniqueId,
-          masterId,
-          positionId,
-          trade.symbol || '',
-          (trade.type || 'BUY').toString().toUpperCase(),
-          trade.volume || 0,
-          trade.price_open || 0,
-          trade.price_close || trade.price_current || null,
-          trade.profit || 0,
-          trade.commission || 0,
-          trade.swap || 0,
-          trade.time_open || trade.time || new Date().toISOString(),
-          trade.time_close || null,
-          isOpen ? 1 : 0,
-          new Date().toISOString()
-        ];
-      }).filter(v => v !== null);
+    const values = trades.map(trade => {
+      const positionId = String(trade.position_id || trade.ticket || trade.id);
+      if (!positionId || positionId === 'undefined') return null;
+
+      // Use a deterministic, unique ID for each trade
+      const uniqueId = `${masterId}_${positionId}`;
       
-      if (values.length === 0) return;
+      return [
+        uniqueId,
+        masterId,
+        positionId,
+        trade.symbol || '',
+        (trade.type || 'BUY').toString().toUpperCase(),
+        trade.volume || 0,
+        trade.price_open || 0,
+        trade.price_close || trade.price_current || null,
+        trade.profit || 0,
+        trade.commission || 0,
+        trade.swap || 0,
+        trade.time_open || trade.time || new Date().toISOString(),
+        trade.time_close || null,
+        isOpen ? 1 : 0,
+        new Date().toISOString() // This will be the `created_at` timestamp
+      ];
+    }).filter(v => v !== null);
+    
+    if (values.length === 0) return;
 
-      const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-      
-      // Use REPLACE INTO for ALL trades to ensure status (is_open), close prices, and profit are updated correctly.
-      // This allows a position to transition from 'open' to 'closed' in the database.
-      const sql = `REPLACE INTO master_trades_cache (
-            id, master_id, position_id, symbol, type, volume, price_open, price_close, 
-            profit, commission, swap, time_open, time_close, is_open, created_at
-          ) VALUES ${placeholders}`;
+    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    
+    // Use REPLACE to ensure the latest trade data always overwrites the old record.
+    // The `updated_at` column will automatically update due to `ON UPDATE CURRENT_TIMESTAMP`.
+    const sql = `REPLACE INTO master_trades_cache (
+          id, master_id, position_id, symbol, type, volume, price_open, price_close, 
+          profit, commission, swap, time_open, time_close, is_open, created_at
+        ) VALUES ${placeholders}`;
 
-      await pool.execute(sql, values.flat());
-    }
+    await pool.execute(sql, values.flat());
+
   } catch (error) {
     console.error('Error upserting master trades:', error);
     // JSON fallback
