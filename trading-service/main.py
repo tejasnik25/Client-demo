@@ -121,80 +121,48 @@ COPY_TRADE_MAGIC_NUMBER = 123456 # Unique ID for copied trades to prevent self-c
 # Persistent Cache for Trade History (Prevents Re-Copying closed trades)
 processed_orders_cache = {}
 MASTER_HISTORY_FILE = "master_history.json"
-master_history_lock = threading.Lock() # Lock for file R/W
 
 def load_master_history():
-    with master_history_lock:
-        if os.path.exists(MASTER_HISTORY_FILE):
-            try:
-                with open(MASTER_HISTORY_FILE, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                log_print(f"⚠ Failed to load master history: {e}")
-        return {}
+    if os.path.exists(MASTER_HISTORY_FILE):
+        try:
+            with open(MASTER_HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            log_print(f"⚠ Failed to load master history: {e}")
+    return {}
 
 def save_master_history(history_data, open_positions=None):
-    with master_history_lock:
-        try:
-            # Load existing to merge
-            existing = load_master_history()
+    try:
+        # Load existing to merge
+        existing = load_master_history()
+        
+        # history_data is a dict {master_id: [deals]}
+        # We store it under "history" key for that master_id
+        for m_id, deals in history_data.items():
+            if m_id not in existing:
+                existing[m_id] = {"history": [], "open_positions": []}
             
-            # history_data is a dict {master_id: [deals]}
-            # We store it under "history" key for that master_id
-            for m_id, deals in history_data.items():
+            # If it's a dict structure already, handle it, otherwise wrap it
+            if not isinstance(existing[m_id], dict):
+                existing[m_id] = {"history": existing[m_id], "open_positions": []}
+                
+            existing[m_id]["history"] = deals
+            
+        if open_positions:
+            for m_id, positions in open_positions.items():
                 if m_id not in existing:
                     existing[m_id] = {"history": [], "open_positions": []}
-                
-                # If it's a dict structure already, handle it, otherwise wrap it
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
-                    
-                # Append new deals and deduplicate by 'ticket' (unique deal ID)
-                existing_history = existing[m_id]["history"]
-                existing_tickets = {d.get('ticket') for d in existing_history if d.get('ticket')}
-                for deal in deals:
-                    ticket = deal.get('ticket')
-                    if ticket and ticket not in existing_tickets:
-                        existing_history.append(deal)
-                        existing_tickets.add(ticket)
+                # Add server_time string to each open position for frontend consistency
+                for pos in positions:
+                    if 'time' in pos and 'server_time' not in pos:
+                        pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
                 
-            if open_positions:
-                for m_id, positions in open_positions.items():
-                    if m_id not in existing:
-                        existing[m_id] = {"history": [], "open_positions": []}
-                    if not isinstance(existing[m_id], dict):
-                        existing[m_id] = {"history": existing[m_id], "open_positions": []}
-                    
-                    # Add server_time string to each open position for frontend consistency
-                    for pos in positions:
-                        if 'time' in pos and 'server_time' not in pos:
-                            pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
-                    
-                    existing[m_id]["open_positions"] = positions
+                existing[m_id]["open_positions"] = positions
 
             with open(MASTER_HISTORY_FILE, 'w') as f:
                 json.dump(existing, f, indent=2)
-            
-            # [PUSH ARCHITECTURE] Push data to Next.js API
-            # Trigger push in background thread to avoid blocking worker loop
-            def push_sync():
-                try:
-                    for m_id in existing:
-                        m_data = existing[m_id]
-                        payload = {
-                            "master_id": m_id,
-                            "history": m_data.get("history", []),
-                            "open_positions": m_data.get("open_positions", [])
-                        }
-                        headers = {"Authorization": f"Bearer {API_KEY}"}
-                        # We use a short timeout for the push
-                        res = requests.post(NEXTJS_SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
-                        if res.status_code == 200:
-                            # log_print(f"📡 Successfully pushed {m_id} trades to Vercel")
-                            pass
-                        else:
-                            log_print(f"⚠️ Push failed for {m_id}: {res.status_code} {res.text}")
-                except Exception as push_err:
                     # log_print(f"❌ Push error: {push_err}")
                     pass
 
@@ -202,6 +170,12 @@ def save_master_history(history_data, open_positions=None):
 
         except Exception as e:
             log_print(f"⚠ Failed to save master history: {e}")
+=======
+        with open(MASTER_HISTORY_FILE, 'w') as f:
+            json.dump(existing, f, indent=2)
+    except Exception as e:
+        log_print(f"⚠ Failed to save master history: {e}")
+>>>>>>> parent of 37e83aa (main.py script updated)
 
 def load_trade_cache():
     global processed_orders_cache
@@ -2258,7 +2232,7 @@ def copy_trade_worker():
                                         # OPTIMIZATION: Fetch a shorter period for live requests to avoid timeouts.
                                         # A full 30-day history can be slow. We do a quick 7-day fetch here.
                                         # The full history can be fetched less frequently if needed.
-                                        from_date_hist = datetime.now() - timedelta(days=1)
+                                        from_date_hist = datetime.now() - timedelta(days=7)
                                         # Fetch closed positions (not just deals) for the History page
                                         history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
                                         history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
