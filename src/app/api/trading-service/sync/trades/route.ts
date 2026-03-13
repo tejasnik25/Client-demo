@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
 
     // 1. Process History (Closed Trades)
     if (history && Array.isArray(history)) {
+      console.log('[Sync] Incoming history sample:', JSON.stringify(history[0], null, 2));
       const mappedHistory = history.map(t => ({
         position_id: String(t.position_id),
         symbol: t.symbol,
@@ -39,11 +40,13 @@ export async function POST(req: NextRequest) {
         server_time_open: t.server_time_open || t.open_time_str || t.server_time_open_str || null,
         server_time_close: t.server_time_close || t.close_time_str || t.server_time_close_str || null,
       }));
+      console.log('[Sync] Mapped history sample:', JSON.stringify(mappedHistory[0], null, 2));
       await upsertMasterTrades(master_id, mappedHistory, false);
     }
 
     // 2. Process Open Positions
     if (open_positions && Array.isArray(open_positions)) {
+      console.log('[Sync] Incoming open_positions sample:', JSON.stringify(open_positions[0], null, 2));
       const mappedOpen = open_positions.map(t => ({
         position_id: String(t.ticket || t.position_id),
         symbol: t.symbol,
@@ -58,6 +61,7 @@ export async function POST(req: NextRequest) {
         server_time_open: t.server_time || t.server_time_open || null,
         time_close: null // Explicitly null for open positions
       }));
+      console.log('[Sync] Mapped open_positions sample:', JSON.stringify(mappedOpen[0], null, 2));
       await upsertMasterTrades(master_id, mappedOpen, true);
     }
 
