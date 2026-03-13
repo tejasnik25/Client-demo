@@ -2637,8 +2637,8 @@ def aggregate_deals_to_positions(deals):
                 if not open_deal:
                     open_deal = d
                 total_volume += d.get('volume', 0)
-            # mt5.DEAL_ENTRY_OUT = 1, mt5.DEAL_ENTRY_INOUT = 2
-            elif entry in [1, 2]:
+            # mt5.DEAL_ENTRY_OUT = 1, mt5.DEAL_ENTRY_INOUT = 2, mt5.DEAL_ENTRY_OUT_BY = 3
+            elif entry in [1, 2, 3]:
                 close_deal = d  # Last closing deal
             
             total_profit += d.get('profit', 0)
@@ -2648,7 +2648,7 @@ def aggregate_deals_to_positions(deals):
         # We only return closed positions (those that have both an entry and an exit)
         if open_deal and close_deal:
             # Determine type from the opening deal
-            # mt5.ORDER_TYPE_BUY = 0, mt5.ORDER_TYPE_SELL = 1
+            # mt5.DEAL_TYPE_BUY = 0, mt5.DEAL_TYPE_SELL = 1
             raw_type = open_deal.get('type')
             trade_type = "BUY" if raw_type == 0 else "SELL"
 
@@ -2657,24 +2657,30 @@ def aggregate_deals_to_positions(deals):
             # Close price from the very last deal
             close_price = close_deal.get('price')
 
-            result.append({
-                'position_id': pid,
-                'symbol': open_deal.get('symbol'),
-                'type': trade_type,
-                'volume': total_volume,
-                'time_open': open_deal.get('time'),
-                'time_close': close_deal.get('time'),
-                'price_open': open_price,
-                'price_close': close_price,
-                'profit': total_profit,
-                'commission': total_commission,
-                'swap': total_swap,
-                'magic': open_deal.get('magic'),
-                'comment': open_deal.get('comment'),
-                'server_time_open': datetime.fromtimestamp(open_deal.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
-                'server_time_close': datetime.fromtimestamp(close_deal.get('time')).strftime('%Y.%m.%d %H:%M:%S')
-            })
+            # Ensure time_open and time_close are ALWAYS present
+            time_open = open_deal.get('time')
+            time_close = close_deal.get('time')
+
+            if time_open and time_close:
+                result.append({
+                    'position_id': pid,
+                    'symbol': open_deal.get('symbol'),
+                    'type': trade_type,
+                    'volume': total_volume,
+                    'time_open': time_open,
+                    'time_close': time_close,
+                    'price_open': open_price,
+                    'price_close': close_price,
+                    'profit': total_profit,
+                    'commission': total_commission,
+                    'swap': total_swap,
+                    'magic': open_deal.get('magic'),
+                    'comment': open_deal.get('comment'),
+                    'server_time_open': datetime.fromtimestamp(time_open).strftime('%Y.%m.%d %H:%M:%S'),
+                    'server_time_close': datetime.fromtimestamp(time_close).strftime('%Y.%m.%d %H:%M:%S')
+                })
     
+    # Sort history by close time descending (latest closed trades first)
     result.sort(key=lambda x: x['time_close'], reverse=True)
     return result
 
