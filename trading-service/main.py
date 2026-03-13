@@ -40,6 +40,7 @@ DB_NAME = os.environ.get("DB_NAME", "stock_analysis_db")
 API_KEY = os.environ.get("COPY_TRADING_API_KEY") or os.environ.get("API_KEY") or "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
 
 # Next.js Sync URL (for PUSHing data to Vercel)
+# Default to production URL if not explicitly set in environment
 NEXTJS_SYNC_URL = os.environ.get("NEXTJS_SYNC_URL") or os.environ.get("NEXTAUTH_URL") or "https://copy-trade-project.vercel.app/"
 if not NEXTJS_SYNC_URL.endswith("/"): NEXTJS_SYNC_URL += "/"
 NEXTJS_SYNC_ENDPOINT = f"{NEXTJS_SYNC_URL}api/trading-service/sync/trades"
@@ -121,6 +122,7 @@ COPY_TRADE_MAGIC_NUMBER = 123456 # Unique ID for copied trades to prevent self-c
 # Persistent Cache for Trade History (Prevents Re-Copying closed trades)
 processed_orders_cache = {}
 MASTER_HISTORY_FILE = "master_history.json"
+master_last_check = {} # Track last check times for workers
 
 def load_master_history():
     if os.path.exists(MASTER_HISTORY_FILE):
@@ -154,19 +156,6 @@ def save_master_history(history_data, open_positions=None):
                     existing[m_id] = {"history": [], "open_positions": []}
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
-<<<<<<< Updated upstream
-                # Add server_time string to each open position for frontend consistency
-                for pos in positions:
-                    if 'time' in pos and 'server_time' not in pos:
-                        pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
-                
-                existing[m_id]["open_positions"] = positions
-
-            with open(MASTER_HISTORY_FILE, 'w') as f:
-                json.dump(existing, f, indent=2)
-                    # log_print(f"❌ Push error: {push_err}")
-                    pass
-=======
                 
                 # Add server_time string to each open position for frontend consistency
                 for pos in positions:
@@ -184,9 +173,15 @@ def save_master_history(history_data, open_positions=None):
             try:
                 for m_id in existing:
                     m_data = existing[m_id]
+                    
+                    # AGGREGATE RAW DEALS TO POSITIONS BEFORE PUSHING
+                    # This ensures accurate prices, timing, and profits
+                    raw_deals = m_data.get("history", [])
+                    aggregated_history = aggregate_deals_to_positions(raw_deals)
+                    
                     payload = {
                         "master_id": m_id,
-                        "history": m_data.get("history", []),
+                        "history": aggregated_history,
                         "open_positions": m_data.get("open_positions", [])
                     }
                     headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -200,23 +195,11 @@ def save_master_history(history_data, open_positions=None):
             except Exception as push_err:
                 # log_print(f"❌ Push error: {push_err}")
                 pass
->>>>>>> Stashed changes
 
         threading.Thread(target=push_sync, daemon=True).start()
 
-<<<<<<< Updated upstream
-        except Exception as e:
-            log_print(f"⚠ Failed to save master history: {e}")
-=======
-        with open(MASTER_HISTORY_FILE, 'w') as f:
-            json.dump(existing, f, indent=2)
     except Exception as e:
         log_print(f"⚠ Failed to save master history: {e}")
->>>>>>> parent of 37e83aa (main.py script updated)
-=======
-    except Exception as e:
-        log_print(f"⚠ Failed to save master history: {e}")
->>>>>>> Stashed changes
 
 def load_trade_cache():
     global processed_orders_cache
@@ -1918,7 +1901,7 @@ def copy_trade_worker():
 
             # DEBUG TRACE
             # log_print("   ... Worker Loop Tick ...") 
-
+            master_last_check["worker_tick"] = time.time()
             with mt5_lock:
                 # 1. Ensure MT5 is Initialized
                 

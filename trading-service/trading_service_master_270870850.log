@@ -1,0 +1,9 @@
+2026-03-13 18:10:37,384 - INFO - \U0001f504 Loading Subscriptions from Database...
+2026-03-13 18:10:37,729 - INFO -    \u26a0 Skipping Dummy Account: 433062757
+2026-03-13 18:10:37,730 - INFO -    \u26a0 Retrying subscription for Slave 51261 (Status was: failed)
+2026-03-13 18:10:37,730 - INFO - \u2705 Loaded 2 subscriptions from MySQL.
+2026-03-13 18:10:37,732 - INFO - \u2705 Loaded 2 active subscriptions from DB.
+2026-03-13 18:10:37,732 - INFO -    - Master: 270852965 -> Slave: 51261
+2026-03-13 18:10:37,733 - INFO -    - Master: 270870850 -> Slave: 270852996
+2026-03-13 18:10:37,738 - INFO - \u26a0 MT5 not initialized. Attempting initialize()...
+2026-03-13 18:10:37,738 - INFO -    -> Using path: D:\Copy-Trade\Client-demo -- v1.5\Client-demo\trading-service\MT5_Instances\Master_270870850\terminal64.exe

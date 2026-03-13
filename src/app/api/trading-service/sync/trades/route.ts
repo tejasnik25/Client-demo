@@ -28,12 +28,12 @@ export async function POST(req: NextRequest) {
         position_id: String(t.position_id),
         symbol: t.symbol,
         type: t.type === 0 || t.type === '0' || String(t.type).toLowerCase().includes('buy') ? 'BUY' : 'SELL',
-        volume: t.volume,
-        price_open: t.price_open,
-        price_close: t.price_close,
-        profit: t.profit,
-        commission: t.commission || 0,
-        swap: t.swap || 0,
+        volume: Number(t.volume),
+        price_open: Number(t.price_open),
+        price_close: Number(t.price_close),
+        profit: Number(t.profit),
+        commission: Number(t.commission || 0),
+        swap: Number(t.swap || 0),
         time_open: typeof t.time_open === 'number' ? new Date(t.time_open * 1000).toISOString() : t.time_open,
         time_close: typeof t.time_close === 'number' ? new Date(t.time_close * 1000).toISOString() : t.time_close,
       }));
@@ -46,12 +46,12 @@ export async function POST(req: NextRequest) {
         position_id: String(t.ticket || t.position_id),
         symbol: t.symbol,
         type: t.type === 0 || t.type === '0' || String(t.type).toLowerCase().includes('buy') ? 'BUY' : 'SELL',
-        volume: t.volume,
-        price_open: t.price_open,
-        price_current: t.price_current, // Ensure price_current is passed for open trades
-        profit: t.profit,
-        commission: t.commission || 0,
-        swap: t.swap || 0,
+        volume: Number(t.volume),
+        price_open: Number(t.price_open),
+        price_current: Number(t.price_current), // Ensure price_current is passed for open trades
+        profit: Number(t.profit),
+        commission: Number(t.commission || 0),
+        swap: Number(t.swap || 0),
         time_open: typeof t.time === 'number' ? new Date(t.time * 1000).toISOString() : (t.time_open || t.time),
       }));
       await upsertMasterTrades(master_id, mappedOpen, true);

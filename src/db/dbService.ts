@@ -2933,9 +2933,13 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
   try {
     if (trades.length === 0) return;
 
+    console.log(`[upsertMasterTrades] Processing ${trades.length} trades for master ${masterId} (isOpen: ${isOpen})`);
     const values = trades.map(trade => {
       const positionId = String(trade.position_id || trade.ticket || trade.id);
-      if (!positionId || positionId === 'undefined') return null;
+      if (!positionId || positionId === 'undefined') {
+        console.warn(`[upsertMasterTrades] Missing positionId for trade:`, trade);
+        return null;
+      }
 
       // Use a deterministic, unique ID for each trade
       const uniqueId = `${masterId}_${positionId}`;
@@ -2953,11 +2957,13 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
         trade.commission || 0,
         trade.swap || 0,
         trade.time_open || trade.time || new Date().toISOString(),
-        trade.time_close || null,
+        trade.time_close || trade.time_close || null,
         isOpen ? 1 : 0,
         new Date().toISOString() // This will be the `created_at` timestamp
       ];
     }).filter(v => v !== null);
+    
+    console.log(`[upsertMasterTrades] Generated ${values.length} valid values for REPLACE INTO`);
     
     if (values.length === 0) return;
 
