@@ -82,6 +82,9 @@ parser.add_argument("--validate-password", type=str, help="Password for validati
 parser.add_argument("--validate-server", type=str, help="Server for validation")
 args, unknown = parser.parse_known_args()
 
+# Set MT5 Path if not provided
+MT5_PATH = args.mt5_path or r"C:\Program Files\MetaTrader 5\terminal64.exe"
+
 # Logging Setup
 log_suffix = "main"
 if args.master_id:
@@ -950,6 +953,15 @@ def safe_mt5_login(account_id, password, server):
     """
     try:
         import MetaTrader5 as mt5
+        
+        # Initialize MT5 if not already
+        if not mt5.terminal_info():
+            if MT5_PATH:
+                if not mt5.initialize(path=MT5_PATH):
+                    return False, f"MT5 Initialize Failed with path: {MT5_PATH}"
+            else:
+                if not mt5.initialize():
+                    return False, "MT5 Initialize Failed"
         
         # 0. Clean Inputs (Crucial for Automation)
         account_id = clean_string(account_id)
