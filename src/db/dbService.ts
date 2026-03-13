@@ -2932,7 +2932,6 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
 export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean): Promise<void> => {
   try {
     // Attempt to ensure table exists (Vercel/production environment check)
-    // Wrap in a more silent try-catch to avoid crashing on DB timeouts
     try {
       await pool.execute(`
         CREATE TABLE IF NOT EXISTS master_trades_cache (
@@ -2953,33 +2952,26 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_master_id (master_id),
           INDEX idx_position_id (position_id),
-          INDEX idx_time_open (time_open)
+          UNIQUE KEY idx_master_pos (master_id, position_id)
         )
       `);
     } catch (tableError: any) {
       console.warn('[DB] master_trades_cache table check/creation failed:', tableError?.message || tableError);
-      // If we can't even check the table, the DB might be down. 
-      // We'll proceed to the main query which will likely fail too, but handled by outer catch.
     }
     
     if (isOpen) {
       // For open positions, we replace existing set because open trades change frequently
       await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ? AND is_open = 1', [masterId]);
-    } else {
-      // For closed trades, we accumulate. We don't delete everything, just use INSERT IGNORE below.
-      // But we might want to clear old ones occasionally or just let INSERT IGNORE handle it.
-      // The previous code was deleting everything for closed trades too, which prevents history accumulation.
-      // Removed: await pool.execute('DELETE FROM master_trades_cache WHERE master_id = ?', [masterId]);
     }
     
     // Insert new trades
     if (trades.length > 0) {
       const values = trades.map(trade => {
-        // Ensure we have a truly unique ID. The previous logic was sometimes
-        // failing with duplicate key errors because multiple trades in the same
-        // batch could have the same ID if generated too quickly or if position_id was missing.
-        const positionId = String(trade.position_id || trade.ticket || trade.id || Math.random().toString(36).substr(2, 9));
-        const uniqueId = `${masterId}_${positionId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        const positionId = String(trade.position_id || trade.ticket || trade.id);
+        if (!positionId || positionId === 'undefined') return null;
+
+        // Use a deterministic ID to prevent duplicates for closed trades
+        const uniqueId = `${masterId}_${positionId}`;
         
         return [
           uniqueId,
@@ -2989,21 +2981,24 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
           (trade.type || 'BUY').toString().toUpperCase(),
           trade.volume || 0,
           trade.price_open || 0,
-          trade.price_close || null,
+          trade.price_close || trade.price_current || null,
           trade.profit || 0,
           trade.commission || 0,
           trade.swap || 0,
-          trade.time_open || new Date().toISOString(),
+          trade.time_open || trade.time || new Date().toISOString(),
           trade.time_close || null,
           isOpen ? 1 : 0,
           new Date().toISOString()
         ];
-      });
+      }).filter(v => v !== null);
       
+      if (values.length === 0) return;
+
       const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       
-      // Use INSERT IGNORE for ALL trades to avoid any duplicate key crashes
-      const sql = `INSERT IGNORE INTO master_trades_cache (
+      // Use REPLACE INTO for open trades to update price/profit, and INSERT IGNORE for closed to avoid overwriting
+      const verb = isOpen ? 'REPLACE' : 'INSERT IGNORE';
+      const sql = `${verb} INTO master_trades_cache (
             id, master_id, position_id, symbol, type, volume, price_open, price_close, 
             profit, commission, swap, time_open, time_close, is_open, created_at
           ) VALUES ${placeholders}`;

@@ -2607,15 +2607,37 @@ async def get_master_history(master_id: str):
     Returns trade history (closed positions) and live open positions for a specific master account.
 
     Priority:
-      1) Try to fetch live data directly from the MT5 terminal for the requested master.
-      2) If live fetch fails, fall back to the cached history file (master_history.json).
+      1) Check if background worker has updated history recently (via master_history.json).
+      2) If data is missing or very stale, attempt a live fetch (with caution).
     """
     master_id_str = str(master_id)
+    
+    # 1. LOAD FROM CACHE (FASTEST)
+    history_data = load_master_history()
+    master_data = history_data.get(master_id_str)
+    
+    # Check if cache is fresh (within last 30 seconds)
+    is_fresh = False
+    if master_data and isinstance(master_data, dict):
+        # We don't have a specific timestamp in the file per master yet, 
+        # but we can check if it has data.
+        if master_data.get("open_positions") or master_data.get("history"):
+            is_fresh = True
+            
+    # If we have fresh data, return it immediately to avoid Vercel timeout
+    if is_fresh:
+        # Aggregate deals to positions for the "History" tab
+        deals = master_data.get("history", [])
+        aggregated_positions = aggregate_deals_to_positions(deals)
+        return {
+            "master_id": master_id,
+            "history": aggregated_positions,
+            "open_positions": master_data.get("open_positions", [])
+        }
 
-    # ATTEMPT LIVE FETCH FROM MT5 (Preferred)
+    # 2. ATTEMPT LIVE FETCH (ONLY IF CACHE MISS)
     try:
         # Find a subscription entry for this master so we can log in and access its trades.
-        # This is the most reliable source for master credentials.
         with lock:
             subs = [s for s in active_subscriptions if str(s.get('master', {}).get('id')) == master_id_str]
 
@@ -2623,36 +2645,17 @@ async def get_master_history(master_id: str):
         m_server = None
 
         if subs:
-            # Use the first matching subscription (credentials should be identical per master)
             master_info = subs[0]['master']
             m_pass = master_info.get('password') or master_info.get('pwd') or master_info.get('pass')
             m_server = master_info.get('server')
 
-        # FALLBACK: If no active subscription exists, try to pull master credentials from the wallet_transactions table
-        if not m_server and mysql:
-            try:
-                conn = mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME, connection_timeout=10)
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute(
-                    "SELECT mt_account_password, mt_account_server FROM wallet_transactions WHERE mt_account_id = %s ORDER BY created_at DESC LIMIT 1",
-                    (master_id_str,)
-                )
-                row = cursor.fetchone()
-                conn.close()
-                if row:
-                    m_pass = m_pass or row.get('mt_account_password')
-                    m_server = row.get('mt_account_server')
-                    if m_server:
-                        log_print(f"   ℹ Found master server credentials in wallet_transactions for master {master_id_str}")
-            except Exception as e:
-                log_print(f"   ⚠ Could not read master credentials from DB: {e}")
-
         # If we have server info, attempt to fetch live data from MT5
         if master_id_str and m_server:
             with mt5_lock:
+                # Use a shorter timeout for API-driven login to prevent Vercel timeout
                 logged, err = safe_mt5_login(master_id_str, m_pass, m_server)
                 if logged:
-                    # Fetch live open positions (exclude copied/slave trades via magic number)
+                    # Fetch live open positions
                     raw_positions = mt5.positions_get() or []
                     master_positions = [p for p in raw_positions if getattr(p, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
 
@@ -2662,25 +2665,19 @@ async def get_master_history(master_id: str):
                         pd['server_time'] = datetime.fromtimestamp(pd.get('time', time.time())).strftime('%Y.%m.%d %H:%M:%S')
                         open_positions.append(pd)
 
-                    # Fetch recent closed deals (history)
-                    # Use a reasonable time window to avoid huge responses.
+                    # Fetch recent closed deals
                     from_date = datetime.now() - timedelta(days=90)
-                    to_date = datetime.now()
-                    deals = mt5.history_deals_get(from_date, to_date) or []
+                    deals = mt5.history_deals_get(from_date, datetime.now()) or []
 
                     closed_deals = []
                     for d in deals:
                         try:
-                            # Only include deals for the master account (ignore slave trades)
-                            if getattr(d, 'magic', None) == COPY_TRADE_MAGIC_NUMBER:
-                                continue
-                            # Only include deals that are closing deals (OUT/INOUT)
+                            if getattr(d, 'magic', None) == COPY_TRADE_MAGIC_NUMBER: continue
                             if getattr(d, 'entry', None) in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
                                 closed_deals.append(d._asdict())
-                        except Exception:
-                            pass
+                        except Exception: pass
 
-                    # Save latest info to cache for fallback usage
+                    # Save to cache
                     save_master_history({master_id_str: closed_deals}, open_positions={master_id_str: open_positions})
 
                     aggregated_positions = aggregate_deals_to_positions(closed_deals)
@@ -2692,15 +2689,13 @@ async def get_master_history(master_id: str):
     except Exception as live_err:
         log_print(f"⚠ Live fetch failed for master {master_id}: {live_err}")
 
-    # FALLBACK: Use cached history file
-    history_data = load_master_history()
-    master_data = history_data.get(master_id_str, {"history": [], "open_positions": []})
-
-    # If history is just a list (old format), wrap it
+    # 3. ABSOLUTE FALLBACK (EMPTY OR STALE CACHE)
+    if not master_data:
+        master_data = {"history": [], "open_positions": []}
+    
     if isinstance(master_data, list):
         master_data = {"history": master_data, "open_positions": []}
 
-    # Aggregate deals to positions for the "History" tab
     deals = master_data.get("history", [])
     aggregated_positions = aggregate_deals_to_positions(deals)
 

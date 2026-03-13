@@ -43,10 +43,20 @@ export async function GET(
     const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'BUY' : 
                  (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'SELL' : String(rawType).toUpperCase();
     
+    // Ensure time is in ISO format for MySQL
+    const formatTime = (t: any) => {
+      if (!t) return undefined;
+      if (typeof t === 'number') {
+        // MT5 timestamps are in seconds, JS needs milliseconds
+        return new Date(t * 1000).toISOString();
+      }
+      return new Date(t).toISOString();
+    };
+
     return {
       position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
-      time_open: p.time_open ?? p.open_time ?? p.time ?? p.time_entry ?? p.server_time_open ?? undefined,
-      time_close: p.time_close ?? p.close_time ?? p.time_exit ?? p.server_time_close ?? undefined,
+      time_open: formatTime(p.time_open ?? p.open_time ?? p.time ?? p.time_entry ?? p.server_time_open),
+      time_close: formatTime(p.time_close ?? p.close_time ?? p.time_exit ?? p.server_time_close),
       server_time_open: p.server_time_open ?? p.time_open_str ?? p.open_time_str ?? p.time ?? undefined,
       server_time_close: p.server_time_close ?? p.time_close_str ?? p.close_time_str ?? p.time ?? undefined,
       symbol: p.symbol ?? p.instrument ?? '',
@@ -64,10 +74,20 @@ export async function GET(
     const type = (String(rawType).toLowerCase().includes('buy') || rawType === 0 || rawType === '0') ? 'BUY' : 
                  (String(rawType).toLowerCase().includes('sell') || rawType === 1 || rawType === '1') ? 'SELL' : String(rawType).toUpperCase();
 
+    // Ensure time is in ISO format for MySQL
+    const formatTime = (t: any) => {
+      if (!t) return undefined;
+      if (typeof t === 'number') {
+        // MT5 timestamps are in seconds, JS needs milliseconds
+        return new Date(t * 1000).toISOString();
+      }
+      return new Date(t).toISOString();
+    };
+
     return {
       position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
       server_time: p.server_time ?? p.time_str ?? undefined,
-      time: p.time ?? p.open_time ?? p.time_open ?? p.server_time ?? p.server_time_open ?? undefined,
+      time: formatTime(p.time ?? p.open_time ?? p.time_open ?? p.server_time ?? p.server_time_open),
       symbol: p.symbol ?? p.instrument ?? '',
       type,
       volume: p.volume ?? p.lots ?? p.volume_lots ?? 0,
@@ -98,87 +118,93 @@ export async function GET(
 
     const pathsClosed = [
       `/master/${masterId}/history`,
-      `/masters/${masterId}/history`,
-      `/master/${masterId}/positions/closed`,
-      `/master/${masterId}/trades/closed`,
     ];
     const pathsOpen = [
       `/master/${masterId}/open`,
-      `/masters/${masterId}/open`,
-      `/master/${masterId}/positions/open`,
-      `/master/${masterId}/positions`,
     ];
 
     let history: any[] = [];
     let open_positions: any[] = [];
 
-    // Parallelize all primary paths to reduce delay significantly
-    const allPaths = [...pathsClosed, ...pathsOpen];
-    const results = await Promise.allSettled(
-      allPaths.map(p => timedFetch(`${apiUrl}${p}`, { 
+    // We only need to fetch the primary history route now, as it returns both history and open positions.
+    // The separate /open route is kept as a fallback if the main one fails.
+    const primaryPath = `/master/${masterId}/history`;
+    
+    try {
+      const response = await timedFetch(`${apiUrl}${primaryPath}`, { 
         headers: { Authorization: `Bearer ${apiKey}` }, 
         cache: 'no-store' 
-      }))
-    );
-    
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      if (r.status === 'fulfilled' && r.value.ok) {
-        const json = await r.value.json().catch(() => null);
-        if (!json) continue;
-
-        if (Array.isArray(json)) {
-          const isHistory = json.length > 0 && ('time_close' in json[0] || 'close_time' in json[0] || 'price_close' in json[0]);
-          if (isHistory) {
-            const mapped = json.map(mapClosed);
-            history = [...history, ...mapped];
-          } else {
-            const mapped = json.map(mapOpen);
-            open_positions = [...open_positions, ...mapped];
+      });
+      
+      if (response.ok) {
+        const json = await response.json().catch(() => null);
+        if (json) {
+          // New optimized route returns both
+          if (json.history && Array.isArray(json.history)) {
+            history = json.history.map(mapClosed);
           }
-        } else {
-          const extract = (obj: any, keys: string[]) => {
-            for (const k of keys) {
-              if (Array.isArray(obj[k])) return obj[k];
-              if (obj.data && Array.isArray(obj.data[k])) return obj.data[k];
-            }
-            return null;
-          };
-
-          const hRaw = extract(json, ['history', 'closed_positions', 'closed', 'trades', 'results']);
-          const oRaw = extract(json, ['open_positions', 'open', 'positions', 'results']);
+          if (json.open_positions && Array.isArray(json.open_positions)) {
+            open_positions = json.open_positions.map(mapOpen);
+          }
           
-          if (hRaw) history = [...history, ...hRaw.map(mapClosed)];
-          if (oRaw) open_positions = [...open_positions, ...oRaw.map(mapOpen)];
+          // Legacy support for plain arrays
+          if (Array.isArray(json)) {
+             const isHistory = json.length > 0 && ('time_close' in json[0] || 'close_time' in json[0] || 'price_close' in json[0]);
+             if (isHistory) history = json.map(mapClosed);
+             else open_positions = json.map(mapOpen);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[MasterHistory] Primary fetch failed for ${masterId}:`, e);
+    }
+
+    // Fallback parallel fetch if we still have nothing
+    if (history.length === 0 && open_positions.length === 0) {
+      const allPaths = [...pathsClosed, ...pathsOpen];
+      const results = await Promise.allSettled(
+        allPaths.map(p => timedFetch(`${apiUrl}${p}`, { 
+          headers: { Authorization: `Bearer ${apiKey}` }, 
+          cache: 'no-store' 
+        }))
+      );
+      
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === 'fulfilled' && r.value.ok) {
+          const json = await r.value.json().catch(() => null);
+          if (!json) continue;
+
+          if (Array.isArray(json)) {
+            const isHistory = json.length > 0 && ('time_close' in json[0] || 'close_time' in json[0] || 'price_close' in json[0]);
+            if (isHistory) {
+              const mapped = json.map(mapClosed);
+              history = [...history, ...mapped];
+            } else {
+              const mapped = json.map(mapOpen);
+              open_positions = [...open_positions, ...mapped];
+            }
+          } else {
+            const extract = (obj: any, keys: string[]) => {
+              for (const k of keys) {
+                if (Array.isArray(obj[k])) return obj[k];
+                if (obj.data && Array.isArray(obj.data[k])) return obj.data[k];
+              }
+              return null;
+            };
+
+            const hRaw = extract(json, ['history', 'closed_positions', 'closed', 'trades', 'results']);
+            const oRaw = extract(json, ['open_positions', 'open', 'positions', 'results']);
+            
+            if (hRaw) history = [...history, ...hRaw.map(mapClosed)];
+            if (oRaw) open_positions = [...open_positions, ...oRaw.map(mapOpen)];
+          }
         }
       }
     }
 
-    // Deduplicate fresh history and open_positions.
-    // Some providers may return trades without a stable `position_id`, so we fall back to a deterministic key.
-    const makeUniqKey = (t: any, idx: number) => {
-      if (t.position_id) return String(t.position_id);
-      // Fallback: combine symbol + timestamp + index to avoid collapsing multiple trades
-      const prefix = `${t.symbol ?? ''}@${t.time ?? t.time_open ?? t.open_time ?? t.server_time ?? ''}`;
-      return `${prefix}#${idx}`;
-    };
-
-    const freshHistoryMap = new Map<string, any>();
-    history.forEach((t, idx) => freshHistoryMap.set(makeUniqKey(t, idx), t));
-    history = Array.from(freshHistoryMap.values());
-
-    const freshOpenMap = new Map<string, any>();
-    open_positions.forEach((t, idx) => freshOpenMap.set(makeUniqKey(t, idx), t));
-    open_positions = Array.from(freshOpenMap.values());
-
-    // CRITICAL: A trade cannot be in both history and open_positions.
-    // If it's in history (closed), remove it from open_positions.
-    // Use the stable position_id when available.
-    const closedPositionIds = new Set<string>(history.filter(t => t.position_id).map(t => String(t.position_id)));
-    open_positions = open_positions.filter(op => !closedPositionIds.has(String(op.position_id || '')));
-
-    // Check if provider fetch was successful
-    const anyFetchSuccess = results.some(r => r.status === 'fulfilled' && r.value.ok);
+    // Check if any fetch was successful (either primary or fallbacks)
+    const anyFetchSuccess = history.length > 0 || open_positions.length > 0;
 
     // Persist to temporary storage (MySQL Cache) before returning
     // We prioritize fresh data. If we have fresh history, we upsert it.
