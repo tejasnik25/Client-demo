@@ -12,6 +12,9 @@ type HistoryItem = {
   time_close?: number;
   server_time_open?: string;
   server_time_close?: string;
+  open_time?: number;
+  close_time?: number;
+  time?: number;
   symbol: string;
   type: number | string;
   volume: number;
@@ -24,6 +27,8 @@ type HistoryItem = {
 type OpenItem = {
   server_time?: string;
   time?: number;
+  open_time?: number;
+  server_time_open?: string;
   symbol: string;
   type: number | string;
   volume: number;
@@ -301,12 +306,13 @@ export default function CopierHistoryPage() {
   const filteredClosed = useMemo(() => {
     const mult = Number(lotSize) || 1;
     const rows = history.filter((h) => {
-      const openMs = toMs(h.time_open ?? h.server_time_open);
-      const closeMs = toMs(h.time_close ?? h.server_time_close);
+      const openMs = toMs(h.time_open ?? h.server_time_open ?? h.open_time ?? h.time);
+      const closeMs = toMs(h.time_close ?? h.server_time_close ?? h.close_time ?? h.time);
       
       // Trade is visible only if its open_time is within ANY running session
       const session = sessions.find(s => {
-        if (!Number.isFinite(openMs)) return false;
+        // If we don't have a valid open time, keep the trade as fallback.
+        if (!Number.isFinite(openMs)) return true;
         if (openMs < s.start) return false;
         if (s.end !== null && openMs > s.end) return false;
         return true;
@@ -316,7 +322,7 @@ export default function CopierHistoryPage() {
 
       // If the trade closed after the session ended, it should have been caught by synthetic closure
       // or it's an invalid state. But we only show it if it closed before or at the session end.
-      if (session.end !== null && closeMs > session.end) return false;
+      if (session.end !== null && Number.isFinite(closeMs) && closeMs > session.end) return false;
       
       return true;
     });
@@ -344,8 +350,10 @@ export default function CopierHistoryPage() {
     const currentSession = sessions.find(s => s.end === null);
 
     const rows = openPositions.filter((p) => {
-      const openMs = toMs(p.time ?? p.server_time);
-      if (!Number.isFinite(openMs)) return false;
+      const openMs = toMs(p.time ?? p.server_time ?? p.open_time ?? p.server_time_open);
+      if (!Number.isFinite(openMs)) {
+        return true;
+      }
 
       if (!currentSession) return true;
 

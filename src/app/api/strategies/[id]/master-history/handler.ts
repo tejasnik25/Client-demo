@@ -45,10 +45,10 @@ export async function GET(
     
     return {
       position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
-      time_open: p.time_open ?? p.open_time ?? p.time ?? p.time_entry ?? undefined,
-      time_close: p.time_close ?? p.close_time ?? p.time_exit ?? undefined,
-      server_time_open: p.server_time_open ?? p.time_open_str ?? p.open_time_str ?? undefined,
-      server_time_close: p.server_time_close ?? p.time_close_str ?? undefined,
+      time_open: p.time_open ?? p.open_time ?? p.time ?? p.time_entry ?? p.server_time_open ?? undefined,
+      time_close: p.time_close ?? p.close_time ?? p.time_exit ?? p.server_time_close ?? undefined,
+      server_time_open: p.server_time_open ?? p.time_open_str ?? p.open_time_str ?? p.time ?? undefined,
+      server_time_close: p.server_time_close ?? p.time_close_str ?? p.close_time_str ?? p.time ?? undefined,
       symbol: p.symbol ?? p.instrument ?? '',
       type,
       volume: p.volume ?? p.lots ?? p.volume_lots ?? 0,
@@ -67,7 +67,7 @@ export async function GET(
     return {
       position_id: String(p.position_id ?? p.ticket ?? p.id ?? ''),
       server_time: p.server_time ?? p.time_str ?? undefined,
-      time: p.time ?? p.open_time ?? p.time_open ?? undefined,
+      time: p.time ?? p.open_time ?? p.time_open ?? p.server_time ?? p.server_time_open ?? undefined,
       symbol: p.symbol ?? p.instrument ?? '',
       type,
       volume: p.volume ?? p.lots ?? p.volume_lots ?? 0,
