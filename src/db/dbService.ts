@@ -261,6 +261,8 @@ const ensureMasterTradesTable = async () => {
         swap DECIMAL(18,2) DEFAULT 0,
         time_open TIMESTAMP NOT NULL,
         time_close TIMESTAMP,
+        server_time_open VARCHAR(32),
+        server_time_close VARCHAR(32),
         is_open BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_master_id (master_id),
@@ -305,6 +307,8 @@ const initializeDatabase = async () => {
           swap DECIMAL(18,2) DEFAULT 0,
           time_open TIMESTAMP NOT NULL,
           time_close TIMESTAMP,
+          server_time_open VARCHAR(32),
+          server_time_close VARCHAR(32),
           is_open BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_master_id (master_id),
@@ -312,6 +316,8 @@ const initializeDatabase = async () => {
           INDEX idx_time_open (time_open)
         )
       `);
+      try { await pool.execute("ALTER TABLE master_trades ADD COLUMN server_time_open VARCHAR(32)"); } catch (e) {}
+      try { await pool.execute("ALTER TABLE master_trades ADD COLUMN server_time_close VARCHAR(32)"); } catch (e) {}
       console.log('master_trades table created/verified');
     } catch (tableError) {
       console.warn('master_trades table creation failed:', tableError);
@@ -531,6 +537,8 @@ const initializeDatabase = async () => {
         swap DECIMAL(18,2) DEFAULT 0,
         time_open TIMESTAMP NOT NULL,
         time_close TIMESTAMP,
+        server_time_open VARCHAR(32),
+        server_time_close VARCHAR(32),
         is_open BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_master_id (master_id),
@@ -538,6 +546,8 @@ const initializeDatabase = async () => {
         INDEX idx_time_open (time_open)
       )
     `);
+    try { await pool.execute("ALTER TABLE master_trades_cache ADD COLUMN server_time_open VARCHAR(32)"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE master_trades_cache ADD COLUMN server_time_close VARCHAR(32)"); } catch (e) {}
     
     // Create trades table for storing user trade history
     await pool.execute(`
@@ -2933,83 +2943,112 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
   try {
     if (trades.length === 0) return;
 
-    console.log(`[upsertMasterTrades] Processing ${trades.length} trades for master ${masterId} (isOpen: ${isOpen})`);
+    const requiredFields = [
+      'position_id', 'symbol', 'type', 'volume', 'price_open', 'profit', 'swap', 'time_open'
+    ];
+    let skipped = 0;
+    let invalidTrades: any[] = [];
     const values = trades.map(trade => {
+      // Accept position_id, ticket, or id as positionId
       const positionId = String(trade.position_id || trade.ticket || trade.id);
-      if (!positionId || positionId === 'undefined') {
-        console.warn(`[upsertMasterTrades] Missing positionId for trade:`, trade);
+      // Validate all required fields
+      const missing = requiredFields.filter(f => {
+        if (f === 'position_id') return !positionId || positionId === 'undefined';
+        return trade[f] === undefined || trade[f] === null || trade[f] === '';
+      });
+      if (missing.length > 0) {
+        skipped++;
+        invalidTrades.push({ trade, missing });
         return null;
       }
-
       // Use a deterministic, unique ID for each trade
       const uniqueId = `${masterId}_${positionId}`;
-      
+      // Use explicit values, do not fallback to defaults for critical fields
       return [
         uniqueId,
         masterId,
         positionId,
-        trade.symbol || '',
-        (trade.type || 'BUY').toString().toUpperCase(),
-        trade.volume || 0,
-        trade.price_open || 0,
-        trade.price_close || trade.price_current || null,
-        trade.profit || 0,
-        trade.commission || 0,
-        trade.swap || 0,
-        trade.time_open || trade.time || trade.open_time || null,
+        trade.symbol,
+        (trade.type || '').toString().toUpperCase(),
+        Number(trade.volume),
+        Number(trade.price_open),
+        trade.price_close !== undefined ? Number(trade.price_close) : (trade.price_current !== undefined ? Number(trade.price_current) : null),
+        Number(trade.profit),
+        trade.commission !== undefined ? Number(trade.commission) : 0,
+        Number(trade.swap),
+        trade.time_open || trade.time || trade.open_time,
         trade.time_close || trade.close_time || null,
+        trade.server_time_open || null,
+        trade.server_time_close || null,
         isOpen ? 1 : 0,
-        new Date().toISOString() // This will be the `created_at` timestamp
+        new Date().toISOString()
       ];
     }).filter(v => v !== null);
-    
+
+    if (skipped > 0) {
+      console.warn(`[upsertMasterTrades] Skipped ${skipped} trades due to missing fields. Details:`, invalidTrades);
+    }
     console.log(`[upsertMasterTrades] Generated ${values.length} valid values for REPLACE INTO`);
-    
+
     if (values.length === 0) return;
 
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-    
-    // Use REPLACE to ensure the latest trade data always overwrites the old record.
-    // The `updated_at` column will automatically update due to `ON UPDATE CURRENT_TIMESTAMP`.
+    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
     const sql = `REPLACE INTO master_trades_cache (
           id, master_id, position_id, symbol, type, volume, price_open, price_close, 
-          profit, commission, swap, time_open, time_close, is_open, created_at
+          profit, commission, swap, time_open, time_close, server_time_open, server_time_close, is_open, created_at
         ) VALUES ${placeholders}`;
-
     await pool.execute(sql, values.flat());
-
   } catch (error) {
     console.error('Error upserting master trades:', error);
     // JSON fallback
     try {
       const db: any = readDatabase();
       const masterTrades: any[] = Array.isArray(db.master_trades_cache) ? db.master_trades_cache : [];
-      
       // Remove existing trades for this master
       const filteredTrades = masterTrades.filter(t => t.master_id !== masterId);
-      
       // Add new trades
+      let skipped = 0;
+      let invalidTrades: any[] = [];
       const newTrades = trades.map(trade => {
         const positionId = String(trade.position_id || trade.ticket || trade.id || Math.random().toString(36).substr(2, 9));
+        const missing = [
+          !positionId || positionId === 'undefined',
+          trade.symbol === undefined || trade.symbol === null || trade.symbol === '',
+          trade.type === undefined || trade.type === null || trade.type === '',
+          trade.volume === undefined || trade.volume === null || trade.volume === '',
+          trade.price_open === undefined || trade.price_open === null || trade.price_open === '',
+          trade.profit === undefined || trade.profit === null || trade.profit === '',
+          trade.swap === undefined || trade.swap === null || trade.swap === '',
+          trade.time_open === undefined || trade.time_open === null || trade.time_open === ''
+        ];
+        if (missing.some(Boolean)) {
+          skipped++;
+          invalidTrades.push({ trade });
+          return null;
+        }
         return {
           id: `${masterId}_${positionId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
           master_id: masterId,
           position_id: positionId,
-          symbol: trade.symbol || '',
-          type: (trade.type || 'BUY').toString().toUpperCase(),
-          volume: trade.volume || 0,
-          price_open: trade.price_open || 0,
-          price_close: trade.price_close || null,
-          profit: trade.profit || 0,
-          commission: trade.commission || 0,
-          swap: trade.swap || 0,
-          time_open: trade.time_open || new Date().toISOString(),
-          time_close: trade.time_close || null,
+          symbol: trade.symbol,
+          type: (trade.type || '').toString().toUpperCase(),
+          volume: Number(trade.volume),
+          price_open: Number(trade.price_open),
+          price_close: trade.price_close !== undefined ? Number(trade.price_close) : (trade.price_current !== undefined ? Number(trade.price_current) : null),
+          profit: Number(trade.profit),
+          commission: trade.commission !== undefined ? Number(trade.commission) : 0,
+          swap: Number(trade.swap),
+          time_open: trade.time_open || trade.time || trade.open_time,
+          time_close: trade.time_close || trade.close_time || null,
+          server_time_open: trade.server_time_open || null,
+          server_time_close: trade.server_time_close || null,
           is_open: isOpen ? 1 : 0,
           created_at: new Date().toISOString()
         };
-      });
-      
+      }).filter(v => v !== null);
+      if (skipped > 0) {
+        console.warn(`[upsertMasterTrades][JSON] Skipped ${skipped} trades due to missing fields. Details:`, invalidTrades);
+      }
       writeDatabase({ ...db, master_trades_cache: [...filteredTrades, ...newTrades] });
     } catch (jsonError) {
       console.error('JSON fallback upsertMasterTrades failed:', jsonError);
@@ -3036,6 +3075,8 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
           swap DECIMAL(18,2) DEFAULT 0,
           time_open TIMESTAMP NOT NULL,
           time_close TIMESTAMP,
+          server_time_open VARCHAR(32),
+          server_time_close VARCHAR(32),
           is_open BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -3044,6 +3085,8 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
           INDEX idx_time_open (time_open)
         )
       `);
+      try { await pool.execute("ALTER TABLE master_trades_cache ADD COLUMN server_time_open VARCHAR(32)"); } catch (e) {}
+      try { await pool.execute("ALTER TABLE master_trades_cache ADD COLUMN server_time_close VARCHAR(32)"); } catch (e) {}
     } catch (tableError) {
       console.warn('master_trades_cache table creation failed:', tableError);
     }
@@ -3081,7 +3124,9 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         profit: t.profit,
         swap: t.swap,
         time_open: t.time_open,
-        time_close: t.time_close
+        time_close: t.time_close,
+        server_time_open: t.server_time_open,
+        server_time_close: t.server_time_close
       })),
       open_positions: open_positions.map(t => ({
         position_id: t.position_id,
@@ -3092,7 +3137,8 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         price_current: t.price_close, // price_close stores price_current for open trades
         profit: t.profit,
         swap: t.swap,
-        time_open: t.time_open
+        time_open: t.time_open,
+        server_time_open: t.server_time_open
       })),
       last_updated: lastUpdate
     };
@@ -3118,7 +3164,9 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
           profit: t.profit,
           swap: t.swap,
           time_open: t.time_open,
-          time_close: t.time_close
+          time_close: t.time_close,
+          server_time_open: t.server_time_open,
+          server_time_close: t.server_time_close
         })),
         open_positions: open_positions.map(t => ({
           position_id: t.position_id,
@@ -3129,7 +3177,8 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
           price_current: t.price_close,
           profit: t.profit,
           swap: t.swap,
-          time_open: t.time_open
+          time_open: t.time_open,
+          server_time_open: t.server_time_open
         }))
       };
     } catch (jsonError) {

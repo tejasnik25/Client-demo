@@ -8,13 +8,13 @@ import { FiTrendingUp, FiDollarSign, FiTrendingDown } from "react-icons/fi";
 
 type HistoryItem = {
   position_id?: string;
-  time_open?: number;
-  time_close?: number;
+  time_open?: number | string;
+  time_close?: number | string;
   server_time_open?: string;
   server_time_close?: string;
-  open_time?: number;
-  close_time?: number;
-  time?: number;
+  open_time?: number | string;
+  close_time?: number | string;
+  time?: number | string;
   symbol: string;
   type: number | string;
   volume: number;
@@ -26,10 +26,10 @@ type HistoryItem = {
 
 type OpenItem = {
   server_time?: string;
-  time?: number;
-  open_time?: number;
-  time_open?: number;
   server_time_open?: string;
+  time?: number | string;
+  open_time?: number | string;
+  time_open?: number | string;
   symbol: string;
   type: number | string;
   volume: number;
@@ -305,7 +305,6 @@ export default function CopierHistoryPage() {
   }, [connectAt, modifications]);
 
   const filteredClosed = useMemo(() => {
-    const mult = Number(lotSize) || 1;
     const rows = history.filter((h) => {
       const openMs = toMs(h.time_open ?? h.server_time_open ?? h.open_time ?? h.time);
       const closeMs = toMs(h.time_close ?? h.server_time_close ?? h.close_time ?? h.time);
@@ -329,28 +328,22 @@ export default function CopierHistoryPage() {
     });
     
     return rows.map((h) => {
-      // User Lot size * Master Profit (Simple formula as requested)
-      const adjustedProfit = Number(h.profit) * mult;
-      const adjustedSwap = Number(h.swap || 0) * mult;
-
       return {
         isOpen: false as const,
-        openTimeStr: h.server_time_open || (h.time_open ? new Date(toMs(h.time_open)).toISOString() : ""),
-        closeTimeStr: h.server_time_close || (h.time_close ? new Date(toMs(h.time_close)).toISOString() : ""),
+        openTimeStr: h.server_time_open || (h.time_open ? new Date(toMs(h.time_open)).toISOString() : (h.open_time ? new Date(toMs(h.open_time)).toISOString() : "")),
+        closeTimeStr: h.server_time_close || (h.time_close ? new Date(toMs(h.time_close)).toISOString() : (h.close_time ? new Date(toMs(h.close_time)).toISOString() : "")),
         symbol: h.symbol,
         type: h.type,
-        volume: mult, // User's lot size
+        volume: h.volume,
         openPrice: h.price_open,
         closeOrCurrentPrice: h.price_close,
-        profit: adjustedProfit,
-        swap: adjustedSwap,
+        profit: Number(h.profit),
+        swap: Number(h.swap || 0),
       };
     });
-  }, [history, lotSize, sessions]);
+  }, [history, sessions]);
 
   const filteredOpen = useMemo(() => {
-    const mult = Number(lotSize) || 1;
-
     // Find the currently active session (the one with end === null). This is used
     // to filter open positions to those opened during the most recent running window.
     // If we cannot locate such a session, we still show all open positions as a best-effort.
@@ -369,28 +362,23 @@ export default function CopierHistoryPage() {
     });
     
     return rows.map((p) => {
-      // User Lot size * Master Profit
-      const adjustedProfit = Number(p.profit) * mult;
-      const adjustedSwap = Number(p.swap || 0) * mult;
-
       return {
         isOpen: true as const,
-        openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
+        openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : (p.open_time ? new Date(toMs(p.open_time)).toISOString() : "")),
         closeTimeStr: "",
         symbol: p.symbol,
         type: p.type,
-        volume: mult, // User's lot size
+        volume: p.volume,
         openPrice: p.price_open,
         closeOrCurrentPrice: p.price_current,
-        profit: adjustedProfit,
-        swap: adjustedSwap,
+        profit: Number(p.profit),
+        swap: Number(p.swap || 0),
       };
     });
-  }, [openPositions, lotSize, sessions]);
+  }, [openPositions, sessions]);
 
   // Synthesize closures for trades that were open at the end of a session
   const syntheticClosures = useMemo(() => {
-    const mult = Number(lotSize) || 1;
     const closures: any[] = [];
 
     sessions.forEach(session => {
@@ -411,27 +399,23 @@ export default function CopierHistoryPage() {
       });
 
       sessionOpenTrades.forEach((p: any) => {
-        // User Lot size * Master Profit
-        const adjustedProfit = Number(p.profit) * mult;
-        const adjustedSwap = Number(p.swap || 0) * mult;
-
         closures.push({
           isOpen: false as const,
-          openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : ""),
+          openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : (p.open_time ? new Date(toMs(p.open_time)).toISOString() : "")),
           closeTimeStr: new Date(session.end!).toISOString(),
           symbol: p.symbol,
           type: p.type,
-          volume: mult, // User's lot size
+          volume: p.volume,
           openPrice: p.price_open,
           closeOrCurrentPrice: p.price_current,
-          profit: adjustedProfit,
-          swap: adjustedSwap,
+          profit: Number(p.profit),
+          swap: Number(p.swap || 0),
         });
       });
     });
 
     return closures;
-  }, [openPositions, lotSize, sessions, snapshots]);
+  }, [openPositions, sessions, snapshots]);
 
   const displayRows = useMemo(() => {
     const aStatus = String(adminStatus || '').toLowerCase();
@@ -483,6 +467,9 @@ export default function CopierHistoryPage() {
 
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return "-";
+    if (typeof dateStr === "string" && /^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) {
+      return dateStr;
+    }
     const ms = toMs(dateStr);
     if (!Number.isFinite(ms)) return dateStr;
     return new Date(ms).toLocaleString();
@@ -550,9 +537,9 @@ export default function CopierHistoryPage() {
           <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-gray-900">
-                {filter === "all" ? "All Trades" : filter === "opened" ? "Opened Positions" : "Closed Positions"} (Adjusted)
+                {filter === "all" ? "All Trades" : filter === "opened" ? "Opened Positions" : "Closed Positions"}
               </h3>
-              <span className="text-xs text-gray-500">Profit = Lot size × Master profit</span>
+              <span className="text-xs text-gray-500">MT5 position data</span>
             </div>
             <div className="mt-4 inline-flex rounded-md shadow-sm border border-gray-200 overflow-hidden" role="group">
               <button
@@ -604,10 +591,10 @@ export default function CopierHistoryPage() {
                       <td className="px-6 py-4">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                            String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                           }`}
                         >
-                          {String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 ? "BUY" : "SELL"}
+                          {String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0" ? "BUY" : "SELL"}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
