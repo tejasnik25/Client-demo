@@ -249,8 +249,9 @@ export async function GET(
     open_positions.forEach(t => openMap.set(String(t.position_id), t));
 
     // Remove any open positions that are now marked as closed in history
-    for (const closedTrade of historyMap.values()) {
-      openMap.delete(String(closedTrade.position_id));
+    const closedPositionIds = new Set(Array.from(historyMap.values()).map(t => String(t.position_id)));
+    for (const closedId of closedPositionIds) {
+      openMap.delete(closedId);
     }
 
     const finalHistory = Array.from(historyMap.values()).sort((a, b) => {
