@@ -5,7 +5,7 @@
  * - Strategy has Master A linked (admin). User A pays for Strategy A → after approval, sees it here.
  * - "Opened" tab = Master A's current open positions on MT5 (same as Terminal → Trade).
  * - "Closed" tab = Master A's closed positions (same as MT5 Terminal → History tab).
- * Data comes from master-history API (cache filled by Python trading service sync).
+ * Data comes from master-history API (live from MT5 via Python trading service, no cache).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -154,7 +154,7 @@ export default function CopierHistoryPage() {
     setHistoryLoading(true);
     loadHistory();
 
-    const timer = setInterval(loadHistory, 10000);
+    const timer = setInterval(loadHistory, 5000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
