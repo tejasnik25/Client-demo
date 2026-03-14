@@ -73,6 +73,7 @@ export default function CopierHistoryPage() {
   const [connectAt, setConnectAt] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [filter, setFilter] = useState<"all" | "opened" | "closed">("all");
+  const [historyPage, setHistoryPage] = useState(1);
   const [adminStatus, setAdminStatus] = useState<string | null>(null);
   const [mtStatus, setMtStatus] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -452,22 +453,38 @@ export default function CopierHistoryPage() {
     });
   }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus, mtStatus]);
 
+  const ENTRIES_PER_PAGE = 20;
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / ENTRIES_PER_PAGE));
+  const currentPage = Math.min(historyPage, totalPages);
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * ENTRIES_PER_PAGE;
+    return displayRows.slice(start, start + ENTRIES_PER_PAGE);
+  }, [displayRows, currentPage]);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [filter]);
+
+  // Clamp page when total pages shrinks (e.g. data refresh)
+  useEffect(() => {
+    if (historyPage > totalPages && totalPages >= 1) setHistoryPage(totalPages);
+  }, [historyPage, totalPages]);
+
   const stats = useMemo(() => {
     let totalInvestment = 0;
     let totalProfit = 0;
     let totalLoss = 0;
+    const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
 
     displayRows.forEach((row: any) => {
-      const investment = Number(row.volume) * Number(row.openPrice);
-      const profit = Number(row.profit);
-      
+      const vol = Number(row.volume) || 0;
+      const investment = vol * Number(row.openPrice || 0) * mult;
+      const profit = (Number(row.profit) || 0) * mult;
+
       totalInvestment += investment;
-      
-      if (profit >= 0) {
-        totalProfit += profit;
-      } else {
-        totalLoss += Math.abs(profit);
-      }
+      if (profit >= 0) totalProfit += profit;
+      else totalLoss += Math.abs(profit);
     });
 
     return {
@@ -475,7 +492,7 @@ export default function CopierHistoryPage() {
       totalProfit: totalProfit.toFixed(2),
       totalLoss: totalLoss.toFixed(2)
     };
-  }, [displayRows]);
+  }, [displayRows, lotSize]);
 
   const formatDate = (dateStr: string | number | undefined) => {
     if (!dateStr) return "-";
@@ -583,59 +600,93 @@ export default function CopierHistoryPage() {
           </div>
           <div className="overflow-x-auto">
             {displayRows.length > 0 ? (
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
-                  <tr>
-                    <th className="px-6 py-3">Open Time</th>
-                    <th className="px-6 py-3">Close Time</th>
-                    <th className="px-6 py-3">Symbol</th>
-                    <th className="px-6 py-3">Type</th>
-                    <th className="px-6 py-3">Volume</th>
-                    <th className="px-6 py-3">Open Price</th>
-                    <th className="px-6 py-3">{filter === "opened" ? "Current Price" : "Close Price"}</th>
-                    <th className="px-6 py-3">Swap</th>
-                    <th className="px-6 py-3">Profit</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {displayRows.map((pos, idx) => {
-                    const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
-                    return (
-                      <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {formatDate(pos.openTimeStr)}
-                        </td>
-                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {formatDate(pos.closeTimeStr)}
-                        </td>
-                        <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                              isBuy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            {isBuy ? "BUY" : "SELL"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
-                        <td className="px-6 py-4 text-gray-600">
-                          {pos.openPrice && Number(pos.openPrice) !== 0 ? pos.openPrice : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">
-                          {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0 ? pos.closeOrCurrentPrice : "-"}
-                        </td>
-                        <td className={`px-6 py-4 font-medium ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {(pos as any).swap > 0 ? "+" : ""}{Number((pos as any).swap || 0).toFixed(2)}
-                        </td>
-                        <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {(pos as any).profit >= 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <>
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
+                    <tr>
+                      <th className="px-6 py-3">Open Time</th>
+                      <th className="px-6 py-3">Close Time</th>
+                      <th className="px-6 py-3">Symbol</th>
+                      <th className="px-6 py-3">Type</th>
+                      <th className="px-6 py-3">Volume</th>
+                      <th className="px-6 py-3">Open Price</th>
+                      <th className="px-6 py-3">{filter === "opened" ? "Current Price" : "Close Price"}</th>
+                      <th className="px-6 py-3">Swap</th>
+                      <th className="px-6 py-3">Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {paginatedRows.map((pos, idx) => {
+                      const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
+                      const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
+                      const vol = Number((pos as any).volume) || 0;
+                      const swapVal = (Number((pos as any).swap) || 0) * mult;
+                      const profitVal = (Number((pos as any).profit) || 0) * mult;
+                      return (
+                        <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                            {formatDate(pos.openTimeStr)}
+                          </td>
+                          <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                            {formatDate(pos.closeTimeStr)}
+                          </td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                isBuy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {isBuy ? "BUY" : "SELL"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-gray-600">{(vol * mult).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-gray-600">
+                            {pos.openPrice && Number(pos.openPrice) !== 0 ? pos.openPrice : "-"}
+                          </td>
+                          <td className="px-6 py-4 text-gray-600">
+                            {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0 ? pos.closeOrCurrentPrice : "-"}
+                          </td>
+                          <td className={`px-6 py-4 font-medium ${swapVal >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {swapVal > 0 ? "+" : ""}{swapVal.toFixed(2)}
+                          </td>
+                          <td className={`px-6 py-4 font-bold ${profitVal >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {profitVal >= 0 ? "+" : ""}{profitVal.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 bg-gray-50">
+                    <p className="text-sm text-gray-600">
+                      Showing {(currentPage - 1) * ENTRIES_PER_PAGE + 1}–{Math.min(currentPage * ENTRIES_PER_PAGE, displayRows.length)} of {displayRows.length} entries
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        className="px-3 py-1.5 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-sm text-gray-600">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setHistoryPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        className="px-3 py-1.5 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="p-12 text-center text-gray-500 text-sm">
                 {historyLoading ? (

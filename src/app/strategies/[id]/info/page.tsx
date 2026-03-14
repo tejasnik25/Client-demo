@@ -47,7 +47,8 @@ const StrategyInfoPage: React.FC = () => {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [connectAt, setConnectAt] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const entriesPerPage = 10;
+  const [openPositionsPage, setOpenPositionsPage] = useState(1);
+  const entriesPerPage = 20;
 
   // Removed auth redirect to allow public access to info page
   // useEffect(() => {
@@ -208,7 +209,11 @@ const StrategyInfoPage: React.FC = () => {
   const startIndex = (currentPage - 1) * entriesPerPage;
   const endIndex = startIndex + entriesPerPage;
   const currentHistory = filteredHistory.slice(startIndex, endIndex);
-  const totalPages = Math.ceil(filteredHistory.length / entriesPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredHistory.length / entriesPerPage));
+
+  const openTotalPages = Math.max(1, Math.ceil(openPositions.length / entriesPerPage));
+  const openPage = Math.min(openPositionsPage, openTotalPages);
+  const currentOpenPositions = openPositions.slice((openPage - 1) * entriesPerPage, openPage * entriesPerPage);
 
   const getPlanPrices = (s: Strategy | null) => {
     if (!s) return { Premium: 5000, Expert: 10000, Pro: 20000 };
@@ -564,6 +569,7 @@ const StrategyInfoPage: React.FC = () => {
                   <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
                 </div>
               ) : openPositions.length > 0 ? (
+                <>
                 <table className="w-full text-left text-sm">
                   <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
                     <tr>
@@ -578,7 +584,7 @@ const StrategyInfoPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {openPositions.map((pos: any, idx: number) => {
+                    {currentOpenPositions.map((pos: any, idx: number) => {
                       const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
                       return (
                         <tr key={pos.ticket || idx} className="hover:bg-gray-50 transition-colors">
@@ -607,6 +613,19 @@ const StrategyInfoPage: React.FC = () => {
                     })}
                   </tbody>
                 </table>
+                {openTotalPages > 1 && (
+                  <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+                    <div className="text-xs text-gray-500">
+                      Showing {(openPage - 1) * entriesPerPage + 1}–{Math.min(openPage * entriesPerPage, openPositions.length)} of {openPositions.length} open positions
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" className="h-8 px-3 text-xs" disabled={openPage <= 1} onClick={() => setOpenPositionsPage(p => Math.max(1, p - 1))}>Previous</Button>
+                      <div className="flex items-center gap-1 px-2 text-xs font-medium text-gray-600">Page {openPage} of {openTotalPages}</div>
+                      <Button variant="outline" size="sm" className="h-8 px-3 text-xs" disabled={openPage >= openTotalPages} onClick={() => setOpenPositionsPage(p => Math.min(openTotalPages, p + 1))}>Next</Button>
+                    </div>
+                  </div>
+                )}
+                </>
               ) : (
                 <div className="p-8 text-center text-gray-500 text-xs">
                   No currently open trades.
