@@ -125,28 +125,21 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     const awsUrl = 'http://15.206.157.59:8000';
     const localUrl = 'http://127.0.0.1:8000';
     const isDev = process.env.NODE_ENV !== 'production';
-    
-    // Build list of URLs to try
-    const urls: string[] = [];
-    
-    // 1. Configured URL (if valid)
-    if (this.baseUrl && !this.baseUrl.includes('mock')) {
-        urls.push(this.baseUrl);
-    } else if (!isDev && !this.baseUrl) {
-        // Implicitly using AWS IP in production is fine.
-        console.log('[CopyTrading] Using default AWS Provider (No custom URL configured).');
-    }
-      
-    // 2. Localhost fallback (Always try localhost if not already in list, 
-    // useful for Production on the same VPS to avoid Hairpinning issues)
-    if (!urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
-        urls.push(localUrl);
-    }
+    const isVercel = typeof process.env.VERCEL === 'string';
 
-    // 3. AWS IP (Legacy fallback)
-    // Updated to the user-provided Public IP
+    // On Vercel (serverless), 127.0.0.1 is the Vercel server itself, not the Python service.
+    // Only use the single configured URL (or AWS) in production to avoid ECONNREFUSED.
+    const urls: string[] = [];
+    if (this.baseUrl && !this.baseUrl.includes('mock')) {
+      urls.push(this.baseUrl);
+    } else if (!isDev && !this.baseUrl) {
+      console.log('[CopyTrading] Using default AWS Provider (No custom URL configured).');
+    }
+    if (!isVercel && !urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
+      urls.push(localUrl);
+    }
     if (!urls.some(u => u.includes('15.206.157.59'))) {
-        urls.push(awsUrl);
+      urls.push(awsUrl);
     }
 
     let lastError: any;

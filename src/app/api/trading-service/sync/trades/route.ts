@@ -25,43 +25,56 @@ export async function POST(req: NextRequest) {
     // 1. Process History (Closed Trades)
     if (history && Array.isArray(history)) {
       console.log(`[Sync] Mapping ${history.length} history items`);
-      const mappedHistory = history.map(t => ({
-        position_id: String(t.position_id),
-        symbol: t.symbol,
-        // Robust type mapping
-        type: (t.type === 0 || t.type === '0' || String(t.type).toUpperCase() === 'BUY' || String(t.type).toLowerCase().includes('buy')) ? 'BUY' : 'SELL',
-        volume: Number(t.volume),
-        price_open: Number(t.price_open),
-        price_close: Number(t.price_close),
-        profit: Number(t.profit),
-        commission: Number(t.commission || 0),
-        swap: Number(t.swap || 0),
-        // Use server provided times if available to prevent timezone/formatting drift
-        time_open: typeof t.time_open === 'number' ? new Date(t.time_open * 1000).toISOString() : (t.time_open || t.open_time),
-        time_close: typeof t.time_close === 'number' ? new Date(t.time_close * 1000).toISOString() : (t.time_close || t.close_time),
-        server_time_open: t.server_time_open || null,
-        server_time_close: t.server_time_close || null,
-      }));
+      const mappedHistory = history.map(t => {
+        const timeOpenNum = typeof t.time_open === 'number' ? t.time_open : null;
+        const timeCloseNum = typeof t.time_close === 'number' ? t.time_close : null;
+        const timeOpenStr = timeOpenNum != null ? new Date(timeOpenNum * 1000).toISOString() : (t.time_open || t.open_time);
+        const timeCloseStr = timeCloseNum != null ? new Date(timeCloseNum * 1000).toISOString() : (t.time_close || t.close_time);
+        // Prefer broker server_time_* strings for display; keep time_open/time_close as ISO for DB
+        const serverOpen = t.server_time_open && String(t.server_time_open).trim() ? String(t.server_time_open) : null;
+        const serverClose = t.server_time_close && String(t.server_time_close).trim() ? String(t.server_time_close) : null;
+        return {
+          position_id: String(t.position_id),
+          symbol: t.symbol,
+          type: (t.type === 0 || t.type === '0' || String(t.type).toUpperCase() === 'BUY' || String(t.type).toLowerCase().includes('buy')) ? 'BUY' : 'SELL',
+          volume: Number(t.volume),
+          price_open: Number(t.price_open),
+          price_close: Number(t.price_close),
+          profit: Number(t.profit),
+          commission: Number(t.commission || 0),
+          swap: Number(t.swap || 0),
+          time_open: timeOpenStr,
+          time_close: timeCloseStr,
+          server_time_open: serverOpen,
+          server_time_close: serverClose,
+        };
+      });
       await upsertMasterTrades(master_id, mappedHistory, false);
     }
 
     // 2. Process Open Positions
     if (open_positions && Array.isArray(open_positions)) {
       console.log(`[Sync] Mapping ${open_positions.length} open positions`);
-      const mappedOpen = open_positions.map(t => ({
-        position_id: String(t.ticket || t.position_id),
-        symbol: t.symbol,
-        type: (t.type === 0 || t.type === '0' || String(t.type_str).toUpperCase() === 'BUY' || String(t.type).toLowerCase().includes('buy')) ? 'BUY' : 'SELL',
-        volume: Number(t.volume),
-        price_open: Number(t.price_open),
-        price_current: Number(t.price_current), 
-        profit: Number(t.profit),
-        commission: Number(t.commission || 0),
-        swap: Number(t.swap || 0),
-        time_open: typeof t.time === 'number' ? new Date(t.time * 1000).toISOString() : (t.time_open || t.time || t.open_time),
-        server_time_open: t.server_time || t.server_time_open || null,
-        time_close: null 
-      }));
+      const mappedOpen = open_positions.map(t => {
+        const timeNum = typeof t.time === 'number' ? t.time : (typeof t.time_open === 'number' ? t.time_open : null);
+        const timeStr = timeNum != null ? new Date(timeNum * 1000).toISOString() : (t.time_open || t.time || t.open_time);
+        const serverOpen = (t.server_time || t.server_time_open) && String(t.server_time || t.server_time_open).trim()
+          ? String(t.server_time || t.server_time_open) : null;
+        return {
+          position_id: String(t.ticket || t.position_id),
+          symbol: t.symbol,
+          type: (t.type === 0 || t.type === '0' || String(t.type_str).toUpperCase() === 'BUY' || String(t.type).toLowerCase().includes('buy')) ? 'BUY' : 'SELL',
+          volume: Number(t.volume),
+          price_open: Number(t.price_open),
+          price_current: Number(t.price_current),
+          profit: Number(t.profit),
+          commission: Number(t.commission || 0),
+          swap: Number(t.swap || 0),
+          time_open: timeStr,
+          server_time_open: serverOpen,
+          time_close: null
+        };
+      });
       await upsertMasterTrades(master_id, mappedOpen, true);
     }
 
