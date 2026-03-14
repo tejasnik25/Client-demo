@@ -209,15 +209,19 @@ export default function CopierHistoryPage() {
   }, [strategy?.parameters, payments, params.id, sessionUserId]);
 
   const toMs = (v: string | number | undefined): number => {
-    if (v == null) return NaN;
+    if (v == null || v === "") return NaN;
     if (typeof v === "string") {
+      // 1. Try native parsing (e.g. ISO)
       let t = Date.parse(v);
+      
+      // 2. Handle MT5 style with dots (e.g. 2026.02.25 14:30:00)
       if (!Number.isFinite(t)) {
-        // Handle dots in date strings (e.g. 2026.02.25)
         t = Date.parse(v.replace(/\./g, '-'));
       }
+      
+      // 3. Manual parse for "YYYY.MM.DD HH:MM:SS" if still failing
       if (!Number.isFinite(t)) {
-        const m = v.match(/^(\d{4})\.(\d{2})\.(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+        const m = v.match(/^(\d{4})[\.\-/](\d{2})[\.\-/](\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
         if (m) {
           const [_, yy, MM, dd, hh, mm, ss] = m;
           const d = new Date(
@@ -228,15 +232,16 @@ export default function CopierHistoryPage() {
             Number(mm),
             Number(ss)
           );
-          const ts = d.getTime();
-          return Number.isFinite(ts) ? ts : NaN;
+          t = d.getTime();
         }
       }
       return Number.isFinite(t) ? t : NaN;
     }
     const num = Number(v);
     if (!Number.isFinite(num)) return NaN;
-    return num < 1e12 ? num * 1000 : num;
+    // MT5 timestamps are in seconds, JS in milliseconds. 
+    // Heuristic: If < 10^12, it's probably seconds.
+    return num < 10000000000 ? num * 1000 : num;
   };
 
   const sessions = useMemo(() => {
@@ -306,8 +311,8 @@ export default function CopierHistoryPage() {
 
   const filteredClosed = useMemo(() => {
     const rows = history.filter((h) => {
-      const openMs = toMs(h.time_open ?? h.server_time_open ?? h.open_time ?? h.time);
-      const closeMs = toMs(h.time_close ?? h.server_time_close ?? h.close_time ?? h.time);
+      const openMs = toMs(h.server_time_open ?? h.time_open ?? h.open_time ?? h.time);
+      const closeMs = toMs(h.server_time_close ?? h.time_close ?? h.close_time ?? h.time);
       
       // Trade is visible only if its open_time is within ANY running session
       const session = sessions.find(s => {
@@ -330,8 +335,8 @@ export default function CopierHistoryPage() {
     return rows.map((h) => {
       return {
         isOpen: false as const,
-        openTimeStr: h.server_time_open || (h.time_open ? new Date(toMs(h.time_open)).toISOString() : (h.open_time ? new Date(toMs(h.open_time)).toISOString() : "")),
-        closeTimeStr: h.server_time_close || (h.time_close ? new Date(toMs(h.time_close)).toISOString() : (h.close_time ? new Date(toMs(h.close_time)).toISOString() : "")),
+        openTimeStr: h.server_time_open || (h.time_open ? String(h.time_open) : (h.open_time ? String(h.open_time) : "")),
+        closeTimeStr: h.server_time_close || (h.time_close ? String(h.time_close) : (h.close_time ? String(h.close_time) : "")),
         symbol: h.symbol,
         type: h.type,
         volume: h.volume,
@@ -364,7 +369,7 @@ export default function CopierHistoryPage() {
     return rows.map((p) => {
       return {
         isOpen: true as const,
-        openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : (p.open_time ? new Date(toMs(p.open_time)).toISOString() : "")),
+        openTimeStr: p.server_time || p.server_time_open || (p.time_open ? String(p.time_open) : (p.open_time ? String(p.open_time) : (p.time ? String(p.time) : ""))),
         closeTimeStr: "",
         symbol: p.symbol,
         type: p.type,
@@ -401,7 +406,7 @@ export default function CopierHistoryPage() {
       sessionOpenTrades.forEach((p: any) => {
         closures.push({
           isOpen: false as const,
-          openTimeStr: p.server_time || p.server_time_open || (p.time_open ? new Date(toMs(p.time_open)).toISOString() : (p.open_time ? new Date(toMs(p.open_time)).toISOString() : "")),
+          openTimeStr: p.server_time || p.server_time_open || (p.time_open ? String(p.time_open) : (p.open_time ? String(p.open_time) : (p.time ? String(p.time) : ""))),
           closeTimeStr: new Date(session.end!).toISOString(),
           symbol: p.symbol,
           type: p.type,
@@ -427,15 +432,15 @@ export default function CopierHistoryPage() {
     
     if (filter === "opened") return filteredOpen;
     if (filter === "closed") return closedRows.sort((a, b) => {
-      const ta = Date.parse(a.openTimeStr || "") || 0;
-      const tb = Date.parse(b.openTimeStr || "") || 0;
+      const ta = toMs(a.openTimeStr) || 0;
+      const tb = toMs(b.openTimeStr) || 0;
       return tb - ta;
     });
     // For 'all' tab, combine both
     const all = [...filteredOpen, ...closedRows];
     return all.sort((a, b) => {
-      const ta = Date.parse(a.openTimeStr || "") || 0;
-      const tb = Date.parse(b.openTimeStr || "") || 0;
+      const ta = toMs(a.openTimeStr) || 0;
+      const tb = toMs(b.openTimeStr) || 0;
       return tb - ta;
     });
   }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus, mtStatus]);
@@ -465,14 +470,19 @@ export default function CopierHistoryPage() {
     };
   }, [displayRows]);
 
-  const formatDate = (dateStr: string | undefined) => {
+  const formatDate = (dateStr: string | number | undefined) => {
     if (!dateStr) return "-";
-    if (typeof dateStr === "string" && /^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) {
+    // If it already looks like a formatted date string from the server, return it as is
+    if (typeof dateStr === "string" && /^\d{4}[\.\-/]\d{2}[\.\-/]\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) {
       return dateStr;
     }
     const ms = toMs(dateStr);
-    if (!Number.isFinite(ms)) return dateStr;
-    return new Date(ms).toLocaleString();
+    if (!Number.isFinite(ms)) return String(dateStr);
+    
+    // Format to match MT5 style: YYYY.MM.DD HH:MM:SS
+    const d = new Date(ms);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
   if (loading) {
@@ -579,39 +589,42 @@ export default function CopierHistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {displayRows.map((pos, idx) => (
-                    <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                        {formatDate(pos.openTimeStr)}
-                      </td>
-                      <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                        {formatDate(pos.closeTimeStr)}
-                      </td>
-                      <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                          }`}
-                        >
-                          {String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0" ? "BUY" : "SELL"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
-                      <td className="px-6 py-4 text-gray-600">
-                        {pos.openPrice && Number(pos.openPrice) !== 0 ? pos.openPrice : "-"}
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">
-                        {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0 ? pos.closeOrCurrentPrice : "-"}
-                      </td>
-                      <td className={`px-6 py-4 font-medium ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {(pos as any).swap > 0 ? "+" : ""}{Number((pos as any).swap || 0).toFixed(2)}
-                      </td>
-                      <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {(pos as any).profit >= 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
+                  {displayRows.map((pos, idx) => {
+                    const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
+                    return (
+                      <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                          {formatDate(pos.openTimeStr)}
+                        </td>
+                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                          {formatDate(pos.closeTimeStr)}
+                        </td>
+                        <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              isBuy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {isBuy ? "BUY" : "SELL"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">{(pos as any).volume}</td>
+                        <td className="px-6 py-4 text-gray-600">
+                          {pos.openPrice && Number(pos.openPrice) !== 0 ? pos.openPrice : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">
+                          {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0 ? pos.closeOrCurrentPrice : "-"}
+                        </td>
+                        <td className={`px-6 py-4 font-medium ${(pos as any).swap >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {(pos as any).swap > 0 ? "+" : ""}{Number((pos as any).swap || 0).toFixed(2)}
+                        </td>
+                        <td className={`px-6 py-4 font-bold ${(pos as any).profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {(pos as any).profit >= 0 ? "+" : ""}{Number((pos as any).profit).toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (

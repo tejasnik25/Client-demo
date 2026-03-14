@@ -135,32 +135,75 @@ const StrategyInfoPage: React.FC = () => {
   }, [params.id]);
 
   const toMs = (v: any): number => {
-    if (v == null) return NaN;
+    if (v == null || v === "") return NaN;
     if (v instanceof Date) return v.getTime();
     if (typeof v === "string") {
+      // 1. Try native parsing (e.g. ISO)
       let t = Date.parse(v);
+      
+      // 2. Handle MT5 style with dots (e.g. 2026.02.25 14:30:00)
       if (!Number.isFinite(t)) {
-        // Handle dots in date strings (e.g. 2026.02.25)
         t = Date.parse(v.replace(/\./g, '-'));
+      }
+      
+      // 3. Manual parse for "YYYY.MM.DD HH:MM:SS" if still failing
+      if (!Number.isFinite(t)) {
+        const m = v.match(/^(\d{4})[\.\-/](\d{2})[\.\-/](\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+        if (m) {
+          const [_, yy, MM, dd, hh, mm, ss] = m;
+          const d = new Date(
+            Number(yy),
+            Number(MM) - 1,
+            Number(dd),
+            Number(hh),
+            Number(mm),
+            Number(ss)
+          );
+          t = d.getTime();
+        }
       }
       return Number.isFinite(t) ? t : NaN;
     }
     const num = Number(v);
     if (!Number.isFinite(num)) return NaN;
-    // If it's a small number (seconds), convert to ms. MT5 uses seconds.
-    return num < 1e12 ? num * 1000 : num;
+    // MT5 timestamps are in seconds, JS in milliseconds. 
+    // Heuristic: If < 10^12, it's probably seconds.
+    return num < 10000000000 ? num * 1000 : num;
+  };
+
+  const formatDate = (val: any) => {
+    if (!val) return "-";
+    // If it's a string that already looks like a formatted date, return it
+    if (typeof val === 'string' && /^\d{4}[\.\-/]\d{2}[\.\-/]\d{2} \d{2}:\d{2}:\d{2}$/.test(val)) return val;
+    const ms = toMs(val);
+    if (!Number.isFinite(ms)) return String(val);
+    
+    // Format to match MT5 style: YYYY.MM.DD HH:MM:SS
+    const d = new Date(ms);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
   const filteredHistory = useMemo(() => {
     // Only show trades that were opened AFTER the strategy was approved/connected
     // If connectAt is null, show all history for the strategy (for public view)
-    if (!connectAt) return history;
+    if (!connectAt) return history.sort((a, b) => {
+      const ta = toMs(a.time_open || a.server_time_open || a.open_time) || 0;
+      const tb = toMs(b.time_open || b.server_time_open || b.open_time) || 0;
+      return tb - ta;
+    });
 
     const startTs = new Date(connectAt).getTime();
-    return history.filter(h => {
-      const openMs = toMs(h.time_open ?? h.server_time_open);
-      return openMs >= startTs;
-    });
+    return history
+      .filter(h => {
+        const openMs = toMs(h.server_time_open ?? h.time_open ?? h.open_time);
+        return openMs >= startTs;
+      })
+      .sort((a, b) => {
+        const ta = toMs(a.time_open || a.server_time_open || a.open_time) || 0;
+        const tb = toMs(b.time_open || b.server_time_open || b.open_time) || 0;
+        return tb - ta;
+      });
   }, [history, connectAt]);
   const startIndex = (currentPage - 1) * entriesPerPage;
   const endIndex = startIndex + entriesPerPage;
@@ -535,30 +578,33 @@ const StrategyInfoPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {openPositions.map((pos: any, idx: number) => (
-                      <tr key={pos.ticket || idx} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {pos.server_time || (Number.isFinite(toMs(pos.time)) ? new Date(toMs(pos.time)).toLocaleString() : "-")}
-                        </td>
-                        <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}>
-                            {String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'BUY' : 'SELL'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
-                        <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
-                        <td className="px-6 py-4 text-gray-600">{pos.price_current}</td>
-                        <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
-                        </td>
-                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
-                        </td>
-                      </tr>
-                    ))}
+                    {openPositions.map((pos: any, idx: number) => {
+                      const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
+                      return (
+                        <tr key={pos.ticket || idx} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                            {formatDate(pos.server_time_open || pos.server_time || pos.time_open || pos.time || pos.open_time)}
+                          </td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              isBuy ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                              {isBuy ? 'BUY' : 'SELL'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
+                          <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
+                          <td className="px-6 py-4 text-gray-600">{pos.price_current}</td>
+                          <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
+                          </td>
+                          <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               ) : (
@@ -600,33 +646,40 @@ const StrategyInfoPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {currentHistory.map((pos: any, idx: number) => (
-                      <tr key={pos.position_id || idx} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {pos.server_time_open || (Number.isFinite(toMs(pos.time_open)) ? new Date(toMs(pos.time_open)).toLocaleString() : "-")}
-                        </td>
-                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                          {pos.server_time_close || (Number.isFinite(toMs(pos.time_close)) ? new Date(toMs(pos.time_close)).toLocaleString() : "-")}
-                        </td>
-                        <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                            String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}>
-                            {String(pos.type).toLowerCase().includes('buy') || pos.type === 0 ? 'BUY' : 'SELL'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
-                        <td className="px-6 py-4 text-gray-600">{pos.price_open}</td>
-                        <td className="px-6 py-4 text-gray-600">{pos.price_close}</td>
-                        <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
-                        </td>
-                        <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
-                        </td>
-                      </tr>
-                    ))}
+                    {currentHistory.map((pos: any, idx: number) => {
+                      const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
+                      return (
+                        <tr key={pos.position_id || idx} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                            {formatDate(pos.server_time_open || pos.time_open || pos.open_time)}
+                          </td>
+                          <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                            {formatDate(pos.server_time_close || pos.time_close || pos.close_time)}
+                          </td>
+                          <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              isBuy ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                              {isBuy ? 'BUY' : 'SELL'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-gray-600">{pos.volume}</td>
+                          <td className="px-6 py-4 text-gray-600">
+                            {pos.price_open && Number(pos.price_open) !== 0 ? pos.price_open : "-"}
+                          </td>
+                          <td className="px-6 py-4 text-gray-600">
+                            {pos.price_close && Number(pos.price_close) !== 0 ? pos.price_close : "-"}
+                          </td>
+                          <td className={`px-6 py-4 font-medium ${pos.swap >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {pos.swap > 0 ? '+' : ''}{typeof pos.swap === 'number' ? pos.swap.toFixed(2) : '0.00'}
+                          </td>
+                          <td className={`px-6 py-4 font-bold ${pos.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {pos.profit > 0 ? '+' : ''}{typeof pos.profit === 'number' ? pos.profit.toFixed(2) : '0.00'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               ) : (

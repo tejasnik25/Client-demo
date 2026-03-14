@@ -139,16 +139,23 @@ def save_master_history(history_data, open_positions=None):
         existing = load_master_history()
         
         # history_data is a dict {master_id: [deals]}
-        # We store it under "history" key for that master_id
         for m_id, deals in history_data.items():
             if m_id not in existing:
                 existing[m_id] = {"history": [], "open_positions": []}
             
-            # If it's a dict structure already, handle it, otherwise wrap it
             if not isinstance(existing[m_id], dict):
                 existing[m_id] = {"history": existing[m_id], "open_positions": []}
-                
-            existing[m_id]["history"] = deals
+            
+            # APPEND and deduplicate by ticket
+            existing_history = existing[m_id].get("history", [])
+            existing_tickets = {d.get('ticket') for d in existing_history if d.get('ticket')}
+            
+            for deal in deals:
+                if deal.get('ticket') not in existing_tickets:
+                    existing_history.append(deal)
+                    existing_tickets.add(deal.get('ticket'))
+            
+            existing[m_id]["history"] = existing_history
             
         if open_positions:
             for m_id, positions in open_positions.items():
@@ -157,7 +164,7 @@ def save_master_history(history_data, open_positions=None):
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
                 
-                # Add server_time string to each open position for frontend consistency
+                # For open positions, we overwrite because they are "current"
                 for pos in positions:
                     if 'time' in pos and 'server_time' not in pos:
                         pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
@@ -168,32 +175,29 @@ def save_master_history(history_data, open_positions=None):
             json.dump(existing, f, indent=2)
         
         # [PUSH ARCHITECTURE] Push data to Next.js API
-        # Trigger push in background thread to avoid blocking worker loop
         def push_sync():
             try:
-                for m_id in existing:
-                    m_data = existing[m_id]
-                    
-                    # AGGREGATE RAW DEALS TO POSITIONS BEFORE PUSHING
-                    # This ensures accurate prices, timing, and profits
-                    raw_deals = m_data.get("history", [])
-                    aggregated_history = aggregate_deals_to_positions(raw_deals)
-                    
-                    payload = {
-                        "master_id": m_id,
-                        "history": aggregated_history,
-                        "open_positions": m_data.get("open_positions", [])
-                    }
-                    headers = {"Authorization": f"Bearer {API_KEY}"}
-                    # We use a short timeout for the push
-                    res = requests.post(NEXTJS_SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
-                    if res.status_code == 200:
-                        # log_print(f"📡 Successfully pushed {m_id} trades to Vercel")
-                        pass
-                    else:
-                        log_print(f"⚠️ Push failed for {m_id}: {res.status_code} {res.text}")
+                # Push for all masters that have any updates (history or open positions)
+                masters_to_push = set(history_data.keys())
+                if open_positions:
+                    masters_to_push.update(open_positions.keys())
+
+                for m_id in masters_to_push:
+                    if m_id in existing:
+                        m_data = existing[m_id]
+                        raw_deals = m_data.get("history", [])
+                        aggregated_history = aggregate_deals_to_positions(raw_deals)
+                        
+                        payload = {
+                            "master_id": m_id,
+                            "history": aggregated_history,
+                            "open_positions": m_data.get("open_positions", [])
+                        }
+                        headers = {"Authorization": f"Bearer {API_KEY}", "X-API-KEY": NEXTJS_API_KEY}
+                        res = requests.post(NEXTJS_SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
+                        if res.status_code != 200:
+                            log_print(f"⚠️ Push failed for {m_id}: {res.status_code} {res.text}")
             except Exception as push_err:
-                # log_print(f"❌ Push error: {push_err}")
                 pass
 
         threading.Thread(target=push_sync, daemon=True).start()
@@ -2254,56 +2258,25 @@ def copy_trade_worker():
                                 try:
                                     if should_refresh_history or history_needs_refresh:
                                         log_print(f"🕒 Periodic history update for Master {m_id}...")
-                                        # OPTIMIZATION: Fetch a shorter period for live requests to avoid timeouts.
-                                        # A full 30-day history can be slow. We do a quick 7-day fetch here.
-                                        # The full history can be fetched less frequently if needed.
-                                        from_date_hist = datetime.now() - timedelta(days=7)
-                                        # Fetch closed positions (not just deals) for the History page
-                                        history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
+                                        # Increase range to 30 days to ensure we catch opening deals for older positions
+                                        from_date_hist = datetime.now() - timedelta(days=30)
+                                        # Fetch history deals for the History page
                                         history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
 
-                                        # In MT5, "History" tab usually shows positions.
-                                        # To reconstruct positions from deals/orders is complex,
-                                        # but we can fetch history_deals and filter for those that close positions.
-                                        # However, the user specifically asked for "Position" page data from history.
-                                        # MT5 doesn't have a direct 'history_positions_get'.
-                                        # We use history_deals and provide fields that represent the closed position.
-
                                         if history_deals:
-                                            # Include both opening and closing deals for each position
-                                            # so we can reconstruct accurate open/close times.
-                                            trade_deals = []
-                                            for d in history_deals:
-                                                try:
-                                                    if getattr(d, "position_id", 0):
-                                                        # FIX: In MT5, a position is only truly 'closed' if there is an OUT or INOUT deal.
-                                                        # If it's only an IN deal, it's an open position and should NOT be in history.
-                                                        # However, history_deals_get returns all deals. 
-                                                        # We should only consider it a 'closed trade' for the history page 
-                                                        # if the deal type is OUT (close) or if the position is no longer active.
-                                                        
-                                                        # We check if this position is currently open. 
-                                                        # If it's still open, we skip its deals for the 'Closed History' save.
-                                                        is_still_open = any(str(p.ticket) == str(d.position_id) for p in master_positions)
-                                                        if is_still_open:
-                                                            continue
-
-                                                        if d.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
-                                                            trade_deals.append(d._asdict())
-                                                except Exception:
-                                                    pass
+                                            # Save ALL history deals. aggregate_deals_to_positions will
+                                            # reconstruct the positions properly from the deals.
+                                            trade_deals = [d._asdict() for d in history_deals]
                                             save_master_history({str(m_id): trade_deals})
                                             master_last_check[f"{m_id}_history"] = now
-                                            log_print(f"✅ Saved {len(trade_deals)} closed position deals for Master {m_id}")
+                                            log_print(f"✅ Saved {len(trade_deals)} history deals for Master {m_id}")
 
-                                    from_date = datetime.now() - timedelta(minutes=5)
+                                    # Short-range check for very recent updates
+                                    from_date = datetime.now() - timedelta(hours=1)
                                     history = mt5.history_deals_get(from_date, datetime.now())
                                     if history:
-                                        log_print(f"   � Recent History (Last 5 mins): {len(history)} deals found.")
-                                        for deal in history[-3:]: # Show last 3
-                                            log_print(f"      - Deal {deal.ticket}: {deal.symbol} {deal.volume} {deal.type} (Profit: {deal.profit})")
-                                    else:
-                                        log_print("   ℹ No recent history (deals) found in last 5 minutes.")
+                                        trade_deals = [d._asdict() for d in history]
+                                        save_master_history({str(m_id): trade_deals})
                                 except Exception as hist_e:
                                     log_print(f"   ⚠ History check failed: {hist_e}")
                             else:
@@ -2630,43 +2603,55 @@ def aggregate_deals_to_positions(deals):
         total_swap = 0
         total_volume = 0
         
-        for d in deals_list:
-            entry = d.get('entry')
-            # mt5.DEAL_ENTRY_IN = 0
-            if entry == 0: 
-                if not open_deal:
-                    open_deal = d
+        # Track all entry IN deals to calculate volume correctly
+        in_deals = [d for d in deals_list if d.get('entry') == 0] # DEAL_ENTRY_IN
+        out_deals = [d for d in deals_list if d.get('entry') in [1, 2, 3]] # DEAL_ENTRY_OUT, INOUT, OUT_BY
+        
+        if in_deals:
+            open_deal = in_deals[0]
+            for d in in_deals:
                 total_volume += d.get('volume', 0)
-            # mt5.DEAL_ENTRY_OUT = 1, mt5.DEAL_ENTRY_INOUT = 2, mt5.DEAL_ENTRY_OUT_BY = 3
-            elif entry in [1, 2, 3]:
-                close_deal = d  # Last closing deal
+        
+        if out_deals:
+            close_deal = out_deals[-1] # Use the last closing deal
             
+        for d in deals_list:
             total_profit += d.get('profit', 0)
             total_commission += d.get('commission', 0)
             total_swap += d.get('swap', 0)
         
         # We only return closed positions (those that have both an entry and an exit)
-        if open_deal and close_deal:
+        # If entry is missing (e.g. historical trade), we fallback to the first deal we have
+        active_open_deal = open_deal or (deals_list[0] if deals_list else None)
+        
+        if close_deal and active_open_deal:
             # Determine type from the opening deal
             # mt5.DEAL_TYPE_BUY = 0, mt5.DEAL_TYPE_SELL = 1
-            raw_type = open_deal.get('type')
-            trade_type = "BUY" if raw_type == 0 else "SELL"
+            raw_type = active_open_deal.get('type')
+            
+            # If we don't have the real open deal (entry=0), the first deal we have 
+            # might be the closing deal itself. For a BUY position, the closing deal type is SELL (1).
+            # So if it's an OUT deal, we need to invert the type.
+            if not open_deal and active_open_deal.get('entry') in [1, 3]: # OUT or OUT_BY
+                trade_type = "BUY" if raw_type == 1 else "SELL"
+            else:
+                trade_type = "BUY" if raw_type == 0 else "SELL"
 
             # Open price from the very first deal
-            open_price = open_deal.get('price')
+            open_price = active_open_deal.get('price')
             # Close price from the very last deal
             close_price = close_deal.get('price')
 
             # Ensure time_open and time_close are ALWAYS present
-            time_open = open_deal.get('time')
+            time_open = active_open_deal.get('time')
             time_close = close_deal.get('time')
 
             if time_open and time_close:
                 result.append({
                     'position_id': pid,
-                    'symbol': open_deal.get('symbol'),
+                    'symbol': active_open_deal.get('symbol'),
                     'type': trade_type,
-                    'volume': total_volume,
+                    'volume': total_volume or active_open_deal.get('volume', 0),
                     'time_open': time_open,
                     'time_close': time_close,
                     'price_open': open_price,
@@ -2674,8 +2659,8 @@ def aggregate_deals_to_positions(deals):
                     'profit': total_profit,
                     'commission': total_commission,
                     'swap': total_swap,
-                    'magic': open_deal.get('magic'),
-                    'comment': open_deal.get('comment'),
+                    'magic': active_open_deal.get('magic'),
+                    'comment': active_open_deal.get('comment'),
                     'server_time_open': datetime.fromtimestamp(time_open).strftime('%Y.%m.%d %H:%M:%S'),
                     'server_time_close': datetime.fromtimestamp(time_close).strftime('%Y.%m.%d %H:%M:%S')
                 })
