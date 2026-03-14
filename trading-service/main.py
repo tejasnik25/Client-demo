@@ -174,10 +174,10 @@ def save_master_history(history_data, open_positions=None):
         with open(MASTER_HISTORY_FILE, 'w') as f:
             json.dump(existing, f, indent=2)
         
-        # [PUSH ARCHITECTURE] Push data to Next.js API
+        # [PUSH ARCHITECTURE] Push to Next.js so copier history page shows Master's MT5 data (Octa Copy style).
+        # history = closed positions (MT5 Terminal → History tab); open_positions = current open (MT5 Trade tab).
         def push_sync():
             try:
-                # Push for all masters that have any updates (history or open positions)
                 masters_to_push = set(history_data.keys())
                 if open_positions:
                     masters_to_push.update(open_positions.keys())

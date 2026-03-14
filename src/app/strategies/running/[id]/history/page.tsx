@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * Copier History page (Octa Copy–style): shows Master's MT5 trades to the copying user.
+ * - Strategy has Master A linked (admin). User A pays for Strategy A → after approval, sees it here.
+ * - "Opened" tab = Master A's current open positions on MT5 (same as Terminal → Trade).
+ * - "Closed" tab = Master A's closed positions (same as MT5 Terminal → History tab).
+ * Data comes from master-history API (cache filled by Python trading service sync).
+ */
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
@@ -549,7 +556,9 @@ export default function CopierHistoryPage() {
               <h3 className="font-bold text-gray-900">
                 {filter === "all" ? "All Trades" : filter === "opened" ? "Opened Positions" : "Closed Positions"}
               </h3>
-              <span className="text-xs text-gray-500">MT5 position data</span>
+              <span className="text-xs text-gray-500">
+                {filter === "closed" ? "Master MT5 History tab (closed trades)" : "Master MT5 position data"}
+              </span>
             </div>
             <div className="mt-4 inline-flex rounded-md shadow-sm border border-gray-200 overflow-hidden" role="group">
               <button

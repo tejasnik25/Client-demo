@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStrategyById, upsertMasterTrades, getCachedMasterTrades } from '@/db/dbService';
+import { getStrategyById, getCachedMasterTrades } from '@/db/dbService';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 25;
 
+/**
+ * Master trade history for a strategy (Octa Copy–style flow).
+ * Strategy has Master account linked (admin). When a user pays and is approved,
+ * they see this strategy in their copier. This API returns that Master's:
+ * - open_positions: same as Master's MT5 open positions (shown in "Opened" tab).
+ * - history: closed positions from Master's MT5 History tab (shown in "Closed" tab).
+ */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,11 +30,7 @@ export async function GET(
   }
 
   try {
-    // [PUSH ARCHITECTURE REDESIGN]
-    // The web application now reads EXCLUSIVELY from the database cache.
-    // The Python trading service periodically PUSHES data to our sync endpoint.
-    // This removes synchronous dependencies on the slow/unreliable AWS connection.
-    
+    // Data is pushed by Python trading service to sync/trades and stored in master_trades_cache.
     console.log(`[MasterHistory] Reading cached data for master ${masterId}`);
     const cached = await getCachedMasterTrades(masterId);
     
