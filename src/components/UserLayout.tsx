@@ -36,7 +36,8 @@ import {
   FiLinkedin,
   FiMail,
   FiPhone,
-  FiMessageCircle
+  FiMessageCircle,
+  FiFileText
 } from 'react-icons/fi';
 import MobileHamburgerMenu from '@/components/ui/MobileHamburgerMenu';
 import { COUNTRY_OPTIONS } from '@/utils/countries';
@@ -842,6 +843,101 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
             onClose={() => setMenuOpen(false)}
             onLogout={handleLogout}
           />
+        )}
+
+        {/* Mobile bottom navigation (Octa Copy style) */}
+        {isMobile && isAuthenticatedUser && (
+          <nav className="fixed bottom-0 inset-x-0 z-30 bg-[#050608] border-t border-gray-800 px-4 py-1.5 flex justify-between items-center">
+            {(() => {
+              const isTrades = pathname?.includes('/strategies/running') && pathname?.includes('/history');
+              const isRatings = pathname === '/strategies' || pathname?.startsWith('/strategies?');
+              const isInvestment = !isTrades && !isRatings;
+
+              const baseClasses =
+                'flex flex-col items-center flex-1 text-[11px] py-0.5 transition-colors';
+
+              const renderTab = (
+                active: boolean,
+                label: string,
+                onClick: () => void,
+                Icon: React.ComponentType<{ className?: string }>
+              ) => (
+                <button
+                  type="button"
+                  onClick={onClick}
+                  className={`${baseClasses} ${
+                    active ? 'text-blue-400' : 'text-gray-400'
+                  }`}
+                >
+                  <Icon className="h-5 w-5" />
+                  {active && <span className="mt-0.5 font-semibold">{label}</span>}
+                </button>
+              );
+
+              return (
+                <>
+                  {renderTab(
+                    isInvestment,
+                    'Investment',
+                    () => router.push('/strategies/running'),
+                    FiGrid
+                  )}
+                  {renderTab(
+                    isRatings,
+                    'Ratings',
+                    () => router.push('/strategies'),
+                    FiUser
+                  )}
+                  {renderTab(
+                    isTrades,
+                    'Trades',
+                    async () => {
+                      // Already on a trades page – nothing to do
+                      if (pathname?.includes('/strategies/running') && pathname?.includes('/history')) {
+                        return;
+                      }
+
+                      // 1) Prefer last visited trades page (copier history)
+                      if (typeof window !== 'undefined') {
+                        try {
+                          const v = window.localStorage.getItem('last_trades_path');
+                          if (v && typeof v === 'string') {
+                            router.push(v);
+                            return;
+                          }
+                        } catch {
+                          // ignore and continue
+                        }
+                      }
+
+                      // 2) Fallback: first running strategy's history
+                      try {
+                        const res = await fetch('/api/strategies/running', { cache: 'no-store' });
+                        if (res.ok) {
+                          const data = await res.json().catch(() => null);
+                          const list: any[] = Array.isArray(data?.strategies) ? data.strategies : [];
+                          if (list.length > 0) {
+                            const first = list[0] as any;
+                            const stratId = first.strategyId || first.id;
+                            if (stratId) {
+                              router.push(`/strategies/running/${encodeURIComponent(stratId)}/history`);
+                              return;
+                            }
+                          }
+                        }
+                      } catch {
+                        // ignore and fall through
+                      }
+
+                      // 3) Final fallback: investment page
+                      router.push('/strategies/running');
+                    },
+                    FiFileText
+                  )}
+                </>
+              );
+            })()}
+          </nav>
         )}
 
         {cookieModalOpen && (

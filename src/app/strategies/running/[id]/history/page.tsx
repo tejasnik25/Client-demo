@@ -8,7 +8,7 @@
  * Data comes from master-history API (live from MT5 via Python trading service, no cache).
  */
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, usePathname } from "next/navigation";
 import Button from "@/components/ui/Button";
 import UserLayout from "@/components/UserLayout";
 import { FiTrendingUp, FiDollarSign, FiTrendingDown } from "react-icons/fi";
@@ -63,6 +63,7 @@ type Payment = {
 export default function CopierHistoryPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const pathname = usePathname();
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [openPositions, setOpenPositions] = useState<OpenItem[]>([]);
@@ -106,6 +107,17 @@ export default function CopierHistoryPage() {
     load();
   }, [params.id]);
 
+  // Remember last trades page for bottom nav
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (pathname?.includes("/strategies/running") && pathname?.includes("/history")) {
+        window.localStorage.setItem("last_trades_path", pathname);
+      }
+    } catch {
+      // ignore
+    }
+  }, [pathname]);
   useEffect(() => {
     const loadHistory = async () => {
       if (!params.id) return;
@@ -520,7 +532,7 @@ export default function CopierHistoryPage() {
   return (
     <UserLayout>
       <div className="min-h-screen bg-gray-50 text-gray-900 px-6 py-8">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto pb-16 md:pb-0">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-[#00d09c] to-[#7c3aed] bg-clip-text text-transparent">View History</h1>
@@ -601,7 +613,8 @@ export default function CopierHistoryPage() {
           <div className="overflow-x-auto">
             {displayRows.length > 0 ? (
               <>
-                <table className="w-full text-left text-sm">
+                {/* Desktop / tablet table */}
+                <table className="hidden md:table w-full text-left text-sm">
                   <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
                     <tr>
                       <th className="px-6 py-3">Open Time</th>
@@ -658,6 +671,89 @@ export default function CopierHistoryPage() {
                     })}
                   </tbody>
                 </table>
+                {/* Mobile card list (white theme) */}
+                <div className="md:hidden divide-y divide-gray-200 bg-white">
+                  {paginatedRows.map((pos, idx) => {
+                    const isBuy = String(pos.type).toUpperCase().includes("BUY") || pos.type === 0 || pos.type === "0";
+                    const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
+                    const vol = Number((pos as any).volume) || 0;
+                    const swapVal = (Number((pos as any).swap) || 0) * mult;
+                    const profitVal = (Number((pos as any).profit) || 0) * mult;
+                    const isProfitPositive = profitVal >= 0;
+
+                    return (
+                      <div
+                        key={`${pos.symbol}-${pos.openTimeStr}-${idx}`}
+                        className="px-4 py-3 flex flex-col gap-2 bg-white"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                              {pos.symbol}
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                  isBuy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                                }`}
+                              >
+                                {isBuy ? "BUY" : "SELL"}
+                              </span>
+                            </p>
+                            <p className="text-[11px] text-gray-500">
+                              Open: {formatDate(pos.openTimeStr)}
+                            </p>
+                            {pos.closeTimeStr && (
+                              <p className="text-[11px] text-gray-400">
+                                Close: {formatDate(pos.closeTimeStr)}
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p
+                              className={`text-sm font-bold ${
+                                isProfitPositive ? "text-green-600" : "text-red-600"
+                              }`}
+                            >
+                              {isProfitPositive ? "+" : ""}
+                              {profitVal.toFixed(2)}
+                            </p>
+                            <p className="text-[11px] text-gray-500">Profit</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-gray-500 mt-1">
+                          <div className="flex flex-col">
+                            <span className="uppercase tracking-wide">Volume</span>
+                            <span className="text-gray-900 font-medium">
+                              {(vol * mult).toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="uppercase tracking-wide">
+                              {filter === "opened" ? "Current" : "Close"} Price
+                            </span>
+                            <span className="text-gray-900 font-medium">
+                              {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0
+                                ? pos.closeOrCurrentPrice
+                                : "-"}
+                            </span>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <span className="uppercase tracking-wide">Swap</span>
+                            <span
+                              className={`font-medium ${
+                                swapVal >= 0 ? "text-green-600" : "text-red-600"
+                              }`}
+                            >
+                              {swapVal > 0 ? "+" : ""}
+                              {swapVal.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 bg-gray-50">
                     <p className="text-sm text-gray-600">

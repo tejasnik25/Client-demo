@@ -151,7 +151,7 @@ const RunningStrategiesPageInner: React.FC = () => {
   return (
     <>
     <UserLayout>
-      <div className="min-h-screen bg-gray-50 text-gray-900 px-6 py-8">
+      <div className="min-h-screen bg-gray-50 text-gray-900 px-6 py-8 pb-16 md:pb-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Running Strategy</h1>
