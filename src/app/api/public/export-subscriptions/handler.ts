@@ -16,11 +16,8 @@ export async function GET(req: NextRequest) {
         await pool.query('SELECT 1');
     } catch (dbError: any) {
         console.error('DB Connection Check Failed:', dbError);
-        return NextResponse.json({ 
-            error: 'Database Connection Failed', 
-            details: dbError.message,
-            hint: 'Check if DB_HOST, DB_USER, DB_PASSWORD are set in Vercel Environment Variables'
-        }, { status: 500 });
+        // Do not leak env/DB error details.
+        return NextResponse.json({ error: 'Database Connection Failed' }, { status: 500 });
     }
 
     // 1. Fetch Strategies (Masters)
@@ -87,10 +84,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(subs);
   } catch (error: any) {
     console.error('Export Subscriptions Error:', error);
-    return NextResponse.json({ 
-        error: 'Internal Server Error', 
-        details: error.message,
-        stack: error.stack 
-    }, { status: 500 });
+    // Do not leak internal stack traces or DB/env details.
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

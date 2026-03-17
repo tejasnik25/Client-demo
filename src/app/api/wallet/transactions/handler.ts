@@ -4,6 +4,10 @@ import { authOptions } from '@/lib/auth-options';
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const body = await request.json();
   const {
       user_id,
@@ -30,6 +34,11 @@ export async function POST(request: NextRequest) {
 
     if (!user_id || !amount || !transaction_type) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Prevent creating transactions for other users
+    if (String(user_id) !== String(session.user.id)) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     // Do not log sensitive payloads

@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     const res = await mt5Service.stopCopyTrading(runningStrategyId);
     return NextResponse.json(res);
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message || 'Internal Server Error' }, { status: 500 });
+    console.error('[CopyTrading] Unsubscribe failed:', error);
+    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
   }
 }

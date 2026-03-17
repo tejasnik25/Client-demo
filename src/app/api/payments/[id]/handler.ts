@@ -67,7 +67,9 @@ export async function PUT(
       }
     }
 
-    return NextResponse.json(updated);
+    // Never expose MT credentials to the client
+    const { mt_account_password: _pwd, mt_account_server: _srv, ...safe } = updated as any;
+    return NextResponse.json(safe);
   } catch (error) {
     console.error(`Error updating payment ${params.id}:`, error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
@@ -95,7 +97,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update payment status' }, { status: 500 });
     }
 
-    return NextResponse.json(result.transaction);
+    // Never expose MT credentials to the client
+    const { mt_account_password: _pwd, mt_account_server: _srv, ...safe } = result.transaction as any;
+    return NextResponse.json(safe);
   } catch (error) {
     console.error(`Error updating payment ${params.id}:`, error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

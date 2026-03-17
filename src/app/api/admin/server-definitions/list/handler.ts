@@ -17,15 +17,18 @@ export async function GET() {
     // Default to localhost for RDP setups where Next.js and Python run on same machine
     const apiUrl = process.env.COPY_TRADING_API_URL || 'http://127.0.0.1:8000';
     
-    // Fallback API Key if env var fails to load (Temporary fix for local dev)
-    const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
+    const apiKey = process.env.COPY_TRADING_API_KEY;
+    if (!apiKey) {
+      // Do not leak configuration details to the client.
+      return NextResponse.json({ files: [] });
+    }
     
     // Remove trailing slash
     const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
     const targetUrl = `${baseUrl}/server-definitions`;
     
     console.log(`[API] Proxying list to Python service: ${targetUrl}`);
-    console.log(`[API] Loaded API Key: ${process.env.COPY_TRADING_API_KEY ? 'Present (Env)' : 'Using Fallback'}`);
+    console.log(`[API] Loaded API Key: ${process.env.COPY_TRADING_API_KEY ? 'Present (Env)' : 'Missing'}`);
 
     try {
       const response = await fetch(targetUrl, {

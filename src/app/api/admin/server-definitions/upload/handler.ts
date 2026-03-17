@@ -43,8 +43,10 @@ export async function POST(req: NextRequest) {
           candidates.push('http://127.0.0.1:8000');
       }
 
-      // Fallback API Key if env var fails to load (Temporary fix for local dev)
-      const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
+      const apiKey = process.env.COPY_TRADING_API_KEY;
+      if (!apiKey) {
+        return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 });
+      }
       
       let lastError;
       let successResponse;
@@ -96,10 +98,7 @@ export async function POST(req: NextRequest) {
 
     } catch (netError: any) {
       console.error('[API] Python service connection failed:', netError);
-      return NextResponse.json(
-        { error: `Could not connect to Trading Service. Ensure manager.py is running. Error: ${netError.message}` },
-        { status: 503 }
-      );
+      return NextResponse.json({ error: 'Trading Service unavailable' }, { status: 503 });
     }
 
   } catch (error: any) {

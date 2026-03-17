@@ -50,11 +50,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         }
       } catch (recoveryError: any) {
         console.error(`[CheckStatus] Auto-Recovery failed for ${params.id}:`, recoveryError);
-        // Return the recovery error so we can debug why it failed
+        // Do not leak internal error details to the client
         return NextResponse.json({ 
             status: 'disconnected', 
             error: 'Auto-Recovery Failed',
-            detail: recoveryError.message || 'Failed to restart subscription'
+            detail: 'Failed to restart subscription'
         });
       }
     }
@@ -64,7 +64,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     console.error(`[CheckStatus] Failed for ${params.id}:`, error);
     return NextResponse.json({ 
         status: 'error', 
-        error: error.message || 'Internal Server Error',
+        error: 'Internal Server Error',
         detail: 'Service Unreachable'
     }, { status: 500 });
   }

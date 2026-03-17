@@ -118,6 +118,22 @@ export default function CopierHistoryPage() {
       // ignore
     }
   }, [pathname]);
+
+  // Hydrate instantly from localStorage cache (best-effort) to avoid initial delay.
+  useEffect(() => {
+    if (!params.id) return;
+    if (typeof window === "undefined") return;
+    try {
+      const key = `copier_history_cache_${params.id}`;
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.history) && parsed.history.length > 0) setHistory(parsed.history);
+      if (Array.isArray(parsed?.open_positions) && parsed.open_positions.length > 0) setOpenPositions(parsed.open_positions);
+    } catch {
+      // ignore
+    }
+  }, [params.id]);
   useEffect(() => {
     const loadHistory = async () => {
       if (!params.id) return;
@@ -130,6 +146,23 @@ export default function CopierHistoryPage() {
         
         setHistory(data.history || []);
         setOpenPositions(data.open_positions || []);
+
+        // Persist latest known-good data for instant display on next visit.
+        if (typeof window !== "undefined") {
+          try {
+            const key = `copier_history_cache_${params.id}`;
+            window.localStorage.setItem(
+              key,
+              JSON.stringify({
+                history: data.history || [],
+                open_positions: data.open_positions || [],
+                saved_at: Date.now(),
+              })
+            );
+          } catch {
+            // ignore
+          }
+        }
         
         setHistoryError(data.error || null);
         const runData = await runRes.json().catch(() => null);
@@ -164,7 +197,8 @@ export default function CopierHistoryPage() {
       }
     };
     
-    setHistoryLoading(true);
+    // Only show loading if nothing is available yet.
+    setHistoryLoading(history.length === 0 && openPositions.length === 0);
     loadHistory();
 
     const timer = setInterval(loadHistory, 5000);

@@ -6,7 +6,11 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('Authorization');
-    const apiKey = process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
+    const apiKey = process.env.COPY_TRADING_API_KEY;
+    if (!apiKey) {
+      console.error('[Sync] COPY_TRADING_API_KEY missing');
+      return NextResponse.json({ success: false, error: 'Server misconfigured' }, { status: 500 });
+    }
     
     if (authHeader !== `Bearer ${apiKey}`) {
       console.warn('[Sync] Unauthorized push attempt');

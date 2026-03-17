@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(res);
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message || 'Internal Server Error' }, { status: 500 });
+    console.error('[CopyTrading] Subscribe failed:', error);
+    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
   }
 }

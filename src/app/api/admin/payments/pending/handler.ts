@@ -33,7 +33,9 @@ export async function GET(request: NextRequest) {
           receipt_path: transaction.receipt_path,
           platform: transaction.platform,
           mt_account_id: transaction.mt_account_id,
-          mt_account_password: transaction.mt_account_password,
+          // Never expose passwords to the browser (even for admin UI).
+          // Admin actions should fetch required secrets server-side.
+          mt_account_password: undefined,
           terms_accepted: transaction.terms_accepted,
           strategy_id: transaction.strategy_id,
           plan_level: transaction.plan_level,
