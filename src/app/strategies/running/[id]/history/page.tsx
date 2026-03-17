@@ -822,7 +822,7 @@ export default function CopierHistoryPage() {
                 {historyLoading ? (
                   <div className="flex flex-col items-center gap-2">
                     <div className="h-6 w-6 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
-                    <span>Syncing trades...</span>
+                    <span>Loading trades...</span>
                   </div>
                 ) : historyError ? historyError : 'No trades yet since activation.'}
               </div>
