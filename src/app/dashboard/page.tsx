@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import Image from "next/image";
-import { FiFolder } from "react-icons/fi";
+import { FaFolder } from "react-icons/fa";
 
 import Button from "@/components/ui/Button";
 import UserLayout from "@/components/UserLayout";
@@ -38,15 +38,19 @@ function DashboardPageContent() {
   const [loadingListed, setLoadingListed] = useState(true);
 
   const renderStatusBadge = (status: string) => {
-    const k = (status || '').toLowerCase();
-    if (k === 'running') return <Badge variant="success" className="text-[10px] px-2 py-0.5">Running</Badge>;
-    if (k === 'in-process' || k === 'in_process') return <Badge variant="warning" className="text-[10px] px-2 py-0.5">In-Process</Badge>;
-    if (k === 'wrong-account-password') return <Badge variant="destructive" className="text-[10px] px-2 py-0.5">Wrong Password</Badge>;
-    if (k === 'wrong-account-id') return <Badge variant="destructive" className="text-[10px] px-2 py-0.5">Wrong ID</Badge>;
-    if (k === 'wrong-account-server-name') return <Badge variant="destructive" className="text-[10px] px-2 py-0.5">Wrong Server</Badge>;
-    if (k === 'disconnected' || k === 'stopped') return <Badge variant="destructive" className="text-[10px] px-2 py-0.5">Disconnected</Badge>;
-    // Default fallback
-    return null;
+    const s = (status || 'in-process').toLowerCase();
+    if (s === 'running' || s === 'active') return <span className="text-white font-bold bg-[#00d09c] px-2 py-0.5 rounded-full text-[9px]">Copying</span>;
+    if (s === 'paused') return <span className="text-yellow-600 font-bold bg-yellow-100 px-2 py-0.5 rounded-full text-[9px]">Paused</span>;
+    return <span className="text-gray-500 font-bold bg-gray-100 px-2 py-0.5 rounded-full text-[9px] uppercase">{s}</span>;
+  };
+
+  const formatCurrency = (val: number | undefined) => {
+    if (val === undefined || val === null) return "$0.00";
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    }).format(val);
   };
 
   const stratById = useMemo(() => {
@@ -147,53 +151,42 @@ function DashboardPageContent() {
                 return (
                   <Link
                     key={r.id}
-                    href={`/strategies/${r.id}/info`}
-                    className="bg-white rounded-2xl p-4 md:p-5 border border-gray-200 shadow-sm transition-transform transform-gpu hover:-translate-y-0.5 hover:shadow-md"
+                    href={`/strategies/running/${r.id}/history`}
+                    className="bg-white rounded-2xl p-4 md:p-5 border border-gray-100 shadow-sm transition-all hover:shadow-md group"
                   >
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
-                      <div className="flex items-center gap-4 flex-[0_0_auto] w-full md:w-auto">
-                        <div className="relative w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-200">
-                          {imageUrl ? (
-                            <img src={imageUrl} alt={s.name || r.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <Image src="/strategy-icon.svg" alt="Strategy Icon" width={56} height={56} />
-                          )}
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
+                      {/* Left: Info */}
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center border border-gray-100 overflow-hidden">
+                          <img src={imageUrl} alt={s.name || r.name} className="w-full h-full object-cover" />
                         </div>
                         <div>
-                          <Badge className="bg-blue-600 hover:bg-blue-700 text-white border-0 mb-1 text-[10px] px-2 py-0.5">
-                            Master
-                          </Badge>
-                          <h4 className="text-base md:text-lg font-semibold text-gray-900 truncate max-w-xs">
+                          <span className="text-[9px] font-black text-white bg-blue-600 px-2 py-0.5 rounded-md uppercase tracking-tighter mb-1 inline-block">Master</span>
+                          <h4 className="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors truncate max-w-[120px]">
                             {s.name || r.name}
                           </h4>
                         </div>
                       </div>
 
-                      <div className="hidden md:block h-10 w-px bg-gray-200 rounded-full" />
-
-                      <div className="flex items-center gap-4 flex-[0_0_auto] w-full md:w-auto">
-                        <div className="relative w-14 h-14 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-200">
-                          {imageUrl ? (
-                            <img src={imageUrl} alt={s.name || r.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <Image src="/strategy-icon.svg" alt="Strategy Icon" width={56} height={56} />
-                          )}
+                      {/* Right: Metrics */}
+                      <div className="grid grid-cols-2 sm:flex sm:items-center gap-4 md:gap-8">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Status</span>
+                          {renderStatusBadge(base.adminStatus || base.status)}
                         </div>
-                        <div>
-                          <div className="flex items-center gap-23 mb-1">
-                            <Badge className="bg-green-600 hover:bg-green-700 text-white border-0 text-[10px] px-2 py-0.5">
-                              Slave
-                            </Badge>
-                            {renderStatusBadge((base as any).adminStatus)}
-                          </div>
-                          <div className="text-sm md:text-base font-semibold text-gray-900">
-                            {accountId || "No ID"} {platform ? `(${platform})` : ""}
-                          </div>
-                          {tag && (
-                            <span className="mt-1 inline-block text-[12px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-600">
-                              {tag}
-                            </span>
-                          )}
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Balance</span>
+                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.capital || 47.00)}</span>
+                        </div>
+                        <div className="flex flex-col items-center hidden md:flex">
+                          <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Equity</span>
+                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.capital || 47.00)}</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Float Profit</span>
+                          <span className={`text-sm font-bold ${(base.floatProfit || 0) > 0 ? 'text-green-500' : (base.floatProfit || 0) < 0 ? 'text-red-500' : 'text-gray-900'}`}>
+                            {formatCurrency(base.floatProfit || 0.00)}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -204,7 +197,7 @@ function DashboardPageContent() {
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <div className="bg-gray-100 p-4 rounded-full mb-4">
-                <FiFolder className="h-8 w-8 text-gray-600" />
+                <FaFolder className="h-8 w-8 text-gray-600" />
               </div>
               <h3 className="text-base md:text-lg font-medium text-gray-900 mb-2">Nothing to show</h3>
               <p className="text-gray-600 mb-4">You don't have any running strategies yet.</p>
@@ -288,7 +281,7 @@ function DashboardPageContent() {
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <div className="bg-gray-100 p-4 rounded-full mb-4">
-                <FiFolder className="h-8 w-8 text-gray-600" />
+                <FaFolder className="h-8 w-8 text-gray-600" />
               </div>
               <h3 className="text-base md:text-lg font-medium text-gray-900 mb-2">No strategies found</h3>
               <p className="text-gray-600 mb-4">Explore and deploy strategies from the catalog.</p>

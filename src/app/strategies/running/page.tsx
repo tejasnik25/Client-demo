@@ -12,11 +12,11 @@ import {
   FiFilter, 
   FiGrid, 
   FiList, 
-  FiWallet, 
   FiChevronLeft, 
   FiChevronRight, 
   FiActivity 
 } from "react-icons/fi";
+import { FaWallet } from "react-icons/fa";
 import { 
   Select, 
   SelectContent, 
@@ -121,9 +121,9 @@ const RunningStrategiesPageInner: React.FC = () => {
 
   const renderStatus = (status: string | undefined) => {
     const s = (status || 'in-process').toLowerCase();
-    if (s === 'running' || s === 'active') return <span className="text-green-500 font-bold bg-green-100 px-3 py-1 rounded-full text-xs">Copying</span>;
-    if (s === 'paused') return <span className="text-yellow-600 font-bold bg-yellow-100 px-3 py-1 rounded-full text-xs">Paused</span>;
-    return <span className="text-gray-500 font-bold bg-gray-100 px-3 py-1 rounded-full text-xs uppercase">{s}</span>;
+    if (s === 'running' || s === 'active') return <span className="text-white font-bold bg-[#00d09c] px-3 py-1 rounded-full text-[10px]">Copying</span>;
+    if (s === 'paused') return <span className="text-yellow-600 font-bold bg-yellow-100 px-3 py-1 rounded-full text-[10px]">Paused</span>;
+    return <span className="text-gray-500 font-bold bg-gray-100 px-3 py-1 rounded-full text-[10px] uppercase">{s}</span>;
   };
 
   return (
@@ -131,7 +131,7 @@ const RunningStrategiesPageInner: React.FC = () => {
       <div className="min-h-screen bg-[#f8f9fa] text-gray-900 px-4 py-6 md:px-8">
         {/* Top Header Tabs & Wallet */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div className="flex items-center border-b border-gray-200">
+          <div className="flex items-center">
             <Link href="/strategies" className="px-6 py-3 text-sm font-medium text-gray-500 hover:text-gray-900">
               Top Masters
             </Link>
@@ -140,17 +140,17 @@ const RunningStrategiesPageInner: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border border-gray-100">
-            <div className="text-right px-2">
+          <div className="flex items-center gap-4">
+            <div className="text-right">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Wallet Balance</p>
               <p className="text-lg font-bold text-gray-900">{formatCurrency(user?.wallet_balance)}</p>
             </div>
-            <div className="w-10 h-10 bg-gray-50 rounded-lg flex items-center justify-center border border-gray-100">
-              <FiWallet className="text-gray-600 w-5 h-5" />
+            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 shadow-sm">
+              <FaWallet className="text-gray-600 w-5 h-5" />
             </div>
             <Button 
               onClick={() => router.push('/wallet')}
-              className="bg-[#00d09c] hover:bg-[#00b88a] text-white font-bold px-6 rounded-lg transition-all"
+              className="bg-[#00d09c] hover:bg-[#00b88a] text-white font-bold px-6 py-2 rounded-full transition-all text-sm"
             >
               Deposit
             </Button>
@@ -223,9 +223,11 @@ const RunningStrategiesPageInner: React.FC = () => {
               const s = stratById.get(r.id);
               if (!s) return null;
               
+              const investedAmount = (r as any).capital || 47.00;
+
               if (viewMode === 'list') {
                 return (
-                  <div key={r.id} className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
+                  <div key={r.id} className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
                     <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                       {/* Strategy Info */}
                       <div className="flex items-center gap-4 w-full md:w-1/4">
@@ -237,41 +239,37 @@ const RunningStrategiesPageInner: React.FC = () => {
                             height={32} 
                             className="object-contain"
                           />
-                          <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-50">
-                             {/* Country flag placeholder */}
-                             <span className="text-[10px]">🇮🇳</span>
-                          </div>
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[9px] font-black text-blue-500 bg-blue-50 px-2 py-0.5 rounded-md uppercase tracking-tighter">Master</span>
+                            <span className="text-[10px] font-black text-white bg-blue-500 px-2 py-0.5 rounded-md uppercase tracking-tighter">Master</span>
                           </div>
-                          <h4 className="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight">{s.name}</h4>
+                          <h4 className="text-base font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight">{s.name}</h4>
                         </div>
                       </div>
 
                       {/* Status */}
                       <div className="flex flex-col items-center md:w-1/6">
-                         <span className="text-[10px] font-bold text-gray-300 uppercase mb-2">Status</span>
+                         <span className="text-[11px] font-bold text-gray-300 uppercase mb-2">Status</span>
                          {renderStatus(r.adminStatus || r.status)}
                       </div>
 
                       {/* Balance */}
                       <div className="flex flex-col items-center md:w-1/6">
-                         <span className="text-[10px] font-bold text-gray-300 uppercase mb-2">Balance</span>
-                         <span className="text-sm font-bold text-gray-900">{formatCurrency(r.balance || 47.00)}</span>
+                         <span className="text-[11px] font-bold text-gray-300 uppercase mb-2">Balance</span>
+                         <span className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
                       </div>
 
                       {/* Equity */}
                       <div className="flex flex-col items-center md:w-1/6">
-                         <span className="text-[10px] font-bold text-gray-300 uppercase mb-2">Equity</span>
-                         <span className="text-sm font-bold text-gray-900">{formatCurrency(r.equity || 47.00)}</span>
+                         <span className="text-[11px] font-bold text-gray-300 uppercase mb-2">Equity</span>
+                         <span className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
                       </div>
 
                       {/* Float Profit */}
                       <div className="flex flex-col items-center md:w-1/6">
-                         <span className="text-[10px] font-bold text-gray-300 uppercase mb-2">Float Profit</span>
-                         <span className={`text-sm font-bold ${(r.floatProfit || 0) >= 0 ? 'text-gray-900' : 'text-red-500'}`}>
+                         <span className="text-[11px] font-bold text-gray-300 uppercase mb-2">Float Profit</span>
+                         <span className={`text-base font-bold ${(r.floatProfit || 0) > 0 ? 'text-green-500' : (r.floatProfit || 0) < 0 ? 'text-red-500' : 'text-gray-900'}`}>
                            {formatCurrency(r.floatProfit || 0.00)}
                          </span>
                       </div>
@@ -282,7 +280,7 @@ const RunningStrategiesPageInner: React.FC = () => {
 
               // Grid Mode
               return (
-                <div key={r.id} className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
+                <div key={r.id} className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
                    <div className="flex items-center justify-between mb-6">
                       <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100">
                          <Image 
@@ -297,22 +295,22 @@ const RunningStrategiesPageInner: React.FC = () => {
                    </div>
                    
                    <div className="mb-6">
-                      <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-2 py-0.5 rounded-md uppercase tracking-tighter mb-2 inline-block">Master</span>
+                      <span className="text-[10px] font-black text-white bg-blue-600 px-2 py-0.5 rounded-md uppercase tracking-tighter mb-2 inline-block">Master</span>
                       <h4 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{s.name}</h4>
                    </div>
 
                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50">
                       <div>
                         <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Balance</p>
-                        <p className="text-sm font-bold text-gray-900">{formatCurrency(r.balance || 47.00)}</p>
+                        <p className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Equity</p>
-                        <p className="text-sm font-bold text-gray-900">{formatCurrency(r.equity || 47.00)}</p>
+                        <p className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
                       </div>
                       <div className="col-span-2">
                         <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Float Profit</p>
-                        <p className={`text-sm font-bold ${(r.floatProfit || 0) >= 0 ? 'text-gray-900' : 'text-red-500'}`}>
+                        <p className={`text-base font-bold ${(r.floatProfit || 0) > 0 ? 'text-green-500' : (r.floatProfit || 0) < 0 ? 'text-red-500' : 'text-gray-900'}`}>
                           {formatCurrency(r.floatProfit || 0.00)}
                         </p>
                       </div>

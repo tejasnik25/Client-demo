@@ -3027,7 +3027,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
           return null;
         }
         return {
-          id: `${masterId}_${positionId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          id: `${masterId}_${positionId}`, // Stable ID for deduplication
           master_id: masterId,
           position_id: positionId,
           symbol: trade.symbol,
@@ -3043,13 +3043,22 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
           server_time_open: trade.server_time_open || null,
           server_time_close: trade.server_time_close || null,
           is_open: isOpen ? 1 : 0,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         };
       }).filter(v => v !== null);
+
       if (skipped > 0) {
         console.warn(`[upsertMasterTrades][JSON] Skipped ${skipped} trades due to missing fields. Details:`, invalidTrades);
       }
-      writeDatabase({ ...db, master_trades_cache: [...filteredTrades, ...newTrades] });
+
+      // Merge with existing trades, updating duplicates by ID
+      const tradeMap = new Map();
+      masterTrades.forEach(t => tradeMap.set(t.id, t));
+      newTrades.forEach(t => tradeMap.set(t.id, t));
+      
+      const allTrades = Array.from(tradeMap.values());
+      writeDatabase({ ...db, master_trades_cache: allTrades });
     } catch (jsonError) {
       console.error('JSON fallback upsertMasterTrades failed:', jsonError);
     }

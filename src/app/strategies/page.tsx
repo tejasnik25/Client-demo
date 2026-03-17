@@ -10,6 +10,7 @@ import Tabs, { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FiGrid, FiList } from 'react-icons/fi';
+import { FaFolder } from 'react-icons/fa';
 import UserLayout from '@/components/UserLayout';
 import { FiInfo, FiPlay, FiX } from 'react-icons/fi';
 import { Strategy } from "@/types/strategy";
@@ -47,7 +48,15 @@ const StrategiesPageInner: React.FC = () => {
   const [searchNick, setSearchNick] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 9;
-  
+
+  const formatCurrency = (val: number | undefined) => {
+    if (val === undefined || val === null) return "$0.00";
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    }).format(val);
+  };
 
   useEffect(() => {
     const view = searchParams.get('view') === 'deployed' ? 'deployed' : 'explore';
@@ -438,12 +447,12 @@ const StrategiesPageInner: React.FC = () => {
         {/* Tabs + Filters */}
         <div className="px-4 md:px-6 py-5 space-y-5">
           {/* Top Tabs */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 border-b border-gray-200">
             <button
               onClick={() => setTopTab('explore')}
-              className={`px-5 py-2.5 rounded-none text-sm font-medium transition-colors ${topTab === 'explore'
-                ? 'text-[#0078d4] border-b-2 border-[#00d09c]'
-                : 'text-gray-700 hover:text-[#0078d4]'
+              className={`px-6 py-3 text-sm font-medium transition-all ${topTab === 'explore'
+                ? 'text-[#00d09c] border-b-2 border-[#00d09c]'
+                : 'text-gray-500 hover:text-gray-900'
                 }`}
             >
               Top Masters
@@ -451,9 +460,9 @@ const StrategiesPageInner: React.FC = () => {
             {user && (
               <button
                 onClick={() => setTopTab('deployed')}
-                className={`px-5 py-2.5 rounded-none text-sm font-medium transition-colors ${topTab === 'deployed'
-                  ? 'text-[#0078d4] border-b-2 border-[#00d09c]'
-                  : 'text-gray-700 hover:text-[#0078d4]'
+                className={`px-6 py-3 text-sm font-bold transition-all ${topTab === 'deployed'
+                  ? 'text-[#00d09c] border-b-2 border-[#00d09c]'
+                  : 'text-gray-500 hover:text-gray-900'
                   }`}
               >
                 Copier
@@ -464,27 +473,27 @@ const StrategiesPageInner: React.FC = () => {
           {/* Filter chips */}
           <div className="flex gap-2">
             {['Premium', 'Expert', 'Pro'].map((chip) => (
-              <button key={chip} className="px-3 py-1.5 rounded-full text-xs bg-transparent border border-gray-200 text-gray-700 hover:text-[#0078d4]">
+              <button key={chip} className="px-4 py-1.5 rounded-full text-[11px] bg-white border border-gray-200 text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-all">
                 {chip}
               </button>
             ))}
           </div>
 
           {/* Sort By */}
-          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center">
             <div className="flex items-center gap-3">
-              <span className="text-sm octa-muted">Sort by:</span>
+              <span className="text-sm text-gray-400">Sort by:</span>
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-full sm:w-48 bg-white border-gray-200 text-gray-900">
-                  <SelectValue placeholder="Select sorting option" />
+                <SelectTrigger className="w-full sm:w-48 bg-white border-gray-200 rounded-xl h-10">
+                  <SelectValue placeholder="Default" />
                 </SelectTrigger>
                 <SelectContent className="bg-white border-gray-200">
-                  <SelectItem value="default" className="text-gray-900 hover:bg-gray-100">Default</SelectItem>
-                  <SelectItem value="roi" className="text-gray-900 hover:bg-gray-100">Highest ROI</SelectItem>
-                  <SelectItem value="profit" className="text-gray-900 hover:bg-gray-100">Highest Profit</SelectItem>
-                  <SelectItem value="risk" className="text-gray-900 hover:bg-gray-100">Lowest Risk</SelectItem>
-                  <SelectItem value="highest_risk" className="text-gray-900 hover:bg-gray-100">Highest Risk</SelectItem>
-                  <SelectItem value="copiers" className="text-gray-900 hover:bg-gray-100">Most Copiers</SelectItem>
+                  <SelectItem value="default">Default</SelectItem>
+                  <SelectItem value="roi">Highest ROI</SelectItem>
+                  <SelectItem value="profit">Highest Profit</SelectItem>
+                  <SelectItem value="risk">Lowest Risk</SelectItem>
+                  <SelectItem value="highest_risk">Highest Risk</SelectItem>
+                  <SelectItem value="copiers">Most Copiers</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -494,26 +503,22 @@ const StrategiesPageInner: React.FC = () => {
                 value={searchNick}
                 onChange={(e) => setSearchNick(e.target.value)}
                 placeholder="Nickname"
-                className="w-full md:w-64 px-3 py-2 rounded-xl border border-gray-300 bg-white octa-text placeholder:octa-muted"
+                className="w-full md:w-64 px-4 py-2 rounded-xl border border-gray-200 bg-white h-10 text-sm focus:border-[#00d09c] outline-none"
               />
             </div>
 
-            <div className="flex items-center gap-2 md:ml-auto">
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-gray-100 shadow-sm md:ml-auto">
               <button
                 onClick={() => setViewMode('list')}
-                className={`h-9 w-9 flex items-center justify-center rounded-none border-0 transition-colors ${viewMode === 'list' ? 'text-[#0078d4] border-b-2 border-[#00d09c]' : 'text-gray-700 hover:text-[#0078d4]'
-                  }`}
+                className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'text-[#0078d4] bg-blue-50' : 'text-gray-400 hover:text-gray-600'}`}
                 title="List view"
-                aria-label="List view"
               >
                 <FiList className="h-5 w-5" />
               </button>
               <button
                 onClick={() => setViewMode('tiles')}
-                className={`h-9 w-9 flex items-center justify-center rounded-none border-0 transition-colors ${viewMode === 'tiles' ? 'text-[#0078d4] border-b-2 border-[#00d09c]' : 'text-gray-700 hover:text-[#0078d4]'
-                  }`}
+                className={`p-2 rounded-lg transition-all ${viewMode === 'tiles' ? 'text-[#0078d4] bg-blue-50' : 'text-gray-400 hover:text-gray-600'}`}
                 title="Tiles view"
-                aria-label="Tiles view"
               >
                 <FiGrid className="h-5 w-5" />
               </button>
@@ -525,122 +530,114 @@ const StrategiesPageInner: React.FC = () => {
         <div className="px-4 md:px-6 pb-10 space-y-4">
           {topTab === 'deployed' ? (
             loadingRunning ? (
-              <div className="text-gray-400">Loading...</div>
+              <div className="flex flex-col items-center justify-center py-20 gap-4">
+                <div className="w-10 h-10 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+                <p className="text-gray-400 text-sm font-medium">Loading your portfolio...</p>
+              </div>
             ) : deployed.length === 0 ? (
-              <div className="text-center py-16 text-gray-500 bg-white rounded-2xl border border-gray-200">
-                <div className="flex items-center justify-center mb-4">
-                  <Image src="/file.svg" alt="No Data" width={64} height={64} />
+              <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-300">
+                <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <FaFolder className="w-8 h-8 text-gray-300" />
                 </div>
-                <div className="text-sm">No deployed strategies yet.</div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">No active copies found</h3>
+                <p className="text-gray-500 text-sm max-w-xs mx-auto mb-6">You aren't currently copying any master accounts. Explore Top Masters to start!</p>
+                <button 
+                  onClick={() => setTopTab('explore')}
+                  className="bg-[#00d09c] text-white px-8 py-2 rounded-xl font-bold text-sm"
+                >
+                  Find Masters
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
                 {deployed.map((r: any, index: number) => {
                   const s = stratById.get(r.id) || strategies.find(ss => ss.name === r.name);
                   if (!s) return null;
+                  
+                  const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
+                  const isPending = pendingIds.includes((r as any)?.rsId || r.id);
+                  const investedAmount = r.capital || 47.00;
+                  
                   return (
-                    <div key={r.rsId || `${r.id}-${index}`} className="group bg-white rounded-2xl p-6 border border-gray-200 hover:shadow-md transition-all w-full">
-                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-8">
-
-                        {/* Left: Master Section */}
-                        <div className="flex items-center gap-4 flex-[0_0_auto] w-full md:w-auto">
-                          <div className="relative w-16 h-16 flex items-center justify-center flex-shrink-0">
-                            <Image src="/strategy-icon.svg" alt="Strategy Icon" width={64} height={64} className="rounded-full" />
+                    <div key={r.rsId || `${r.id}-${index}`} className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-center justify-between">
+                        {/* Left: Info */}
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 bg-gray-50 rounded-full flex items-center justify-center border border-gray-100 overflow-hidden relative">
+                            <Image 
+                              src={s.imageUrl || '/strategy1.svg'} 
+                              alt={s.name} 
+                              width={40} 
+                              height={40} 
+                              className="object-contain"
+                            />
                           </div>
                           <div>
-                            <Badge className="bg-blue-600 hover:bg-blue-700 text-white border-0 mb-1 text-xs">Master</Badge>
-                            <h4 className="text-lg font-semibold text-gray-900">{s.name}</h4>
+                            <span className="text-[10px] font-black text-white bg-blue-600 px-2 py-0.5 rounded-md uppercase tracking-tighter mb-1 inline-block">Master</span>
+                            <h4 className="text-base font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight">{s.name}</h4>
                           </div>
                         </div>
 
-                        {/* Middle section removed: no slave account details displayed */}
-
-                        {/* Right: Status and Actions */}
-                        
-                        {/* Mobile View */}
-                        <div className="flex md:hidden flex-col items-start gap-2 w-full mt-4">
-                          <span className="text-sm text-gray-600 font-normal">Status</span>
-                          <div className="flex items-center justify-start gap-3">
-                            {renderAdminStatusBadge((((r as any).adminStatus || (r as any).status || 'in-process') as string).toLowerCase(), r)}
-                            <Link href={`/strategies/running/${s.id}/history`} className="text-gray-600 hover:text-gray-900 text-xs font-medium underline">
-                              View History
-                            </Link>
-                          </div>
-                          <div className="w-full mt-2">
-                            {(() => {
-                              const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
-                              const isPending = pendingIds.includes((r as any)?.rsId || r.id);
-                              if (cur === 'disconnected' || cur === 'stopped') {
-                                return (
-                                  <Button
-                                    size="sm"
-                                    className="h-11 w-full px-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium"
-                                    onClick={() => requestEnable(r)}
-                                    disabled={isPending}
-                                  >
-                                    {isPending ? 'Requested' : 'Connect'}
-                                  </Button>
-                                );
-                              }
-                              return (
-                                <Button
-                                  size="sm"
-                                  className="h-11 w-full px-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium"
-                                  onClick={() => toggleDisconnect(r)}
-                                  disabled={isPending || cur === 'in-process'}
-                                >
-                                  {isPending || cur === 'in-process' ? 'Requested' : 'Disconnect'}
-                                </Button>
-                              );
-                            })()}
-                          </div>
-                        </div>
-
-                        {/* Desktop View */}
-                        <div className="hidden md:flex items-center gap-6 ml-auto">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className="text-xs text-gray-500">Status</span>
-                            {renderAdminStatusBadge((((r as any).adminStatus || (r as any).status || 'in-process') as string).toLowerCase(), r)}
+                        {/* Right: Actions & Status & Metrics */}
+                        <div className="flex flex-wrap items-center gap-4 md:gap-12 ml-auto">
+                          <div className="flex flex-col items-center">
+                            <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Status</span>
+                            {cur === 'running' || cur === 'active' ? (
+                              <span className="text-white font-bold bg-[#00d09c] px-3 py-1 rounded-full text-[11px]">Running</span>
+                            ) : (
+                              renderAdminStatusBadge(cur, r)
+                            )}
                           </div>
 
-                          <Link href={`/strategies/running/${s.id}/history`} className="text-gray-600 hover:text-gray-900 text-xs font-medium underline">
+                          <div className="flex flex-col items-center">
+                            <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Balance</span>
+                            <span className="text-sm font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
+                          </div>
+
+                          <div className="flex flex-col items-center">
+                            <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Equity</span>
+                            <span className="text-sm font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
+                          </div>
+
+                          <div className="flex flex-col items-center">
+                            <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Float Profit</span>
+                            <span className={`text-sm font-bold ${(r.floatProfit || 0) > 0 ? 'text-green-500' : (r.floatProfit || 0) < 0 ? 'text-red-500' : 'text-gray-900'}`}>
+                              {formatCurrency(r.floatProfit || 0.00)}
+                            </span>
+                          </div>
+
+                          <Link 
+                            href={`/strategies/running/${s.id}/history`} 
+                            className="text-gray-400 hover:text-gray-900 text-[12px] font-bold underline decoration-gray-300 underline-offset-4 transition-colors"
+                          >
                             View History
                           </Link>
 
                           <div className="w-auto">
-                            {(() => {
-                              const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
-                              const isPending = pendingIds.includes((r as any)?.rsId || r.id);
-                              if (cur === 'disconnected' || cur === 'stopped') {
-                                return (
-                                  <Button
-                                    size="sm"
-                                    className="h-11 w-auto px-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium"
-                                    onClick={() => requestEnable(r)}
-                                    disabled={isPending}
-                                  >
-                                    {isPending ? 'Requested' : 'Connect'}
-                                  </Button>
-                                );
-                              }
-                              return (
-                                <Button
-                                  size="sm"
-                                  className="h-11 w-auto px-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium"
-                                  onClick={() => toggleDisconnect(r)}
-                                  disabled={isPending || cur === 'in-process'}
-                                >
-                                  {isPending || cur === 'in-process' ? 'Requested' : 'Disconnect'}
-                                </Button>
-                              );
-                            })()}
+                            {cur === 'disconnected' || cur === 'stopped' ? (
+                              <button
+                                className="h-11 px-8 bg-[#00d09c] hover:bg-[#00b88a] text-white rounded-xl font-bold text-base transition-all disabled:opacity-50"
+                                onClick={() => requestEnable(r)}
+                                disabled={isPending}
+                              >
+                                {isPending ? 'Processing...' : 'Connect'}
+                              </button>
+                            ) : (
+                              <button
+                                className="h-11 px-8 bg-[#00d09c] hover:bg-[#00b88a] text-white rounded-xl font-bold text-base transition-all disabled:opacity-50"
+                                onClick={() => toggleDisconnect(r)}
+                                disabled={isPending || cur === 'in-process'}
+                              >
+                                {isPending || cur === 'in-process' ? 'Processing...' : 'Disconnect'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
                       
                       {/* Error Message Section */}
                       {(r as any).rejectionReason && (
-                        <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 flex items-start gap-2">
+                        <div className="mt-4 p-3 bg-red-50 text-red-600 text-[11px] rounded-lg border border-red-100 flex items-start gap-2">
                            <FiInfo className="flex-shrink-0 mt-0.5" />
                            <div>
                              <strong>Error:</strong> {(r as any).rejectionReason}
@@ -915,16 +912,14 @@ const StrategiesPageInner: React.FC = () => {
                 </div>
               )
           )}
-          {viewMode === 'tiles' && filtered.length > 0 && (
-            <div className="mt-6 flex items-center justify-center gap-1 md:gap-2">
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-12 pb-10">
               <button
                 type="button"
                 onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 disabled={currentPage === 1}
-                className={`px-3 py-1.5 rounded-md text-xs md:text-sm border ${currentPage === 1
-                    ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-not-allowed'
-                    : 'text-gray-700 bg-white border-gray-200 hover:bg-gray-100'
-                  }`}
+                className="px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-gray-900 disabled:opacity-50 transition-all text-sm font-medium"
               >
                 Previous
               </button>
@@ -934,9 +929,9 @@ const StrategiesPageInner: React.FC = () => {
                     key={index}
                     type="button"
                     onClick={() => setCurrentPage(item)}
-                    className={`min-w-8 h-8 px-2 rounded-md text-xs md:text-sm border ${currentPage === item
-                        ? 'bg-red-600 text-white border-red-600'
-                        : 'bg-white text-gray-700 border-transparent hover:bg-gray-100'
+                    className={`w-8 h-8 rounded-lg font-bold text-sm transition-all ${currentPage === item
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-white text-gray-600 hover:bg-gray-50'
                       }`}
                   >
                     {item}
@@ -954,10 +949,7 @@ const StrategiesPageInner: React.FC = () => {
                 type="button"
                 onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 disabled={currentPage === totalPages}
-                className={`px-3 py-1.5 rounded-md text-xs md:text-sm border ${currentPage === totalPages
-                    ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-not-allowed'
-                    : 'text-gray-700 bg-white border-gray-200 hover:bg-gray-100'
-                  }`}
+                className="px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-gray-900 disabled:opacity-50 transition-all text-sm font-medium"
               >
                 Next
               </button>
