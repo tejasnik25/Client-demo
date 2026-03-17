@@ -49,10 +49,14 @@ DB_NAME = os.environ.get("DB_NAME", "stock_analysis_db")
 API_KEY = os.environ.get("COPY_TRADING_API_KEY") or os.environ.get("API_KEY") or "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
 
 # Next.js Sync URL (for PUSHing data to Vercel)
-# Default to production URL if not explicitly set in environment
-NEXTJS_SYNC_URL = os.environ.get("NEXTJS_SYNC_URL") or os.environ.get("NEXTAUTH_URL") or "https://copy-trade-project.vercel.app/"
+# Priority: ENV > hardcoded production URL > localhost fallback
+NEXTJS_SYNC_URL = os.environ.get("NEXTJS_SYNC_URL") or os.environ.get("NEXTAUTH_URL") or "https://copy-trade-project.vercel.app"
 if not NEXTJS_SYNC_URL.endswith("/"): NEXTJS_SYNC_URL += "/"
 NEXTJS_SYNC_ENDPOINT = f"{NEXTJS_SYNC_URL}api/trading-service/sync/trades"
+
+# We will also push to localhost if we are not already pushing to a localhost URL
+LOCAL_SYNC_ENDPOINT = "http://localhost:3000/api/trading-service/sync/trades"
+PUSH_TO_LOCAL = "localhost" not in NEXTJS_SYNC_URL and "127.0.0.1" not in NEXTJS_SYNC_URL
 
 def _print_startup_banner():
     # Keep output ASCII-only and avoid printing during validation mode (subprocess must output pure JSON).
@@ -203,10 +207,18 @@ def save_master_history(history_data, open_positions=None):
                             "history": aggregated_history,
                             "open_positions": m_data.get("open_positions", [])
                         }
-                        headers = {"Authorization": f"Bearer {API_KEY}", "X-API-KEY": NEXTJS_API_KEY}
+                        headers = {"Authorization": f"Bearer {API_KEY}"}
+                        # Primary push (Production)
                         res = requests.post(NEXTJS_SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
                         if res.status_code != 200:
-                            log_print(f"⚠️ Push failed for {m_id}: {res.status_code} {res.text}")
+                            log_print(f"⚠️ Production Push failed for {m_id}: {res.status_code} {res.text}")
+                        
+                        # Dual push to localhost for developer convenience
+                        if PUSH_TO_LOCAL:
+                            try:
+                                requests.post(LOCAL_SYNC_ENDPOINT, json=payload, headers=headers, timeout=2)
+                            except:
+                                pass # Silent fail if local dev server is not running
             except Exception as push_err:
                 pass
 
