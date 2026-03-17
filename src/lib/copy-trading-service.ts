@@ -202,9 +202,13 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
       const res = await this.request('/accounts/validate', 'POST', details);
       return { isValid: res.isValid, error: res.error };
     } catch (e: any) {
+      // If it's an HTTP error from our service (like 403), pass it through
+      if (e.message && e.message.includes('HTTP')) {
+        return { isValid: false, error: e.message };
+      }
       // Return the actual connection error to help debugging
       const target = this.baseUrl.includes('localhost') ? `${this.baseUrl} (Env Var missing - Set COPY_TRADING_API_URL or COPY_TRADING_URL)` : this.baseUrl;
-      return { isValid: false, error: `Connection Failed to ${target}. Check Firewall.` };
+      return { isValid: false, error: `Connection Failed to ${target}. Check Firewall. (${e.message})` };
     }
   }
 
@@ -266,7 +270,7 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     try {
       const res = await this.request(`/subscriptions/${id}/status`, 'GET');
       return {
-        status: res.status,
+        status: res.status as CopyTradingStatus,
         error: res.error,
         detail: res.detail,
         updated_at: res.updated_at,
@@ -275,7 +279,11 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
         last_action: res.last_action
       };
     } catch (e: any) {
-      // Treat any connection failure as a temporary disconnection so the UI can still show cached history.
+      // If it's an HTTP error (like 403), return it in the detail
+      if (e.message && e.message.includes('HTTP')) {
+        return { status: 'error' as CopyTradingStatus, detail: e.message };
+      }
+      // Treat any connection failure as a temporary disconnection
       const target = this.baseUrl.includes('localhost') ? `${this.baseUrl} (Env Var COPY_TRADING_API_URL/COPY_TRADING_URL missing)` : this.baseUrl;
       const errorMsg = e.message || String(e);
       return { status: 'disconnected' as CopyTradingStatus, error: `${errorMsg} [Target: ${target}]` };
@@ -323,6 +331,6 @@ export function getCopyTradingProvider(): ICopyTradingProvider {
 
   return new HttpCopyTradingProvider(
     finalUrl,
-    process.env.COPY_TRADING_API_KEY || ''
+    process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad'
   );
 }

@@ -190,8 +190,9 @@ export default function CopierHistoryPage() {
         setRsId(me?.rsId || null);
         setModifications(me?.modifications || []);
         setSnapshots(me?.snapshots || []);
-      } catch (e) {
+      } catch (e: any) {
         console.error("Failed to load history data:", e);
+        setHistoryError(e?.message || "Failed to load history data. Please check connection.");
       } finally {
         setHistoryLoading(false);
       }

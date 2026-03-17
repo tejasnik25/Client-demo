@@ -174,6 +174,9 @@ const resetAddForm = () => {
   // Handle input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    // Don't use this for password as it has its own logic to avoid state reset issues
+    if (name === 'masterAccountPassword') return;
+    
     setCurrentStrategy(prev => ({
       ...prev,
       [name]: name === 'performance' || name === 'roi' || name === 'profit' || name === 'maxDdi' || name === 'copiers' || name === 'riskScore'
@@ -884,10 +887,14 @@ const resetAddForm = () => {
                       id="masterAccountPassword" 
                       name="masterAccountPassword" 
                       type="password"
+                      autoComplete="new-password"
+                      placeholder={currentStrategy.hasMasterPassword ? "•••••••• (Saved)" : "MT5 Password"}
                       value={currentStrategy.masterAccountPassword || ''} 
-                      onChange={handleInputChange} 
-                      placeholder="Enter password (Required to connect)" 
-                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCurrentStrategy(prev => ({ ...prev, masterAccountPassword: val }));
+                      }}
+                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-primary" 
                     />
                   </div>
                   <div className="space-y-2">

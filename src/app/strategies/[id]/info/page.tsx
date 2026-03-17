@@ -92,7 +92,7 @@ const StrategyInfoPage: React.FC = () => {
           
           if (!res.ok) {
             console.error('API response not ok:', res.status, res.statusText);
-            setHistoryError(`API error: ${res.status} ${res.statusText}`);
+            setHistoryError(data.error || `API error: ${res.status} ${res.statusText}`);
             setHistory([]);
             setOpenPositions([]);
             return;
@@ -108,11 +108,14 @@ const StrategyInfoPage: React.FC = () => {
           if (data.open_positions) {
             setOpenPositions(data.open_positions);
           } else {
-            console.warn('No open_positions field in API response:', data);
             setOpenPositions([]);
           }
-          
-          setHistoryError(data.error || null);
+
+          if (data.error) {
+            setHistoryError(data.error);
+          } else {
+            setHistoryError(null);
+          }
           const runData = await runRes.json().catch(() => null);
           const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
           setConnectAt(me?.createdAt || null);

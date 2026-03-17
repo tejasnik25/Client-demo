@@ -42,6 +42,7 @@ export type Strategy = {
   masterAccountPassword?: string;
   masterAccountServer?: string;
   masterPlatform?: "mt4" | "mt5";
+  hasMasterPassword?: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
