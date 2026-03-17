@@ -3027,7 +3027,7 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
           return null;
         }
         return {
-          id: `${masterId}_${positionId}`, // Stable ID for deduplication
+          id: `${masterId}_${positionId}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
           master_id: masterId,
           position_id: positionId,
           symbol: trade.symbol,
@@ -3043,22 +3043,13 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
           server_time_open: trade.server_time_open || null,
           server_time_close: trade.server_time_close || null,
           is_open: isOpen ? 1 : 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          created_at: new Date().toISOString()
         };
       }).filter(v => v !== null);
-
       if (skipped > 0) {
         console.warn(`[upsertMasterTrades][JSON] Skipped ${skipped} trades due to missing fields. Details:`, invalidTrades);
       }
-
-      // Merge with existing trades, updating duplicates by ID
-      const tradeMap = new Map();
-      masterTrades.forEach(t => tradeMap.set(t.id, t));
-      newTrades.forEach(t => tradeMap.set(t.id, t));
-      
-      const allTrades = Array.from(tradeMap.values());
-      writeDatabase({ ...db, master_trades_cache: allTrades });
+      writeDatabase({ ...db, master_trades_cache: [...filteredTrades, ...newTrades] });
     } catch (jsonError) {
       console.error('JSON fallback upsertMasterTrades failed:', jsonError);
     }
@@ -3118,35 +3109,6 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
     const trades = rows as any[];
     const history = trades.filter(t => t.is_open === 0);
     const open_positions = trades.filter(t => t.is_open === 1);
-
-    // Normalize date for API: ensure consistent string format; prefer server_time for display
-    const toTimeOpenDisplay = (row: any): string => {
-      if (row.server_time_open && String(row.server_time_open).trim()) return String(row.server_time_open);
-      const t = row.time_open;
-      if (t instanceof Date) return t.toISOString();
-      if (typeof t === 'string') return t;
-      if (typeof t === 'number') return new Date(t < 1e12 ? t * 1000 : t).toISOString();
-      return '';
-    };
-    const toTimeCloseDisplay = (row: any): string => {
-      if (row.server_time_close && String(row.server_time_close).trim()) return String(row.server_time_close);
-      const t = row.time_close;
-      if (t instanceof Date) return t.toISOString();
-      if (typeof t === 'string') return t;
-      if (typeof t === 'number') return new Date(t < 1e12 ? t * 1000 : t).toISOString();
-      return '';
-    };
-    const toTimeOpenRaw = (row: any): string | number => {
-      const t = row.time_open;
-      if (t instanceof Date) return t.toISOString();
-      return t;
-    };
-    const toTimeCloseRaw = (row: any): string | number | null => {
-      const t = row.time_close;
-      if (t == null) return null;
-      if (t instanceof Date) return t.toISOString();
-      return t;
-    };
     
     // Get the latest updated_at timestamp
     const lastUpdate = trades.length > 0 ? new Date(Math.max(...trades.map(t => new Date(t.updated_at || t.created_at).getTime()))).toISOString() : undefined;
@@ -3161,10 +3123,10 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         price_close: t.price_close,
         profit: t.profit,
         swap: t.swap,
-        time_open: toTimeOpenRaw(t),
-        time_close: toTimeCloseRaw(t),
-        server_time_open: t.server_time_open || (toTimeOpenDisplay(t) || undefined),
-        server_time_close: t.server_time_close || (toTimeCloseDisplay(t) || undefined)
+        time_open: t.time_open,
+        time_close: t.time_close,
+        server_time_open: t.server_time_open,
+        server_time_close: t.server_time_close
       })),
       open_positions: open_positions.map(t => ({
         position_id: t.position_id,
@@ -3175,8 +3137,8 @@ export const getCachedMasterTrades = async (masterId: string): Promise<{ history
         price_current: t.price_close, // price_close stores price_current for open trades
         profit: t.profit,
         swap: t.swap,
-        time_open: toTimeOpenRaw(t),
-        server_time_open: t.server_time_open || toTimeOpenDisplay(t) || undefined
+        time_open: t.time_open,
+        server_time_open: t.server_time_open
       })),
       last_updated: lastUpdate
     };

@@ -45,14 +45,6 @@ export async function GET(
     return NextResponse.json({ error: 'Master ID not found for this strategy' }, { status: 404 });
   }
 
-  const apiKey = process.env.COPY_TRADING_API_KEY;
-  if (!apiKey) {
-    // If the server is missing the key, serve cached data instead of erroring.
-    return fallbackFromCache();
-  }
-  const baseUrl = getTradingServiceBaseUrl();
-  const liveUrl = `${baseUrl}/master/${encodeURIComponent(masterId)}/history`;
-
   const fallbackFromCache = async (reason?: string) => {
     try {
       const cached = await getCachedMasterTrades(masterId);
@@ -85,6 +77,14 @@ export async function GET(
       });
     }
   };
+
+  const apiKey = process.env.COPY_TRADING_API_KEY;
+  if (!apiKey) {
+    // If the server is missing the key, serve cached data instead of erroring.
+    return fallbackFromCache();
+  }
+  const baseUrl = getTradingServiceBaseUrl();
+  const liveUrl = `${baseUrl}/master/${encodeURIComponent(masterId)}/history`;
 
   try {
     const controller = new AbortController();
