@@ -298,7 +298,7 @@ export function getCopyTradingProvider(): ICopyTradingProvider {
   }
 
   // Determine URL based on environment if not explicitly set
-  let finalUrl = envUrl;
+  let finalUrl = (envUrl || '').trim();
   
   if (finalUrl) {
     // Log which variable was used (masked for security if needed, but URL is usually public-ish)
@@ -323,6 +323,6 @@ export function getCopyTradingProvider(): ICopyTradingProvider {
 
   return new HttpCopyTradingProvider(
     finalUrl,
-    process.env.COPY_TRADING_API_KEY || '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad'
+    process.env.COPY_TRADING_API_KEY || ''
   );
 }

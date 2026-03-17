@@ -1,7 +1,10 @@
 import mysql from 'mysql2/promise';
 import { config } from 'dotenv';
 
-config();
+// Avoid loading .env in production/serverless (can produce noisy logs).
+if (process.env.NODE_ENV !== 'production') {
+  config();
+}
 
 const isVercel = !!process.env.VERCEL;
 const useSSL = process.env.DB_SSL ? (process.env.DB_SSL === 'true' || process.env.DB_SSL === '1') : isVercel;

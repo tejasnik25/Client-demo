@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('Authorization');
-    const apiKey = process.env.COPY_TRADING_API_KEY;
+    const apiKey = (process.env.COPY_TRADING_API_KEY || '').trim();
     if (!apiKey) {
       console.error('[Sync] COPY_TRADING_API_KEY missing');
       return NextResponse.json({ success: false, error: 'Server misconfigured' }, { status: 500 });

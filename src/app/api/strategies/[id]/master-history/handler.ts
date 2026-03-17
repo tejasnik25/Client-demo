@@ -78,9 +78,10 @@ export async function GET(
     }
   };
 
-  const apiKey = process.env.COPY_TRADING_API_KEY;
+  const apiKey = (process.env.COPY_TRADING_API_KEY || '').trim();
   if (!apiKey) {
     // If the server is missing the key, serve cached data instead of erroring.
+    console.warn('[MasterHistory] COPY_TRADING_API_KEY missing/empty; serving cached data');
     return fallbackFromCache();
   }
   const baseUrl = getTradingServiceBaseUrl();

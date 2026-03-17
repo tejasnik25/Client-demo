@@ -2,7 +2,10 @@ import mysql from 'mysql2/promise';
 import { config } from 'dotenv';
 
 // Load env in non-Next runtimes (safe in Next too)
-config();
+// Avoid loading .env in production/serverless (can produce noisy logs).
+if (process.env.NODE_ENV !== 'production') {
+  config();
+}
 
 // Optional TLS/SSL support via envs
 const useSSL = (process.env.DB_SSL === 'true' || process.env.DB_SSL === '1');
