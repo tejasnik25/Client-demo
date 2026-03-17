@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStrategyById, getCachedMasterTrades, upsertMasterTrades } from '@/db/dbService';
+import { getStrategyById, getCachedMasterTrades, upsertMasterTrades, reconcileMasterOpenPositions } from '@/db/dbService';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -147,9 +147,8 @@ export async function GET(
       if (finalHistory.length > 0) {
         await upsertMasterTrades(masterId, finalHistory, false);
       }
-      if (open_positions.length > 0) {
-        await upsertMasterTrades(masterId, open_positions, true);
-      }
+      // Reconcile open positions so closed trades don't remain stuck as "open" in cached views.
+      await reconcileMasterOpenPositions(masterId, open_positions);
     } catch (e) {
       console.warn('[MasterHistory] Cache write failed (non-fatal):', e);
     }

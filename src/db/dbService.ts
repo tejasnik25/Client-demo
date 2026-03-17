@@ -3056,6 +3056,47 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
   }
 };
 
+/**
+ * Reconcile open positions for a master:
+ * - Upsert provided open positions as is_open=1
+ * - Mark any previously-open positions that are NOT in the provided list as is_open=0
+ *
+ * This prevents "stuck open" positions in cached/fallback views when MT5/Python goes down
+ * or when a close event hasn't made it into aggregated history yet.
+ */
+export const reconcileMasterOpenPositions = async (masterId: string, openPositions: any[]): Promise<void> => {
+  // Upsert current open positions
+  await upsertMasterTrades(masterId, openPositions, true);
+
+  const ids = (openPositions || [])
+    .map((t: any) => String(t.position_id || t.ticket || t.id))
+    .filter((x: string) => x && x !== 'undefined');
+
+  try {
+    if (ids.length === 0) {
+      // If no open positions, mark all open as closed.
+      await pool.execute(
+        'UPDATE master_trades_cache SET is_open = 0 WHERE master_id = ? AND is_open = 1',
+        [masterId]
+      );
+      return;
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+    await pool.execute(
+      `UPDATE master_trades_cache
+       SET is_open = 0
+       WHERE master_id = ?
+         AND is_open = 1
+         AND position_id NOT IN (${placeholders})`,
+      [masterId, ...ids]
+    );
+  } catch (e) {
+    // Non-fatal: cache reconciliation best-effort.
+    console.warn('[reconcileMasterOpenPositions] Failed to reconcile open positions:', e);
+  }
+};
+
 export const getCachedMasterTrades = async (masterId: string): Promise<{ history: any[], open_positions: any[], last_updated?: string }> => {
   try {
     // Ensure table exists (especially for Vercel/production)
