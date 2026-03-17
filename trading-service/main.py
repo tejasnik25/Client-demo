@@ -54,9 +54,11 @@ NEXTJS_SYNC_URL = os.environ.get("NEXTJS_SYNC_URL") or os.environ.get("NEXTAUTH_
 if not NEXTJS_SYNC_URL.endswith("/"): NEXTJS_SYNC_URL += "/"
 NEXTJS_SYNC_ENDPOINT = f"{NEXTJS_SYNC_URL}api/trading-service/sync/trades"
 
-print(f"DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
-print(f"API Key set: {'(hidden)' if API_KEY else '(missing)'}")
-print(f"Next.js Sync Target: {NEXTJS_SYNC_ENDPOINT}")
+def _print_startup_banner():
+    # Keep output ASCII-only and avoid printing during validation mode (subprocess must output pure JSON).
+    print(f"DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
+    print(f"API Key set: {'(hidden)' if API_KEY else '(missing)'}")
+    print(f"Next.js Sync Target: {NEXTJS_SYNC_ENDPOINT}")
 
 def update_slave_db_status(slave_id, status, error_reason=None):
     """
@@ -98,6 +100,10 @@ parser.add_argument("--validate-id", type=str, help="Account ID to validate (MT5
 parser.add_argument("--validate-password", type=str, help="Password for validation")
 parser.add_argument("--validate-server", type=str, help="Server for validation")
 args, unknown = parser.parse_known_args()
+
+# Print startup banner only for normal runs (not validation subprocess).
+if not (args.validate_id or args.validate_password or args.validate_server):
+    _print_startup_banner()
 
 # Set MT5 Path if not provided
 MT5_PATH = args.mt5_path or r"C:\Program Files\MetaTrader 5\terminal64.exe"
