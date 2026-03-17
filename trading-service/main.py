@@ -19,6 +19,15 @@ except ImportError:
     print("⚠ Warning: mysql-connector-python not found. Database features will be disabled.")
 from dotenv import load_dotenv
 
+# Ensure Windows console encoding doesn't crash on emoji/unicode output
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 # Load .env file
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
@@ -45,9 +54,9 @@ NEXTJS_SYNC_URL = os.environ.get("NEXTJS_SYNC_URL") or os.environ.get("NEXTAUTH_
 if not NEXTJS_SYNC_URL.endswith("/"): NEXTJS_SYNC_URL += "/"
 NEXTJS_SYNC_ENDPOINT = f"{NEXTJS_SYNC_URL}api/trading-service/sync/trades"
 
-print(f"🔌 DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
-print(f"🔐 API Key set: {'(hidden)' if API_KEY else '(missing)'}")
-print(f"📡 Next.js Sync Target: {NEXTJS_SYNC_ENDPOINT}")
+print(f"DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
+print(f"API Key set: {'(hidden)' if API_KEY else '(missing)'}")
+print(f"Next.js Sync Target: {NEXTJS_SYNC_ENDPOINT}")
 
 def update_slave_db_status(slave_id, status, error_reason=None):
     """
