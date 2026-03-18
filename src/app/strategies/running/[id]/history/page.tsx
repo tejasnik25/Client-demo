@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import Button from "@/components/ui/Button";
 import UserLayout from "@/components/UserLayout";
-import { FiTrendingUp, FiDollarSign, FiTrendingDown } from "react-icons/fi";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 
 type HistoryItem = {
   position_id?: string;
@@ -73,7 +73,7 @@ export default function CopierHistoryPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [connectAt, setConnectAt] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [filter, setFilter] = useState<"all" | "opened" | "closed">("all");
+  const [filter, setFilter] = useState<"opened" | "closed" | "balance">("closed");
   const [historyPage, setHistoryPage] = useState(1);
   const [adminStatus, setAdminStatus] = useState<string | null>(null);
   const [mtStatus, setMtStatus] = useState<string | null>(null);
@@ -81,6 +81,7 @@ export default function CopierHistoryPage() {
   const [rsId, setRsId] = useState<string | null>(null);
   const [modifications, setModifications] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [userProfile, setUserProfile] = useState<any>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -99,6 +100,7 @@ export default function CopierHistoryPage() {
         if (profileRes && profileRes.ok) {
           const profile = await profileRes.json().catch(() => null);
           setSessionUserId(profile?.user?.id || null);
+          setUserProfile(profile?.user || null);
         }
       } finally {
         setLoading(false);
@@ -299,95 +301,8 @@ export default function CopierHistoryPage() {
     return num < 10000000000 ? num * 1000 : num;
   };
 
-  const sessions = useMemo(() => {
-    const list: Array<{ start: number; end: number | null }> = [];
-
-    // Determine the starting point for sessions. In some cases we may not have a
-    // reliable `connectAt` timestamp (e.g. missing data from the backend), so we
-    // fall back to the earliest known modification time or the unix epoch.
-    let startMs = Number.isFinite(new Date(connectAt || '').getTime())
-      ? new Date(connectAt!).getTime()
-      : Number.POSITIVE_INFINITY;
-
-    const modTimes = modifications
-      .map((m) => (m.created_at ? new Date(m.created_at).getTime() : NaN))
-      .filter((t) => Number.isFinite(t));
-
-    if (modTimes.length > 0) {
-      startMs = Math.min(startMs, ...modTimes);
-    }
-
-    if (!Number.isFinite(startMs)) {
-      // If we still don't have a valid start time, show everything.
-      return [{ start: 0, end: null }];
-    }
-
-    // First session starts at the resolved start time (connectAt or earliest modification)
-    let currentSession: { start: number; end: number | null } | null = {
-      start: startMs,
-      end: null
-    };
-
-    // Sort modifications by time
-    const sortedMods = [...modifications].sort((a, b) => {
-      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return ta - tb;
-    });
-
-    for (const mod of sortedMods) {
-      const modTime = mod.created_at ? new Date(mod.created_at).getTime() : 0;
-      const status = String(mod.status || '').toLowerCase();
-
-      if (status === 'disconnected' || status === 'stopped') {
-        if (currentSession && currentSession.end === null) {
-          currentSession.end = modTime;
-          list.push(currentSession);
-          currentSession = null;
-        }
-      } else if (status === 'running' || status === 'active') {
-        if (!currentSession) {
-          currentSession = { start: modTime, end: null };
-        }
-      }
-    }
-
-    if (currentSession) {
-      list.push(currentSession);
-    }
-
-    // If no sessions were derived, show everything.
-    if (list.length === 0) {
-      return [{ start: 0, end: null }];
-    }
-
-    return list;
-  }, [connectAt, modifications]);
-
   const filteredClosed = useMemo(() => {
-    const rows = history.filter((h) => {
-      const openMs = toMs(h.server_time_open ?? h.time_open ?? h.open_time ?? h.time);
-      const closeMs = toMs(h.server_time_close ?? h.time_close ?? h.close_time ?? h.time);
-      
-      // Trade is visible only if its open_time is within ANY running session
-      const session = sessions.find(s => {
-        // If we don't have a valid open time, keep the trade as fallback.
-        if (!Number.isFinite(openMs)) return true;
-        if (openMs < s.start) return false;
-        if (s.end !== null && openMs > s.end) return false;
-        return true;
-      });
-
-      if (!session) return false;
-
-      // If the trade closed after the session ended, it should have been caught by synthetic closure
-      // or it's an invalid state. But we only show it if it closed before or at the session end.
-      if (session.end !== null && Number.isFinite(closeMs) && closeMs > session.end) return false;
-      
-      return true;
-    });
-    
-    return rows.map((h) => {
+    return history.map((h) => {
       return {
         isOpen: false as const,
         openTimeStr: h.server_time_open || (h.time_open ? String(h.time_open) : (h.open_time ? String(h.open_time) : "")),
@@ -401,27 +316,10 @@ export default function CopierHistoryPage() {
         swap: Number(h.swap || 0),
       };
     });
-  }, [history, sessions]);
+  }, [history]);
 
   const filteredOpen = useMemo(() => {
-    // Find the currently active session (the one with end === null). This is used
-    // to filter open positions to those opened during the most recent running window.
-    // If we cannot locate such a session, we still show all open positions as a best-effort.
-    const currentSession = sessions.find(s => s.end === null);
-
-    const rows = openPositions.filter((p) => {
-      // Handle server_time string vs timestamp
-      const openMs = toMs(p.time ?? p.server_time ?? p.open_time ?? p.server_time_open ?? p.time_open);
-      if (!Number.isFinite(openMs)) {
-        return true;
-      }
-
-      if (!currentSession) return true;
-
-      return openMs >= currentSession.start;
-    });
-    
-    return rows.map((p) => {
+    return openPositions.map((p) => {
       return {
         isOpen: true as const,
         openTimeStr: p.server_time || p.server_time_open || (p.time_open ? String(p.time_open) : (p.open_time ? String(p.open_time) : (p.time ? String(p.time) : ""))),
@@ -435,55 +333,10 @@ export default function CopierHistoryPage() {
         swap: Number(p.swap || 0),
       };
     });
-  }, [openPositions, sessions]);
-
-  // Synthesize closures for trades that were open at the end of a session
-  const syntheticClosures = useMemo(() => {
-    const closures: any[] = [];
-
-    sessions.forEach(session => {
-      if (session.end === null) return;
-
-      // Find snapshot at this disconnect time
-      const snapshot = snapshots.find(sn => {
-        const snTime = sn.snapshot_at ? new Date(sn.snapshot_at).getTime() : 0;
-        // Allow 5 minute window
-        return Math.abs(snTime - session.end!) < 300000;
-      });
-
-      const src = (snapshot && Array.isArray(snapshot.positions)) ? snapshot.positions : openPositions;
-      
-      const sessionOpenTrades = src.filter((p: any) => {
-        const openMs = toMs(p.time ?? p.server_time);
-        return Number.isFinite(openMs) && openMs >= session.start && openMs <= session.end!;
-      });
-
-      sessionOpenTrades.forEach((p: any) => {
-        closures.push({
-          isOpen: false as const,
-          openTimeStr: p.server_time || p.server_time_open || (p.time_open ? String(p.time_open) : (p.open_time ? String(p.open_time) : (p.time ? String(p.time) : ""))),
-          closeTimeStr: new Date(session.end!).toISOString(),
-          symbol: p.symbol,
-          type: p.type,
-          volume: p.volume,
-          openPrice: p.price_open,
-          closeOrCurrentPrice: p.price_current,
-          profit: Number(p.profit),
-          swap: Number(p.swap || 0),
-        });
-      });
-    });
-
-    return closures;
-  }, [openPositions, sessions, snapshots]);
+  }, [openPositions]);
 
   const displayRows = useMemo(() => {
-    const aStatus = String(adminStatus || '').toLowerCase();
-    const mStatus = String(mtStatus || '').toLowerCase();
-    const isActuallyRunning = (aStatus === 'running' || aStatus === 'active' || aStatus === 'in-process' || aStatus === 'in process') && 
-                               (mStatus === 'running' || mStatus === 'active');
-    
-    const closedRows = [...filteredClosed, ...(!isActuallyRunning ? syntheticClosures : [])];
+    const closedRows = [...filteredClosed];
     
     if (filter === "opened") return filteredOpen;
     if (filter === "closed") return closedRows.sort((a, b) => {
@@ -491,14 +344,9 @@ export default function CopierHistoryPage() {
       const tb = toMs(b.openTimeStr) || 0;
       return tb - ta;
     });
-    // For 'all' tab, combine both
-    const all = [...filteredOpen, ...closedRows];
-    return all.sort((a, b) => {
-      const ta = toMs(a.openTimeStr) || 0;
-      const tb = toMs(b.openTimeStr) || 0;
-      return tb - ta;
-    });
-  }, [filter, filteredOpen, filteredClosed, syntheticClosures, adminStatus, mtStatus]);
+    // For 'balance' tab, return empty or balance operations if available
+    return [];
+  }, [filter, filteredOpen, filteredClosed]);
 
   const ENTRIES_PER_PAGE = 20;
   const totalPages = Math.max(1, Math.ceil(displayRows.length / ENTRIES_PER_PAGE));
@@ -522,38 +370,66 @@ export default function CopierHistoryPage() {
     let totalInvestment = 0;
     let totalProfit = 0;
     let totalLoss = 0;
+    let totalSwap = 0;
+    let totalCommission = 0;
     const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
 
-    displayRows.forEach((row: any) => {
+    // Calculate stats based on closed history
+    filteredClosed.forEach((row: any) => {
       const vol = Number(row.volume) || 0;
       const investment = vol * Number(row.openPrice || 0) * mult;
       const profit = (Number(row.profit) || 0) * mult;
+      const swap = (Number(row.swap) || 0) * mult;
 
       totalInvestment += investment;
+      totalSwap += swap;
       if (profit >= 0) totalProfit += profit;
       else totalLoss += Math.abs(profit);
     });
 
+    const netProfit = totalProfit - totalLoss + totalSwap;
+
     return {
       totalInvestment: totalInvestment.toFixed(2),
-      totalProfit: totalProfit.toFixed(2),
-      totalLoss: totalLoss.toFixed(2)
+      totalProfit: (totalProfit - totalLoss).toFixed(2),
+      totalSwap: totalSwap.toFixed(2),
+      totalCommission: totalCommission.toFixed(2),
+      balance: (Number(userProfile?.wallet_balance || 0)).toFixed(2),
+      floatPL: netProfit.toFixed(2)
     };
-  }, [displayRows, lotSize]);
+  }, [filteredClosed, lotSize, userProfile]);
 
-  const formatDate = (dateStr: string | number | undefined) => {
+  const getSymbolIcon = (symbol: string) => {
+    const s = symbol.toUpperCase();
+    if (s.includes('XAU') || s.includes('GOLD')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/gold.png';
+    if (s.includes('BTC')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/btc.png';
+    if (s.includes('ETH')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/eth.png';
+    if (s.includes('USD')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/usd.png';
+    if (s.includes('EUR')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/eur.png';
+    if (s.includes('GBP')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/gbp.png';
+    if (s.includes('JPY')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/jpy.png';
+    return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/usd.png';
+  };
+
+  const getFlagIcon = (symbol: string) => {
+    const s = symbol.toUpperCase();
+    if (s.includes('USD')) return 'https://flagcdn.com/w20/us.png';
+    if (s.includes('EUR')) return 'https://flagcdn.com/w20/eu.png';
+    if (s.includes('GBP')) return 'https://flagcdn.com/w20/gb.png';
+    if (s.includes('JPY')) return 'https://flagcdn.com/w20/jp.png';
+    if (s.includes('AUD')) return 'https://flagcdn.com/w20/au.png';
+    if (s.includes('CAD')) return 'https://flagcdn.com/w20/ca.png';
+    return null;
+  };
+
+  const formatDateShort = (dateStr: string | number | undefined) => {
     if (!dateStr) return "-";
-    // If it already looks like a formatted date string from the server, return it as is
-    if (typeof dateStr === "string" && /^\d{4}[\.\-/]\d{2}[\.\-/]\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) {
-      return dateStr;
-    }
     const ms = toMs(dateStr);
     if (!Number.isFinite(ms)) return String(dateStr);
-    
-    // Format to match MT5 style: YYYY.MM.DD HH:MM:SS
     const d = new Date(ms);
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return `${pad(d.getDate())} ${months[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
   if (loading) {
@@ -566,271 +442,186 @@ export default function CopierHistoryPage() {
 
   return (
     <UserLayout>
-      <div className="min-h-screen bg-gray-50 text-gray-900 px-6 py-8">
-      <div className="max-w-6xl mx-auto pb-16 md:pb-0">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-[#00d09c] to-[#7c3aed] bg-clip-text text-transparent">View History</h1>
-            <p className="text-sm text-gray-600 mt-1">{strategy?.name || "Strategy"} • Lot Size: {lotSize}</p>
-          </div>
-          <Button variant="outline" onClick={() => router.push("/strategies/running")}>
-            Back
-          </Button>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-2 rounded-lg bg-blue-100">
-                <FiDollarSign className="h-5 w-5 text-blue-600" />
-              </div>
-              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Investment</span>
-            </div>
-            <div className="text-2xl font-bold text-gray-900">${stats.totalInvestment}</div>
-            <div className="text-sm text-gray-600 mt-1">Total amount invested</div>
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-2 rounded-lg bg-green-100">
-                <FiTrendingUp className="h-5 w-5 text-green-600" />
-              </div>
-              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Profit</span>
-            </div>
-            <div className="text-2xl font-bold text-green-600">${stats.totalProfit}</div>
-            <div className="text-sm text-gray-600 mt-1">Total profitable gains</div>
+      <div className="min-h-screen bg-white text-gray-900 px-6 py-8">
+        <div className="max-w-7xl mx-auto">
+          {/* Top Tabs */}
+          <div className="flex items-center gap-8 border-b border-gray-100 mb-8">
+            <button
+              onClick={() => setFilter("closed")}
+              className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
+                filter === "closed" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Closed Orders
+            </button>
+            <button
+              onClick={() => setFilter("opened")}
+              className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
+                filter === "opened" ? "border-blue-500 text-blue-500" : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Open Orders ({filteredOpen.length})
+            </button>
+            <button
+              onClick={() => setFilter("balance")}
+              className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
+                filter === "balance" ? "border-orange-500 text-orange-500" : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Balance Operations
+            </button>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-2 rounded-lg bg-red-100">
-                <FiTrendingDown className="h-5 w-5 text-red-600" />
-              </div>
-              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Loss</span>
+          {/* Stats Section */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-12 items-center text-center">
+            <div className="px-4 border-r border-gray-100 last:border-0">
+              <p className="text-2xl font-black text-gray-900">${stats.totalInvestment}</p>
+              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Deposit</p>
             </div>
-            <div className="text-2xl font-bold text-red-600">${stats.totalLoss}</div>
-            <div className="text-sm text-gray-600 mt-1">Total losses incurred</div>
+            <div className="px-4 border-r border-gray-100 last:border-0">
+              <p className="text-2xl font-black text-gray-900">$0.00</p>
+              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Withdrawal</p>
+            </div>
+            <div className="px-4 border-r border-gray-100 last:border-0">
+              <p className={`text-2xl font-black ${Number(stats.totalProfit) >= 0 ? 'text-gray-900' : 'text-red-500'}`}>
+                ${stats.totalProfit}
+              </p>
+              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
+            </div>
+            <div className="px-4 border-r border-gray-100 last:border-0">
+              <p className="text-2xl font-black text-gray-900">1:500</p>
+              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
+            </div>
+            <div className="px-4 border-r border-gray-100 last:border-0">
+              <p className="text-2xl font-black text-gray-900">${stats.totalCommission}</p>
+              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
+            </div>
+            <div className="px-4 border-r border-gray-100 last:border-0">
+              <p className="text-2xl font-black text-gray-900">${filter === 'opened' ? stats.floatPL : stats.balance}</p>
+              <p className="text-xs font-bold text-gray-400 uppercase mt-1">{filter === 'opened' ? 'Float P/L' : 'Balance'}</p>
+            </div>
           </div>
-        </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-gray-900">
-                {filter === "all" ? "All Trades" : filter === "opened" ? "Opened Positions" : "Closed Positions"}
-              </h3>
-              <span className="text-xs text-gray-500">
-                {filter === "closed" ? "Master MT5 History tab (closed trades)" : "Master MT5 position data"}
-              </span>
-            </div>
-            <div className="mt-4 inline-flex rounded-md shadow-sm border border-gray-200 overflow-hidden" role="group">
-              <button
-                className={`px-4 py-2 text-sm ${filter === "all" ? "bg-primary text-white" : "bg-white text-gray-700"}`}
-                onClick={() => setFilter("all")}
-              >
-                All
-              </button>
-              <button
-                className={`px-4 py-2 text-sm border-l border-gray-200 ${filter === "opened" ? "bg-primary text-white" : "bg-white text-gray-700"}`}
-                onClick={() => setFilter("opened")}
-              >
-                Opened
-              </button>
-              <button
-                className={`px-4 py-2 text-sm border-l border-gray-200 ${filter === "closed" ? "bg-primary text-white" : "bg-white text-gray-700"}`}
-                onClick={() => setFilter("closed")}
-              >
-                Closed
-              </button>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            {displayRows.length > 0 ? (
-              <>
-                {/* Desktop / tablet table */}
-                <table className="hidden md:table w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-semibold">
-                    <tr>
-                      <th className="px-6 py-3">Open Time</th>
-                      <th className="px-6 py-3">Close Time</th>
-                      <th className="px-6 py-3">Symbol</th>
-                      <th className="px-6 py-3">Type</th>
-                      <th className="px-6 py-3">Volume</th>
-                      <th className="px-6 py-3">Open Price</th>
-                      <th className="px-6 py-3">{filter === "opened" ? "Current Price" : "Close Price"}</th>
-                      <th className="px-6 py-3">Swap</th>
-                      <th className="px-6 py-3">Profit</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {paginatedRows.map((pos, idx) => {
-                      const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
-                      const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
-                      const vol = Number((pos as any).volume) || 0;
-                      const swapVal = (Number((pos as any).swap) || 0) * mult;
-                      const profitVal = (Number((pos as any).profit) || 0) * mult;
-                      return (
-                        <tr key={`${pos.symbol}-${pos.openTimeStr}-${idx}`} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                            {formatDate(pos.openTimeStr)}
-                          </td>
-                          <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                            {formatDate(pos.closeTimeStr)}
-                          </td>
-                          <td className="px-6 py-4 font-medium text-gray-900">{pos.symbol}</td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                isBuy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                              }`}
-                            >
-                              {isBuy ? "BUY" : "SELL"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-gray-600">{(vol * mult).toFixed(2)}</td>
-                          <td className="px-6 py-4 text-gray-600">
-                            {pos.openPrice && Number(pos.openPrice) !== 0 ? pos.openPrice : "-"}
-                          </td>
-                          <td className="px-6 py-4 text-gray-600">
-                            {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0 ? pos.closeOrCurrentPrice : "-"}
-                          </td>
-                          <td className={`px-6 py-4 font-medium ${swapVal >= 0 ? "text-green-600" : "text-red-600"}`}>
-                            {swapVal > 0 ? "+" : ""}{swapVal.toFixed(2)}
-                          </td>
-                          <td className={`px-6 py-4 font-bold ${profitVal >= 0 ? "text-green-600" : "text-red-600"}`}>
-                            {profitVal >= 0 ? "+" : ""}{profitVal.toFixed(2)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {/* Mobile card list (white theme) */}
-                <div className="md:hidden divide-y divide-gray-200 bg-white">
-                  {paginatedRows.map((pos, idx) => {
-                    const isBuy = String(pos.type).toUpperCase().includes("BUY") || pos.type === 0 || pos.type === "0";
+          {/* Table Section */}
+          <div className="bg-white rounded-xl overflow-hidden">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-[10px] font-black text-gray-400 uppercase border-b border-gray-50">
+                  <th className="px-6 py-4">Symbol</th>
+                  <th className="px-6 py-4 text-center">Type</th>
+                  <th className="px-6 py-4">Opening time, UTC</th>
+                  {filter === 'closed' && <th className="px-6 py-4">Closing time, UTC ↓</th>}
+                  <th className="px-6 py-4 text-center">Lots</th>
+                  <th className="px-6 py-4 text-right">Opening price</th>
+                  <th className="px-6 py-4 text-right">Closing price</th>
+                  <th className="px-6 py-4 text-right">Profit, USD</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {paginatedRows.length > 0 ? (
+                  paginatedRows.map((pos, idx) => {
+                    const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
                     const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
-                    const vol = Number((pos as any).volume) || 0;
-                    const swapVal = (Number((pos as any).swap) || 0) * mult;
-                    const profitVal = (Number((pos as any).profit) || 0) * mult;
-                    const isProfitPositive = profitVal >= 0;
+                    const vol = (Number(pos.volume) || 0) * mult;
+                    const profitVal = (Number(pos.profit) || 0) * mult;
+                    const symbolIcon = getSymbolIcon(pos.symbol || '');
+                    const flagIcon = getFlagIcon(pos.symbol || '');
 
                     return (
-                      <div
-                        key={`${pos.symbol}-${pos.openTimeStr}-${idx}`}
-                        className="px-4 py-3 flex flex-col gap-2 bg-white"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <tr key={idx} className="hover:bg-gray-50 transition-colors group">
+                        <td className="px-6 py-5">
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <img src={symbolIcon} alt="" className="w-6 h-6 rounded-full" />
+                              {flagIcon && (
+                                <img 
+                                  src={flagIcon} 
+                                  alt="" 
+                                  className="w-3.5 h-3.5 rounded-full absolute -bottom-1 -right-1 border border-white" 
+                                />
+                              )}
+                            </div>
+                            <span className="text-xs font-bold text-gray-700 uppercase tracking-tight">
                               {pos.symbol}
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                  isBuy ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                                }`}
-                              >
-                                {isBuy ? "BUY" : "SELL"}
-                              </span>
-                            </p>
-                            <p className="text-[11px] text-gray-500">
-                              Open: {formatDate(pos.openTimeStr)}
-                            </p>
-                            {pos.closeTimeStr && (
-                              <p className="text-[11px] text-gray-400">
-                                Close: {formatDate(pos.closeTimeStr)}
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <p
-                              className={`text-sm font-bold ${
-                                isProfitPositive ? "text-green-600" : "text-red-600"
-                              }`}
-                            >
-                              {isProfitPositive ? "+" : ""}
-                              {profitVal.toFixed(2)}
-                            </p>
-                            <p className="text-[11px] text-gray-500">Profit</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] text-gray-500 mt-1">
-                          <div className="flex flex-col">
-                            <span className="uppercase tracking-wide">Volume</span>
-                            <span className="text-gray-900 font-medium">
-                              {(vol * mult).toFixed(2)}
                             </span>
                           </div>
-                          <div className="flex flex-col">
-                            <span className="uppercase tracking-wide">
-                              {filter === "opened" ? "Current" : "Close"} Price
-                            </span>
-                            <span className="text-gray-900 font-medium">
-                              {pos.closeOrCurrentPrice && Number(pos.closeOrCurrentPrice) !== 0
-                                ? pos.closeOrCurrentPrice
-                                : "-"}
-                            </span>
-                          </div>
-                          <div className="flex flex-col items-end">
-                            <span className="uppercase tracking-wide">Swap</span>
-                            <span
-                              className={`font-medium ${
-                                swapVal >= 0 ? "text-green-600" : "text-red-600"
-                              }`}
-                            >
-                              {swapVal > 0 ? "+" : ""}
-                              {swapVal.toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                        </td>
+                        <td className="px-6 py-5 text-center">
+                          <span className={`text-[9px] font-black px-2.5 py-1 rounded-full border ${
+                            isBuy 
+                            ? "text-blue-400 border-blue-100 bg-blue-50/30" 
+                            : "text-red-400 border-red-100 bg-red-50/30"
+                          }`}>
+                            {isBuy ? "Buy" : "Sell"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-5 text-xs font-bold text-gray-500">
+                          {formatDateShort(pos.openTimeStr)}
+                        </td>
+                        {filter === 'closed' && (
+                          <td className="px-6 py-5 text-xs font-bold text-gray-500">
+                            {formatDateShort(pos.closeTimeStr)}
+                          </td>
+                        )}
+                        <td className="px-6 py-5 text-xs font-bold text-gray-500 text-center">
+                          {vol.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-5 text-xs font-bold text-gray-500 text-right">
+                          {pos.openPrice ? Number(pos.openPrice).toFixed(pos.symbol?.includes('JPY') ? 3 : 5) : "-"}
+                        </td>
+                        <td className="px-6 py-5 text-xs font-bold text-gray-500 text-right">
+                          {pos.closeOrCurrentPrice ? Number(pos.closeOrCurrentPrice).toFixed(pos.symbol?.includes('JPY') ? 3 : 5) : "-"}
+                        </td>
+                        <td className={`px-6 py-5 text-xs font-bold text-right ${profitVal >= 0 ? "text-green-500" : "text-red-500"}`}>
+                          {profitVal >= 0 ? "" : "-"}{Math.abs(profitVal).toFixed(2)}
+                        </td>
+                      </tr>
                     );
-                  })}
-                </div>
-
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 bg-gray-50">
-                    <p className="text-sm text-gray-600">
-                      Showing {(currentPage - 1) * ENTRIES_PER_PAGE + 1}–{Math.min(currentPage * ENTRIES_PER_PAGE, displayRows.length)} of {displayRows.length} entries
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
-                        disabled={currentPage <= 1}
-                        className="px-3 py-1.5 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                      >
-                        Previous
-                      </button>
-                      <span className="text-sm text-gray-600">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setHistoryPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={currentPage >= totalPages}
-                        className="px-3 py-1.5 text-sm font-medium rounded border border-gray-300 bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div>
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={filter === 'closed' ? 8 : 7} className="px-6 py-20 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">
+                      {historyLoading ? "Loading orders..." : "No orders found"}
+                    </td>
+                  </tr>
                 )}
-              </>
-            ) : (
-              <div className="p-12 text-center text-gray-500 text-sm">
-                {historyLoading ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-6 w-6 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
-                    <span>Loading trades...</span>
-                  </div>
-                ) : historyError ? historyError : 'No trades yet since activation.'}
+              </tbody>
+            </table>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-4 py-8 border-t border-gray-50">
+                <button
+                  onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                >
+                  <FiChevronLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setHistoryPage(p)}
+                      className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${
+                        currentPage === p ? "bg-[#00d09c] text-white" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setHistoryPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                >
+                  <FiChevronRight className="w-5 h-5 text-gray-600" />
+                </button>
               </div>
             )}
           </div>
         </div>
-      </div>
       </div>
     </UserLayout>
   );
