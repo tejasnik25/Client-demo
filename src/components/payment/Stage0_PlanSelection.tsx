@@ -52,6 +52,7 @@ const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }:
       profit: strategy?.profit ?? 0,
       lotSize: lot,
       payable: amount,
+      capital: amount, // Also set capital to the paid amount for display as balance
     } as PaymentData));
   };
 

@@ -36,6 +36,7 @@ export async function POST(req: Request) {
       user_name: session.user.name ?? undefined,
       user_email: session.user.email ?? undefined,
       amount: payable,
+      capital: body.capital || payable, // Set capital from body or fallback to payable
       transaction_type: 'deposit',
       payment_method: method,
       platform: undefined,

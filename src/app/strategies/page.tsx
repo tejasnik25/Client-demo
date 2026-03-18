@@ -8,11 +8,29 @@ import Image from 'next/image';
 import Button from '@/components/ui/Button';
 import Tabs, { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FiGrid, FiList } from 'react-icons/fi';
-import { FaFolder } from 'react-icons/fa';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { 
+  FiGrid, 
+  FiList, 
+  FiInfo, 
+  FiPlay, 
+  FiX, 
+  FiChevronLeft, 
+  FiChevronRight, 
+  FiActivity,
+  FiFolder,
+  FiSearch,
+  FiRefreshCw,
+  FiMenu
+} from 'react-icons/fi';
+import { FaFolder, FaWallet } from 'react-icons/fa';
 import UserLayout from '@/components/UserLayout';
-import { FiInfo, FiPlay, FiX } from 'react-icons/fi';
 import { Strategy } from "@/types/strategy";
 import { useAuth } from '@/hooks/use-auth';
 import Badge from '@/components/ui/Badge';
@@ -27,7 +45,9 @@ const octaInter = Inter({
 
 const StrategiesPageInner: React.FC = () => {
   const { data: session } = useSession();
-  const { user } = useAuth();
+  const { user: authUser } = useAuth();
+  const [user, setUser] = useState<any>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const router = useRouter();
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   // Separate state so Info dialog does NOT auto-open on deploy
@@ -72,6 +92,34 @@ const StrategiesPageInner: React.FC = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [activeTab, searchNick, sortBy]);
+
+  useEffect(() => {
+    if (authUser) {
+      setUser((prev: any) => ({ ...prev, ...authUser }));
+    }
+  }, [authUser]);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const res = await fetch('/api/profile', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setUser(data.user);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch profile:", err);
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+
+    fetchProfile();
+    const interval = setInterval(fetchProfile, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const fetchStrategies = async () => {
@@ -447,26 +495,52 @@ const StrategiesPageInner: React.FC = () => {
         {/* Tabs + Filters */}
         <div className="px-4 md:px-6 py-5 space-y-5">
           {/* Top Tabs */}
-          <div className="flex gap-3 border-b border-gray-200">
-            <button
-              onClick={() => setTopTab('explore')}
-              className={`px-6 py-3 text-sm font-medium transition-all ${topTab === 'explore'
-                ? 'text-[#00d09c] border-b-2 border-[#00d09c]'
-                : 'text-gray-500 hover:text-gray-900'
-                }`}
-            >
-              Top Masters
-            </button>
-            {user && (
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-200 gap-4">
+            <div className="flex gap-3">
               <button
-                onClick={() => setTopTab('deployed')}
-                className={`px-6 py-3 text-sm font-bold transition-all ${topTab === 'deployed'
+                onClick={() => setTopTab('explore')}
+                className={`px-6 py-3 text-sm font-medium transition-all ${topTab === 'explore'
                   ? 'text-[#00d09c] border-b-2 border-[#00d09c]'
                   : 'text-gray-500 hover:text-gray-900'
                   }`}
               >
-                Copier
+                Top Masters
               </button>
+              {user && (
+                <button
+                  onClick={() => setTopTab('deployed')}
+                  className={`px-6 py-3 text-sm font-bold transition-all ${topTab === 'deployed'
+                    ? 'text-[#00d09c] border-b-2 border-[#00d09c]'
+                    : 'text-gray-500 hover:text-gray-900'
+                    }`}
+                >
+                  Copier
+                </button>
+              )}
+            </div>
+
+            {topTab === 'deployed' && user && (
+              <div className="flex items-center gap-4 mb-2 md:mb-0">
+                <div className="text-right px-2">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Wallet Balance</p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {profileLoading && user?.wallet_balance === undefined ? (
+                      <span className="animate-pulse opacity-50">...</span>
+                    ) : (
+                      formatCurrency(user?.wallet_balance)
+                    )}
+                  </p>
+                </div>
+                <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-100 shadow-sm">
+                  <FaWallet className="text-gray-600 w-5 h-5" />
+                </div>
+                <Button 
+                  onClick={() => router.push('/wallet')}
+                  className="bg-[#00d09c] hover:bg-[#00b88a] text-white font-bold px-6 py-2 rounded-full transition-all text-sm"
+                >
+                  Deposit
+                </Button>
+              </div>
             )}
           </div>
 
@@ -556,7 +630,8 @@ const StrategiesPageInner: React.FC = () => {
                   
                   const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
                   const isPending = pendingIds.includes((r as any)?.rsId || r.id);
-                  const investedAmount = r.capital || 47.00;
+                  // Ensure we use a valid number for investedAmount
+                  const investedAmount = Number(r.capital) || 0;
                   
                   return (
                     <div key={r.rsId || `${r.id}-${index}`} className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
@@ -1156,8 +1231,6 @@ const StrategiesPageInner: React.FC = () => {
             </div>
           </div>
         </div>
-
-        
       </div>
     </UserLayout>
   );

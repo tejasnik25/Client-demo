@@ -20,10 +20,9 @@ const WalletPageContent: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        setLoading(true);
         const [balanceRes, txRes] = await Promise.all([
-          fetch('/api/profile'),
-          fetch('/api/wallet/transactions')
+          fetch('/api/profile', { cache: 'no-store' }),
+          fetch('/api/wallet/transactions', { cache: 'no-store' })
         ]);
         
         const balanceData = await balanceRes.json();
@@ -43,6 +42,8 @@ const WalletPageContent: React.FC = () => {
     };
 
     fetchData();
+    const interval = setInterval(fetchData, 10000); // Poll every 10 seconds
+    return () => clearInterval(interval);
   }, []);
 
   const getStatusIcon = (status: string) => {

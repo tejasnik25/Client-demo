@@ -11,11 +11,10 @@ export default function MobileBottomNav({ top = false }: Props) {
 
   const items = [
     { id: 'dashboard', label: 'Dashboard', path: '/dashboard', icon: <FiGrid className="h-5 w-5" /> },
+    { id: 'investments', label: 'Investments', path: '/investments', icon: <FiActivity className="h-5 w-5" /> },
     { id: 'strategies', label: 'Strategies', path: '/strategies', icon: <FiTrendingUp className="h-5 w-5" /> },
-    { id: 'running', label: 'Running', path: '/strategies/running', icon: <FiActivity className="h-5 w-5" /> },
     { id: 'billing', label: 'Billing', path: '/billing', icon: <FiCreditCard className="h-5 w-5" /> },
     { id: 'profile', label: 'Profile', path: '/profile', icon: <FiUser className="h-5 w-5" /> },
-    { id: 'settings', label: 'Settings', path: '/settings', icon: <FiSettings className="h-5 w-5" /> },
   ];
 
   return (

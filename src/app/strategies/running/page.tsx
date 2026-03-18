@@ -14,7 +14,10 @@ import {
   FiList, 
   FiChevronLeft, 
   FiChevronRight, 
-  FiActivity 
+  FiActivity,
+  FiMenu,
+  FiRefreshCw,
+  FiChevronDown
 } from "react-icons/fi";
 import { FaWallet } from "react-icons/fa";
 import { 
@@ -53,38 +56,67 @@ const RunningStrategiesPageInner: React.FC = () => {
   const [running, setRunning] = useState<RunningItem[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [user, setUser] = useState<any>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("default");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [currentPage, setCurrentPage] = useState(1);
+  const [showStats, setShowStats] = useState(true);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const itemsPerPage = 5;
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const [runRes, stratRes, profileRes] = await Promise.all([
-          fetch('/api/strategies/running', { cache: 'no-store' }),
-          fetch('/api/strategies', { cache: 'no-store' }),
-          fetch('/api/profile', { cache: 'no-store' })
-        ]);
-        
-        const runData = await runRes.json();
-        const stratData = await stratRes.json();
-        const profileData = await profileRes.json();
+  const loadData = async (showLoading = false) => {
+    try {
+      if (showLoading) setLoading(true);
+      const [runRes, stratRes, profileRes] = await Promise.all([
+        fetch('/api/strategies/running', { cache: 'no-store' }),
+        fetch('/api/strategies', { cache: 'no-store' }),
+        fetch('/api/profile', { cache: 'no-store' })
+      ]);
+      
+      const runData = await runRes.json();
+      const stratData = await stratRes.json();
+      const profileData = await profileRes.json();
 
-        setRunning(runData?.strategies || []);
-        setStrategies((stratData?.strategies || []).filter((s: any) => s.enabled !== false));
-        if (profileData.success) setUser(profileData.user);
-      } catch (err) {
-        console.error("Failed to load copier data:", err);
-      } finally {
-        setLoading(false);
+      setRunning(runData?.strategies || []);
+      setStrategies((stratData?.strategies || []).filter((s: any) => s.enabled !== false));
+      if (profileData.success) {
+        setUser(profileData.user);
+        setProfileLoading(false);
       }
-    };
-    load();
+
+      // Initialize expanded IDs if not already done
+      if (expandedIds.size === 0 && runData?.strategies?.length > 0) {
+        setExpandedIds(new Set(runData.strategies.map((r: any) => r.id)));
+      }
+    } catch (err) {
+      console.error("Failed to load copier data:", err);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData(true);
+    
+    // Set up real-time polling every 10 seconds
+    const interval = setInterval(() => {
+      loadData(false);
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
+
+  const toggleExpand = (id: string) => {
+    const newExpanded = new Set(expandedIds);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedIds(newExpanded);
+  };
 
   const stratById = useMemo(() => {
     const map = new Map<string, Strategy>();
@@ -128,7 +160,132 @@ const RunningStrategiesPageInner: React.FC = () => {
 
   return (
     <UserLayout>
-      <div className="min-h-screen bg-[#f8f9fa] text-gray-900 px-4 py-6 md:px-8">
+      {/* Mobile View - Matches "Your investments" image */}
+      <div className="min-h-screen bg-[#f1f4f9] md:hidden">
+        {/* Mobile Header */}
+        <div className="flex items-center justify-between px-6 py-5 bg-white">
+          <div className="flex items-center gap-6">
+            <FiMenu className="w-7 h-7 text-[#002b5c]" />
+            <h1 className="text-2xl font-bold text-[#002b5c]">Your investments</h1>
+          </div>
+          <button onClick={() => window.location.reload()} className="p-2">
+            <FiRefreshCw className="w-6 h-6 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Your Stats Section */}
+        <div className="px-4 py-6">
+          <button 
+            onClick={() => setShowStats(!showStats)}
+            className="flex items-center justify-between w-full mb-6 px-2"
+          >
+            <span className="text-xl font-bold text-[#002b5c]">Your stats</span>
+            <FiChevronDown className={`w-6 h-6 text-gray-900 transition-transform ${showStats ? '' : '-rotate-90'}`} />
+          </button>
+          
+          {showStats && (
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-50 mb-8">
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-1 uppercase font-bold tracking-wider">Total Balance</p>
+                  <p className="text-2xl font-black text-[#002b5c]">
+                    {formatCurrency(running.reduce((acc, curr) => acc + ((curr as any).capital || 0), 0))}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-1 uppercase font-bold tracking-wider">Total Profit</p>
+                  <p className="text-2xl font-black text-green-500">
+                    {formatCurrency(running.reduce((acc, curr) => acc + (curr.floatProfit || 0), 0))}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Investment Cards */}
+          <div className="space-y-6 pb-20">
+            {loading ? (
+              <div className="flex justify-center py-10">
+                <div className="w-10 h-10 border-4 border-[#00d09c]/20 border-t-[#00d09c] rounded-full animate-spin" />
+              </div>
+            ) : filteredRunning.length === 0 ? (
+              <div className="text-center py-10 bg-white rounded-3xl border border-dashed border-gray-200">
+                <p className="text-gray-400">No active investments</p>
+              </div>
+            ) : (
+              paginatedRunning.map(r => {
+                const s = stratById.get(r.id);
+                if (!s) return null;
+                const investedAmount = (r as any).capital || 47.00;
+                
+                const isExpanded = expandedIds.has(r.id);
+                
+                return (
+                  <div key={r.id} className="bg-white rounded-[2.5rem] shadow-sm border border-gray-50 relative overflow-hidden">
+                    <div className="p-8">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
+                            {s.imageUrl ? (
+                              <Image 
+                                src={s.imageUrl} 
+                                alt={s.name} 
+                                width={56} 
+                                height={56} 
+                                className="object-contain"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-blue-100 flex items-center justify-center text-blue-500 font-bold">
+                                {s.name?.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-black text-white bg-blue-600 px-2 py-0.5 rounded-md uppercase tracking-tighter mb-1 inline-block">Master</span>
+                            <h3 className="text-base font-bold text-[#002b5c] leading-tight">{s.name}</h3>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => toggleExpand(r.id)}
+                          className="p-2 -mr-2"
+                        >
+                          <FiChevronDown className={`w-7 h-7 text-gray-900 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                        </button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-8 pt-6 border-t border-gray-100 mt-4">
+                          <div className="flex flex-col items-center">
+                            <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Status</p>
+                            <span className="text-white font-bold bg-[#00d09c] px-4 py-1.5 rounded-full text-[11px]">Copying</span>
+                          </div>
+                          <div className="flex flex-col items-center">
+                            <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Balance</p>
+                            <p className="text-lg font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
+                          </div>
+                          <div className="flex flex-col items-center">
+                            <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Equity</p>
+                            <p className="text-lg font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
+                          </div>
+                          <div className="flex flex-col items-center">
+                            <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Float profit</p>
+                            <p className={`text-lg font-bold ${(r.floatProfit || 0) > 0 ? 'text-green-500' : (r.floatProfit || 0) < 0 ? 'text-red-500' : 'text-gray-900'}`}>
+                              {formatCurrency(r.floatProfit || 0.00)}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop View - Existing professional design */}
+      <div className="hidden md:block min-h-screen bg-[#f8f9fa] text-gray-900 px-4 py-6 md:px-8">
         {/* Top Header Tabs & Wallet */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div className="flex items-center">
@@ -143,7 +300,13 @@ const RunningStrategiesPageInner: React.FC = () => {
           <div className="flex items-center gap-4">
             <div className="text-right">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Wallet Balance</p>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(user?.wallet_balance)}</p>
+              <p className="text-lg font-bold text-gray-900">
+                {profileLoading && user?.wallet_balance === undefined ? (
+                  <span className="animate-pulse opacity-50">...</span>
+                ) : (
+                  formatCurrency(user?.wallet_balance)
+                )}
+              </p>
             </div>
             <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-gray-200 shadow-sm">
               <FaWallet className="text-gray-600 w-5 h-5" />
@@ -223,7 +386,7 @@ const RunningStrategiesPageInner: React.FC = () => {
               const s = stratById.get(r.id);
               if (!s) return null;
               
-              const investedAmount = (r as any).capital || 47.00;
+              const investedAmount = Number(r.capital) || 0;
 
               if (viewMode === 'list') {
                 return (

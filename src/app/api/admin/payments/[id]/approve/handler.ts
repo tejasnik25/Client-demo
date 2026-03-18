@@ -61,7 +61,7 @@ export async function POST(
           transaction.user_id,
           transaction.strategy_id,
           (transaction.plan_level as 'Premium' | 'Expert' | 'Pro') || 'Pro',
-          Number(transaction.capital) || 0,
+          Number(transaction.capital || transaction.amount) || 0,
           {}
         );
 

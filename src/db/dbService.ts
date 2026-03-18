@@ -1621,6 +1621,7 @@ export const getTransactionById = async (id: string): Promise<WalletTransaction 
     return {
       ...transaction,
       amount: parseFloat(transaction.amount),
+      capital: transaction.capital ? parseFloat(transaction.capital) : null,
       created_at: transaction.created_at.toISOString(),
       updated_at: transaction.updated_at ? transaction.updated_at.toISOString() : undefined
     };
@@ -2203,7 +2204,11 @@ export const getRunningStrategiesForUser = async (userId: string): Promise<any[]
   try {
     // Get running strategies from running_strategies table
     const [runningRows] = await pool.execute(
-      'SELECT * FROM running_strategies WHERE user_id = ? ORDER BY created_at DESC',
+      `SELECT rs.*, wt.amount as txn_amount, wt.capital as txn_capital 
+       FROM running_strategies rs 
+       LEFT JOIN wallet_transactions wt ON rs.strategy_id = wt.strategy_id AND rs.user_id = wt.user_id AND wt.status = 'completed'
+       WHERE rs.user_id = ? 
+       ORDER BY rs.created_at DESC`,
       [userId]
     );
     
@@ -2218,12 +2223,16 @@ export const getRunningStrategiesForUser = async (userId: string): Promise<any[]
     
     // Add running strategies
     (runningRows as any[]).forEach(row => {
+      const cap = parseFloat(row.capital);
+      const txnCap = parseFloat(row.txn_capital);
+      const txnAmt = parseFloat(row.txn_amount);
+      
       allStrategies.set(row.strategy_id, {
         id: row.id,
         strategyId: row.strategy_id,
         userId: row.user_id,
         plan: row.plan,
-        capital: parseFloat(row.capital) || 0,
+        capital: (cap > 0 ? cap : (txnCap > 0 ? txnCap : (txnAmt > 0 ? txnAmt : 0))),
         status: row.status,
         adminStatus: row.admin_status,
         platform: row.platform,
@@ -2239,12 +2248,15 @@ export const getRunningStrategiesForUser = async (userId: string): Promise<any[]
     // Add completed transactions that aren't already in running_strategies
     (transactionRows as any[]).forEach(row => {
       if (!allStrategies.has(row.strategy_id)) {
+        const txnAmt = parseFloat(row.amount);
+        const txnCap = parseFloat(row.capital);
+        
         allStrategies.set(row.strategy_id, {
           id: `txn_${row.id}`,
           strategyId: row.strategy_id,
           userId: row.user_id,
           plan: row.plan_level,
-          capital: parseFloat(row.amount) || 0,
+          capital: (txnCap > 0 ? txnCap : (txnAmt > 0 ? txnAmt : 0)),
           status: 'completed',
           adminStatus: 'running',
           platform: row.platform,
@@ -2281,7 +2293,12 @@ export const getRunningStrategiesForUser = async (userId: string): Promise<any[]
       const allStrategies = new Map();
       
       userRunningStrategies.forEach((r: any) => {
-        allStrategies.set(r.strategy_id, { ...r, source: 'running_strategies' });
+        const txn = completedTransactions.find((t: any) => t.strategy_id === r.strategy_id);
+        allStrategies.set(r.strategy_id, { 
+          ...r, 
+          capital: r.capital || txn?.capital || txn?.amount || 0,
+          source: 'running_strategies' 
+        });
       });
       
       completedTransactions.forEach((t: any) => {
@@ -2291,7 +2308,7 @@ export const getRunningStrategiesForUser = async (userId: string): Promise<any[]
             strategyId: t.strategy_id,
             userId: t.user_id,
             plan: t.plan_level,
-            capital: t.amount || 0,
+            capital: t.capital || t.amount || 0,
             status: 'completed',
             adminStatus: 'running',
             platform: t.platform,

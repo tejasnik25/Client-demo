@@ -14,16 +14,22 @@ export function UserHeader() {
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
 
   useEffect(() => {
-    if (session?.user?.id) {
-      fetch('/api/profile')
-        .then(res => res.json())
-        .then(data => {
-          if (data?.success && typeof data.user?.wallet_balance === 'number') {
-            setWalletBalance(data.user.wallet_balance);
-          }
-        })
-        .catch(err => console.error('Failed to fetch wallet balance:', err));
-    }
+    const fetchBalance = () => {
+      if (session?.user?.id) {
+        fetch('/api/profile', { cache: 'no-store' })
+          .then(res => res.json())
+          .then(data => {
+            if (data?.success && typeof data.user?.wallet_balance === 'number') {
+              setWalletBalance(data.user.wallet_balance);
+            }
+          })
+          .catch(err => console.error('Failed to fetch wallet balance:', err));
+      }
+    };
+
+    fetchBalance();
+    const interval = setInterval(fetchBalance, 10000); // Poll every 10 seconds
+    return () => clearInterval(interval);
   }, [session?.user?.id]);
 
   // Get page title from pathname
@@ -69,7 +75,7 @@ export function UserHeader() {
             <div className="flex flex-col items-start leading-none">
               <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Wallet</span>
               <span className="text-sm font-black text-gray-900">
-                ${walletBalance !== null ? walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                {walletBalance !== null ? `$${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '...'}
               </span>
             </div>
           </button>
