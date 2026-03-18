@@ -124,7 +124,45 @@ export async function GET(
       })
     );
 
-    const finalHistory = [...history].sort((a, b) => {
+    // Merge with cached DB history to avoid missing trades if either
+    // the live MT5 endpoint or the push-based sync lags behind.
+    let mergedHistory = [...history];
+    let mergedOpen = [...open_positions];
+    try {
+      const cached = await getCachedMasterTrades(masterId);
+      const cachedHistory = Array.isArray(cached.history) ? cached.history : [];
+      const cachedOpen = Array.isArray(cached.open_positions) ? cached.open_positions : [];
+
+      const liveIds = new Set(
+        mergedHistory
+          .map((h: any) => h.position_id ?? h.ticket ?? h.deal_id)
+          .filter((v: any) => v != null)
+          .map((v: any) => String(v))
+      );
+      const liveOpenIds = new Set(
+        mergedOpen
+          .map((p: any) => p.position_id ?? p.ticket ?? p.deal_id)
+          .filter((v: any) => v != null)
+          .map((v: any) => String(v))
+      );
+
+      for (const h of cachedHistory) {
+        const id = h.position_id ?? h.ticket ?? h.deal_id;
+        if (id != null && !liveIds.has(String(id))) {
+          mergedHistory.push(h);
+        }
+      }
+      for (const p of cachedOpen) {
+        const id = p.position_id ?? p.ticket ?? p.deal_id;
+        if (id != null && !liveOpenIds.has(String(id))) {
+          mergedOpen.push(p);
+        }
+      }
+    } catch (mergeErr) {
+      console.warn('[MasterHistory] Failed to merge cached trades with live data (non-fatal):', mergeErr);
+    }
+
+    const finalHistory = [...mergedHistory].sort((a, b) => {
       const getTime = (t: any) => {
         if (t == null) return 0;
         if (typeof t === 'number') return t < 1e12 ? t * 1000 : t;
@@ -137,9 +175,12 @@ export async function GET(
       return getTime(b.time_close ?? b.time_open) - getTime(a.time_close ?? a.time_open);
     });
 
+    // Always ensure open positions list is in sync with any merged/cached data.
+    const finalOpenPositions = mergedOpen;
+
     let errorStr: string | undefined;
     if (data.error && String(data.error).trim()) errorStr = data.error;
-    else if (finalHistory.length === 0 && open_positions.length === 0)
+    else if (finalHistory.length === 0 && finalOpenPositions.length === 0)
       errorStr = 'No trading data from MT5. Master account may have no positions or history.';
 
     // Write-through cache for stale-while-revalidate behavior.
@@ -149,14 +190,14 @@ export async function GET(
         await upsertMasterTrades(masterId, finalHistory, false);
       }
       // Reconcile open positions so closed trades don't remain stuck as "open" in cached views.
-      await reconcileMasterOpenPositions(masterId, open_positions);
+      await reconcileMasterOpenPositions(masterId, finalOpenPositions);
     } catch (e) {
       console.warn('[MasterHistory] Cache write failed (non-fatal):', e);
     }
 
     return NextResponse.json({
       history: finalHistory,
-      open_positions,
+      open_positions: finalOpenPositions,
       error: errorStr,
       last_updated: new Date().toISOString(),
       info: 'Live data from MT5 terminal (real-time)',
