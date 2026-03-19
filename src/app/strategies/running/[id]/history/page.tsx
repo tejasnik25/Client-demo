@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import Button from "@/components/ui/Button";
 import UserLayout from "@/components/UserLayout";
-import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
+import { FiChevronLeft, FiChevronRight, FiPlusCircle, FiMinusCircle, FiXCircle, FiExternalLink, FiChevronDown } from "react-icons/fi";
 
 type HistoryItem = {
   position_id?: string;
@@ -77,6 +77,7 @@ export default function CopierHistoryPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [adminStatus, setAdminStatus] = useState<string | null>(null);
   const [mtStatus, setMtStatus] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [rsId, setRsId] = useState<string | null>(null);
   const [modifications, setModifications] = useState<any[]>([]);
@@ -340,13 +341,13 @@ export default function CopierHistoryPage() {
     
     if (filter === "opened") return filteredOpen;
     if (filter === "closed") return closedRows.sort((a, b) => {
-      const ta = toMs(a.openTimeStr) || 0;
-      const tb = toMs(b.openTimeStr) || 0;
-      return tb - ta;
+      const ta = toMs(a.closeTimeStr) || 0;
+      const tb = toMs(b.closeTimeStr) || 0;
+      return sortOrder === "desc" ? tb - ta : ta - tb;
     });
     // For 'balance' tab, return empty or balance operations if available
     return [];
-  }, [filter, filteredOpen, filteredClosed]);
+  }, [filter, filteredOpen, filteredClosed, sortOrder]);
 
   const ENTRIES_PER_PAGE = 20;
   const totalPages = Math.max(1, Math.ceil(displayRows.length / ENTRIES_PER_PAGE));
@@ -432,6 +433,19 @@ export default function CopierHistoryPage() {
     return `${pad(d.getDate())} ${months[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
+  // Get country info for flag
+  const countryInfo = useMemo(() => {
+    if (!userProfile?.country) return { code: 'us', name: 'USA' };
+    
+    // Use the same COUNTRY_OPTIONS as UserLayout/Signup
+    // Assuming COUNTRY_OPTIONS is available or we can find it
+    // For now, if userProfile has it, use it, else default to US.
+    return {
+      code: userProfile?.country_code || 'us',
+      name: userProfile?.country || 'USA'
+    };
+  }, [userProfile]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
@@ -442,82 +456,202 @@ export default function CopierHistoryPage() {
 
   return (
     <UserLayout>
-      <div className="min-h-screen bg-white text-gray-900 px-6 py-8">
-        <div className="max-w-7xl mx-auto">
-          {/* Top Tabs */}
-          <div className="flex items-center gap-8 border-b border-gray-100 mb-8">
-            <button
-              onClick={() => setFilter("closed")}
-              className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                filter === "closed" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              Closed Orders
-            </button>
-            <button
-              onClick={() => setFilter("opened")}
-              className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                filter === "opened" ? "border-blue-500 text-blue-500" : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              Open Orders ({filteredOpen.length})
-            </button>
-            <button
-              onClick={() => setFilter("balance")}
-              className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                filter === "balance" ? "border-orange-500 text-orange-500" : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              Balance Operations
-            </button>
-          </div>
+      <div className="min-h-screen bg-[#f1f3f6] text-gray-900 px-6 py-8">
+        <div className="max-w-7xl mx-auto space-y-6">
+          
+          {/* Master Strategy Info Container */}
+          <div className="bg-white rounded-[2rem] p-6 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden border border-gray-100">
+                  <img 
+                    src={strategy?.parameters?.image || "/user-avatar.png"} 
+                    alt={strategy?.name || "Master"} 
+                    className="w-full h-full object-cover" 
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = "https://www.w3schools.com/howto/img_avatar.png";
+                    }} 
+                  />
+                </div>
+                <div className="absolute -bottom-1 -left-1 bg-[#00d09c] text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase">
+                  Equal x{lotSize}
+                </div>
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-gray-900 leading-tight">
+                  {strategy?.name || "NinjaTraders"}
+                </h2>
+                <span className="inline-block mt-1 px-3 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-md uppercase">
+                  Master
+                </span>
+              </div>
+            </div>
 
-          {/* Stats Section */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-12 items-center text-center">
-            <div className="px-4 border-r border-gray-100 last:border-0">
-              <p className="text-2xl font-black text-gray-900">${stats.totalInvestment}</p>
-              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Deposit</p>
-            </div>
-            <div className="px-4 border-r border-gray-100 last:border-0">
-              <p className="text-2xl font-black text-gray-900">$0.00</p>
-              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Withdrawal</p>
-            </div>
-            <div className="px-4 border-r border-gray-100 last:border-0">
-              <p className={`text-2xl font-black ${Number(stats.totalProfit) >= 0 ? 'text-gray-900' : 'text-red-500'}`}>
-                ${stats.totalProfit}
-              </p>
-              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
-            </div>
-            <div className="px-4 border-r border-gray-100 last:border-0">
-              <p className="text-2xl font-black text-gray-900">1:500</p>
-              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
-            </div>
-            <div className="px-4 border-r border-gray-100 last:border-0">
-              <p className="text-2xl font-black text-gray-900">${stats.totalCommission}</p>
-              <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
-            </div>
-            <div className="px-4 border-r border-gray-100 last:border-0">
-              <p className="text-2xl font-black text-gray-900">${filter === 'opened' ? stats.floatPL : stats.balance}</p>
-              <p className="text-xs font-bold text-gray-400 uppercase mt-1">{filter === 'opened' ? 'Float P/L' : 'Balance'}</p>
+            <div className="flex flex-wrap items-center gap-6 md:gap-10">
+              <button className="flex items-center gap-2 text-[#00d09c] text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity">
+                <FiPlusCircle className="w-4 h-4" />
+                Add Investment
+              </button>
+              <button className="flex items-center gap-2 text-gray-700 text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity">
+                <FiMinusCircle className="w-4 h-4" />
+                Reduce Investment
+              </button>
+              <button className="flex items-center gap-2 text-gray-900 text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity">
+                <FiXCircle className="w-4 h-4" />
+                Stop Copying
+              </button>
+              <button 
+                onClick={() => router.push(`/strategies/${params.id}/info`)}
+                className="flex items-center gap-2 text-gray-900 text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity"
+              >
+                <FiExternalLink className="w-4 h-4" />
+                Master's Performance
+              </button>
+              <button className="p-1 text-gray-400 hover:text-gray-600">
+                <FiChevronDown className="w-6 h-6" />
+              </button>
             </div>
           </div>
 
-          {/* Table Section */}
-          <div className="bg-white rounded-xl overflow-hidden">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-[10px] font-black text-gray-400 uppercase border-b border-gray-50">
-                  <th className="px-6 py-4">Symbol</th>
-                  <th className="px-6 py-4 text-center">Type</th>
-                  <th className="px-6 py-4">Opening time, UTC</th>
-                  {filter === 'closed' && <th className="px-6 py-4">Closing time, UTC ↓</th>}
-                  <th className="px-6 py-4 text-center">Lots</th>
-                  <th className="px-6 py-4 text-right">Opening price</th>
-                  <th className="px-6 py-4 text-right">Closing price</th>
-                  <th className="px-6 py-4 text-right">Profit, USD</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
+          {/* Top Info Container */}
+          <div className="bg-white rounded-[2rem] p-8 shadow-sm flex flex-wrap items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
+                <img src="/user-avatar.png" alt="User" className="w-full h-full object-cover" onError={(e) => {
+                  (e.target as HTMLImageElement).src = "https://www.w3schools.com/howto/img_avatar.png";
+                }} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">
+                  {userProfile?.name || "User Name"}
+                </h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <img 
+                    src={`https://flagcdn.com/w20/${countryInfo.code.toLowerCase()}.png`} 
+                    alt="" 
+                    className="w-4 h-3 object-contain"
+                  />
+                  <span className="text-sm text-gray-400 font-medium">
+                    {countryInfo.name}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-12 md:gap-16 lg:gap-24">
+              <div className="text-center">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Status</p>
+                <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  (adminStatus === 'running' || adminStatus === 'active') 
+                  ? "bg-[#00d09c] text-white" 
+                  : "bg-red-500 text-white"
+                }`}>
+                  {(adminStatus === 'running' || adminStatus === 'active') ? "Copying" : "Stopped"}
+                </span>
+              </div>
+
+              <div className="text-center">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Lot-size mode</p>
+                <p className="text-lg font-black text-gray-900">Equal X {lotSize}</p>
+              </div>
+
+              <div className="text-center">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Leverage</p>
+                <p className="text-lg font-black text-gray-900">1.500</p>
+              </div>
+
+              <div className="text-center">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Commission</p>
+                <p className="text-lg font-black text-gray-900">30%</p>
+              </div>
+            </div>
+          </div>
+
+          {/* History Container */}
+          <div className="bg-white rounded-[2rem] p-8 shadow-sm">
+            <h2 className="text-xl font-bold text-gray-900 mb-6">History</h2>
+            
+            {/* Tabs */}
+            <div className="flex items-center gap-8 border-b border-gray-100 mb-8">
+              <button
+                onClick={() => setFilter("closed")}
+                className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
+                  filter === "closed" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                Closed Orders
+              </button>
+              <button
+                onClick={() => setFilter("opened")}
+                className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
+                  filter === "opened" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                Open Orders ({filteredOpen.length})
+              </button>
+              <button
+                onClick={() => setFilter("balance")}
+                className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
+                  filter === "balance" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                Balance Operations
+              </button>
+            </div>
+
+            {/* Stats Summary */}
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-12 items-center text-center">
+              <div className="px-4 border-r border-gray-100 last:border-0">
+                <p className="text-2xl font-black text-gray-900">${stats.totalInvestment}</p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Deposit</p>
+              </div>
+              <div className="px-4 border-r border-gray-100 last:border-0">
+                <p className="text-2xl font-black text-gray-900">$0.00</p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Withdrawal</p>
+              </div>
+              <div className="px-4 border-r border-gray-100 last:border-0">
+                <p className={`text-2xl font-black ${Number(stats.totalProfit) >= 0 ? 'text-gray-900' : 'text-red-500'}`}>
+                  ${stats.totalProfit}
+                </p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
+              </div>
+              <div className="px-4 border-r border-gray-100 last:border-0">
+                <p className="text-2xl font-black text-gray-900">1:500</p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
+              </div>
+              <div className="px-4 border-r border-gray-100 last:border-0">
+                <p className="text-2xl font-black text-gray-900">${stats.totalCommission}</p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
+              </div>
+              <div className="px-4 border-r border-gray-100 last:border-0">
+                <p className="text-2xl font-black text-gray-900">${filter === 'opened' ? stats.floatPL : stats.balance}</p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">{filter === 'opened' ? 'Float P/L' : 'Balance'}</p>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] font-black text-gray-400 uppercase border-b border-gray-50">
+                    <th className="px-6 py-4">Symbol</th>
+                    <th className="px-6 py-4 text-center">Type</th>
+                    <th className="px-6 py-4">Opening time, UTC</th>
+                    {filter === 'closed' && (
+                      <th 
+                        className="px-6 py-4 cursor-pointer hover:text-gray-600 transition-colors flex items-center gap-1"
+                        onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+                      >
+                        Closing time, UTC {sortOrder === "desc" ? "↓" : "↑"}
+                      </th>
+                    )}
+                    <th className="px-6 py-4 text-center">Lots</th>
+                    <th className="px-6 py-4 text-right">Opening price</th>
+                    <th className="px-6 py-4 text-right">Closing price</th>
+                    <th className="px-6 py-4 text-right">Profit, USD</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
                 {paginatedRows.length > 0 ? (
                   paginatedRows.map((pos, idx) => {
                     const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
@@ -587,42 +721,43 @@ export default function CopierHistoryPage() {
                 )}
               </tbody>
             </table>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-4 py-8 border-t border-gray-50">
-                <button
-                  onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
-                >
-                  <FiChevronLeft className="w-5 h-5 text-gray-600" />
-                </button>
-                <div className="flex items-center gap-2">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setHistoryPage(p)}
-                      className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${
-                        currentPage === p ? "bg-[#00d09c] text-white" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => setHistoryPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
-                >
-                  <FiChevronRight className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
-            )}
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-4 py-8 border-t border-gray-50">
+              <button
+                onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+              >
+                <FiChevronLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="flex items-center gap-2">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setHistoryPage(p)}
+                    className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${
+                      currentPage === p ? "bg-[#00d09c] text-white" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setHistoryPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+              >
+                <FiChevronRight className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
-    </UserLayout>
-  );
+    </div>
+  </UserLayout>
+);
 }
