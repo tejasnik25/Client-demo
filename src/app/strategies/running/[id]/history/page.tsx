@@ -60,6 +60,8 @@ type Payment = {
   createdAt?: string;
 };
 
+type Plan = "Pro" | "Expert" | "Premium";
+
 export default function CopierHistoryPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -83,6 +85,7 @@ export default function CopierHistoryPage() {
   const [modifications, setModifications] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -180,6 +183,7 @@ export default function CopierHistoryPage() {
         const mStatus = String(me?.status || '').toLowerCase();
         setAdminStatus(me?.adminStatus || null);
         setMtStatus(me?.status || null);
+        setSelectedPlan((me?.plan as Plan | undefined) ?? null);
         
         // isRunningLike: either fully running OR in-process of disconnecting
         const isRunningLike = aStatus === 'running' || aStatus === 'active' || 
@@ -370,14 +374,35 @@ export default function CopierHistoryPage() {
   const stats = useMemo(() => {
     const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
 
-    // 1) Commission percent defined by admin on strategy (fallback 30%).
-    const commissionRaw =
-      (strategy?.parameters?.commission ??
-        strategy?.parameters?.Commission ??
-        strategy?.planDetails?.Pro?.percent ??
-        strategy?.planDetails?.Expert?.percent ??
-        strategy?.planDetails?.Premium?.percent) ?? 30;
-    const commissionPercent = Number(commissionRaw) || 30;
+    const parsePercent = (val: any): number | null => {
+      if (val == null) return null;
+      if (typeof val === "number" && Number.isFinite(val)) return val;
+      if (typeof val === "string") {
+        // Support values like "30%" or "30.5".
+        const m = val.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+        if (!m) return null;
+        const num = Number(m[0]);
+        return Number.isFinite(num) ? num : null;
+      }
+      return null;
+    };
+
+    // 1) Commission percent declared by admin:
+    //    - Prefer explicit strategy.parameters.commission (if admin stored it there).
+    //    - Otherwise use the commission percent for the user's selected plan level.
+    //    - Fallback to 30%.
+    const parametersCommission =
+      parsePercent(strategy?.parameters?.commission ?? strategy?.parameters?.Commission);
+
+    const planCommission =
+      selectedPlan && (strategy?.planDetails as any)?.[selectedPlan]?.percent != null
+        ? Number((strategy?.planDetails as any)[selectedPlan]?.percent)
+        : null;
+
+    const commissionPercent =
+      parametersCommission ??
+      (planCommission != null && Number.isFinite(planCommission) ? planCommission : null) ??
+      30;
 
     // 2) Deposits = all successful payments for this strategy by this user.
     const userId = sessionUserId;
@@ -467,6 +492,7 @@ export default function CopierHistoryPage() {
     sessionUserId,
     strategy,
     connectAt,
+    selectedPlan,
   ]);
 
   const getSymbolIcon = (symbol: string) => {

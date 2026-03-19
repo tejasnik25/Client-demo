@@ -53,6 +53,7 @@ const StrategyManagement: React.FC = () => {
   const [selectedIcon, setSelectedIcon] = useState<File | null>(null);
   const [contentType, setContentType] = useState<'html' | 'pdf' | 'text'>('html');
   const [countryFlag, setCountryFlag] = useState<string>('');
+  const [commissionPercent, setCommissionPercent] = useState<string>('30');
 
   // Fetch strategies from the API
   const fetchStrategies = async () => {
@@ -109,6 +110,7 @@ const resetAddForm = () => {
   });
     setPlanRanges({ Pro: '', Expert: '', Premium: '' });
     setParameters([{ key: '', value: '', id: `param-${Date.now()}` }]);
+  setCommissionPercent('30');
     setError(null);
     setSuccess(null);
     setSelectedFile(null);
@@ -165,6 +167,11 @@ const resetAddForm = () => {
       setLotRows([{ amountUSD: '', lot: '', id: `lot-${Date.now()}` }]);
     }
     setCountryFlag((strategy.parameters && (strategy.parameters as any).countryFlag) || '');
+    // Commission is stored in parameters.commission (single commission field when no plan system).
+    const rawCommission =
+      (strategy.parameters && ((strategy.parameters as any).commission ?? (strategy.parameters as any).Commission)) || '';
+    const m = String(rawCommission).match(/-?\d+(\.\d+)?/);
+    setCommissionPercent(m ? String(m[0]) : '30');
     setIsEditing(true);
     setIsAdding(false);
     setError(null);
@@ -298,6 +305,10 @@ const resetAddForm = () => {
       if (currentStrategy.tag !== undefined) formData.append('tag', String(currentStrategy.tag));
       formData.append('mastersTag', String(currentStrategy.mastersTag || ''));
       if (currentStrategy.riskLevel) formData.append('riskLevel', String(currentStrategy.riskLevel));
+      // Admin commission percent (single commission for the strategy)
+      if (commissionPercent.trim().length > 0) {
+        formData.append('commissionPercent', commissionPercent.trim());
+      }
 
       // Master Account Details
       if (currentStrategy.masterAccountId) formData.append('masterAccountId', currentStrategy.masterAccountId);
@@ -823,6 +834,19 @@ const resetAddForm = () => {
                 <div className="space-y-2">
                   <Label htmlFor="maxDdi" className="text-gray-700">Max DDI (%)</Label>
                   <Input id="maxDdi" name="maxDdi" type="number" step="0.01" value={String(currentStrategy.maxDdi ?? '')} onChange={handleInputChange} placeholder="e.g. 5.2" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="commissionPercent" className="text-gray-700">Commission (%)</Label>
+                  <Input
+                    id="commissionPercent"
+                    name="commissionPercent"
+                    type="number"
+                    step="0.01"
+                    value={commissionPercent}
+                    onChange={(e) => setCommissionPercent(e.target.value)}
+                    placeholder="e.g. 30"
+                    className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="copiers" className="text-gray-700">Copiers</Label>

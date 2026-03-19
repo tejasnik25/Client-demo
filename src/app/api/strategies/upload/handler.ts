@@ -44,6 +44,11 @@ export async function POST(req: NextRequest) {
     const maxDdi = formData.get('maxDdi') ? Number(formData.get('maxDdi') as string) : undefined;
     const copiers = formData.get('copiers') ? Number(formData.get('copiers') as string) : undefined;
     const riskScore = formData.get('riskScore') ? Number(formData.get('riskScore') as string) : undefined;
+
+    // Admin commission percent for the strategy (single commission field, no plan system required)
+    const rawCommissionPercent = (formData.get('commissionPercent') as string) || '';
+    const commissionPercentMatch = rawCommissionPercent.match(/-?\d+(\.\d+)?/);
+    const commissionPercent = commissionPercentMatch ? Number(commissionPercentMatch[0]) : undefined;
     
     // Handle tags: allow empty string to clear the value
     const rawTag = formData.get('tag');
@@ -230,6 +235,10 @@ export async function POST(req: NextRequest) {
         const params: Record<string, string> = {};
         if (countryFlag) params.countryFlag = countryFlag;
         if (lotPricing) params.lotPricing = lotPricing;
+        if (commissionPercent !== undefined && Number.isFinite(commissionPercent)) {
+          // Store as string to match parameters JSON type.
+          params.commission = String(commissionPercent);
+        }
         return params;
       })()
     });
@@ -293,6 +302,11 @@ export async function PUT(req: NextRequest) {
     const icon = formData.get('icon') as File | null;
     const countryFlag = (formData.get('countryFlag') as string) || '';
     const lotPricing = (formData.get('lotPricing') as string) || '';
+
+    // Admin commission percent for the strategy (single commission field, no plan system required)
+    const rawCommissionPercent = (formData.get('commissionPercent') as string) || '';
+    const commissionPercentMatch = rawCommissionPercent.match(/-?\d+(\.\d+)?/);
+    const commissionPercent = commissionPercentMatch ? Number(commissionPercentMatch[0]) : undefined;
 
     // New metrics and tag
     const roi = formData.get('roi') ? Number(formData.get('roi') as string) : undefined;
@@ -466,10 +480,13 @@ export async function PUT(req: NextRequest) {
       Expert: { priceLabel: planExpertLabel, percent: planExpertPercent },
       Premium: { priceLabel: planPremiumLabel, percent: planPremiumPercent },
     };
-    if (countryFlag || lotPricing) {
+    if (countryFlag || lotPricing || (commissionPercent !== undefined && Number.isFinite(commissionPercent))) {
       updates.parameters = {};
       if (countryFlag) (updates.parameters as any).countryFlag = countryFlag;
       if (lotPricing) (updates.parameters as any).lotPricing = lotPricing;
+      if (commissionPercent !== undefined && Number.isFinite(commissionPercent)) {
+        (updates.parameters as any).commission = String(commissionPercent);
+      }
     }
 
     // Update strategy in database
