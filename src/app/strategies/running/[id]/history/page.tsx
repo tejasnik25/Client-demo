@@ -368,37 +368,106 @@ export default function CopierHistoryPage() {
   }, [historyPage, totalPages]);
 
   const stats = useMemo(() => {
-    let totalInvestment = 0;
-    let totalProfit = 0;
-    let totalLoss = 0;
-    let totalSwap = 0;
-    let totalCommission = 0;
     const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
 
-    // Calculate stats based on closed history
+    // 1) Commission percent defined by admin on strategy (fallback 30%).
+    const commissionRaw =
+      (strategy?.parameters?.commission ??
+        strategy?.parameters?.Commission ??
+        strategy?.planDetails?.Pro?.percent ??
+        strategy?.planDetails?.Expert?.percent ??
+        strategy?.planDetails?.Premium?.percent) ?? 30;
+    const commissionPercent = Number(commissionRaw) || 30;
+
+    // 2) Deposits = all successful payments for this strategy by this user.
+    const userId = sessionUserId;
+    const successfulStatuses = new Set([
+      "approved",
+      "completed",
+      "renewal_approved",
+      "in-process",
+    ]);
+    const deposit = payments
+      .filter(
+        (p) =>
+          p.strategyId === params.id &&
+          (!userId || p.userId === userId) &&
+          successfulStatuses.has(String(p.status || "").toLowerCase())
+      )
+      .reduce((sum, p) => sum + (Number(p.payable) || 0), 0);
+
+    // 3) Last 30 days closed trades (MT5 history) for this master.
+    const now = Date.now();
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const windowStart = now - THIRTY_DAYS_MS;
+
+    let grossProfitLastMonth = 0;
+    let swapLastMonth = 0;
+
     filteredClosed.forEach((row: any) => {
-      const vol = Number(row.volume) || 0;
-      const investment = vol * Number(row.openPrice || 0) * mult;
+      const closeMs = toMs(row.closeTimeStr);
+      if (!Number.isFinite(closeMs) || closeMs < windowStart) return;
+
       const profit = (Number(row.profit) || 0) * mult;
       const swap = (Number(row.swap) || 0) * mult;
 
-      totalInvestment += investment;
-      totalSwap += swap;
-      if (profit >= 0) totalProfit += profit;
-      else totalLoss += Math.abs(profit);
+      grossProfitLastMonth += profit;
+      swapLastMonth += swap;
     });
 
-    const netProfit = totalProfit - totalLoss + totalSwap;
+    // 4) Monthly settlement eligibility:
+    //    - At least 30 days since connection
+    //    - No open trades at the moment
+    let eligibleForSettlement = false;
+    if (connectAt) {
+      const connectedMs = toMs(connectAt);
+      if (Number.isFinite(connectedMs)) {
+        eligibleForSettlement =
+          now - connectedMs >= THIRTY_DAYS_MS && filteredOpen.length === 0;
+      }
+    }
+
+    // 5) Commission & withdrawal rules:
+    //    - If profit is <= 0 → no commission, no withdrawal.
+    //    - If profit > 0 → commission = % of profit, withdrawal = remaining.
+    //    - We only "book" commission/withdrawal when settlement is eligible.
+    let bookedCommission = 0;
+    let bookedWithdrawal = 0;
+    if (grossProfitLastMonth > 0) {
+      const fullCommission =
+        (grossProfitLastMonth * Math.max(commissionPercent, 0)) / 100;
+      const fullWithdrawal = grossProfitLastMonth - fullCommission;
+
+      if (eligibleForSettlement) {
+        bookedCommission = fullCommission;
+        bookedWithdrawal = fullWithdrawal;
+      }
+    }
+
+    // 6) Balance formula from spec: Balance = Deposit + Withdrawal – Swap
+    const balance = deposit + bookedWithdrawal - swapLastMonth;
 
     return {
-      totalInvestment: totalInvestment.toFixed(2),
-      totalProfit: (totalProfit - totalLoss).toFixed(2),
-      totalSwap: totalSwap.toFixed(2),
-      totalCommission: totalCommission.toFixed(2),
-      balance: (Number(userProfile?.wallet_balance || 0)).toFixed(2),
-      floatPL: netProfit.toFixed(2)
+      deposit: deposit.toFixed(2),
+      profitLastMonth: grossProfitLastMonth.toFixed(2), // real-time profit (last 30d)
+      swapLastMonth: swapLastMonth.toFixed(2),
+      commissionPercent,
+      commissionBooked: bookedCommission.toFixed(2),
+      withdrawalBooked: bookedWithdrawal.toFixed(2),
+      balance: balance.toFixed(2),
+      settlementEligible: eligibleForSettlement,
+      floatPL: (grossProfitLastMonth - swapLastMonth).toFixed(2),
     };
-  }, [filteredClosed, lotSize, userProfile]);
+  }, [
+    filteredClosed,
+    filteredOpen.length,
+    lotSize,
+    payments,
+    params.id,
+    sessionUserId,
+    strategy,
+    connectAt,
+  ]);
 
   const getSymbolIcon = (symbol: string) => {
     const s = symbol.toUpperCase();
@@ -562,7 +631,9 @@ export default function CopierHistoryPage() {
 
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Commission</p>
-                <p className="text-lg font-black text-gray-900">30%</p>
+                <p className="text-lg font-black text-gray-900">
+                  {stats.commissionPercent.toFixed(2)}%
+                </p>
               </div>
             </div>
           </div>
@@ -602,30 +673,42 @@ export default function CopierHistoryPage() {
             {/* Stats Summary */}
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-12 items-center text-center">
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${stats.totalInvestment}</p>
+                <p className="text-2xl font-black text-gray-900">${stats.deposit}</p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Deposit</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">$0.00</p>
+                <p className="text-2xl font-black text-gray-900">
+                  ${stats.withdrawalBooked}
+                </p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Withdrawal</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className={`text-2xl font-black ${Number(stats.totalProfit) >= 0 ? 'text-gray-900' : 'text-red-500'}`}>
-                  ${stats.totalProfit}
+                <p
+                  className={`text-2xl font-black ${
+                    Number(stats.profitLastMonth) >= 0 ? 'text-gray-900' : 'text-red-500'
+                  }`}
+                >
+                  ${stats.profitLastMonth}
                 </p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">1:500</p>
+                <p className="text-2xl font-black text-gray-900">${stats.swapLastMonth}</p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${stats.totalCommission}</p>
+                <p className="text-2xl font-black text-gray-900">
+                  ${stats.commissionBooked}
+                </p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${filter === 'opened' ? stats.floatPL : stats.balance}</p>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">{filter === 'opened' ? 'Float P/L' : 'Balance'}</p>
+                <p className="text-2xl font-black text-gray-900">
+                  ${filter === 'opened' ? stats.floatPL : stats.balance}
+                </p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">
+                  {filter === 'opened' ? 'Float P/L' : 'Balance'}
+                </p>
               </div>
             </div>
 
