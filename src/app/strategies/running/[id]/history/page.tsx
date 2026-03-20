@@ -50,6 +50,7 @@ type Strategy = {
   id: string;
   name: string;
   parameters: Record<string, string>;
+  planDetails?: Record<string, any>;
 };
 
 type Payment = {
@@ -307,7 +308,13 @@ export default function CopierHistoryPage() {
   };
 
   const filteredClosed = useMemo(() => {
-    return history.map((h) => {
+    const startTs = connectAt ? toMs(connectAt) : 0;
+    return history
+      .filter(h => {
+        const openMs = toMs(h.server_time_open ?? h.time_open ?? h.open_time);
+        return openMs >= startTs;
+      })
+      .map((h) => {
       return {
         isOpen: false as const,
         openTimeStr: h.server_time_open || (h.time_open ? String(h.time_open) : (h.open_time ? String(h.open_time) : "")),
@@ -321,10 +328,16 @@ export default function CopierHistoryPage() {
         swap: Number(h.swap || 0),
       };
     });
-  }, [history]);
+  }, [history, connectAt]);
 
   const filteredOpen = useMemo(() => {
-    return openPositions.map((p) => {
+    const startTs = connectAt ? toMs(connectAt) : 0;
+    return openPositions
+      .filter(p => {
+        const openMs = toMs(p.server_time || p.server_time_open || p.time_open || p.open_time || p.time);
+        return openMs >= startTs;
+      })
+      .map((p) => {
       return {
         isOpen: true as const,
         openTimeStr: p.server_time || p.server_time_open || (p.time_open ? String(p.time_open) : (p.open_time ? String(p.open_time) : (p.time ? String(p.time) : ""))),
@@ -338,7 +351,7 @@ export default function CopierHistoryPage() {
         swap: Number(p.swap || 0),
       };
     });
-  }, [openPositions]);
+  }, [openPositions, connectAt]);
 
   const displayRows = useMemo(() => {
     const closedRows = [...filteredClosed];

@@ -17,6 +17,7 @@ type Payment = {
   userName?: string;
   strategyId: string;
   strategyName?: string;
+  transactionType?: 'deposit' | 'charge';
   plan: string;
   capital: number;
   payable: number;
@@ -61,6 +62,7 @@ const PaymentsPendingPage = () => {
           userName: t.user?.name,
           strategyId: t.strategy_id,
           strategyName: t.strategy?.name,
+          transactionType: t.transaction_type,
           plan: t.plan_level || t.plan,
           capital: t.capital ?? t.amount ?? 0,
           payable: t.amount,
@@ -101,6 +103,8 @@ const PaymentsPendingPage = () => {
   }, []);
 
   const pending = useMemo(() => payments.filter(p => ['pending','in_process','in-process'].includes(p.status)), [payments]);
+  const depositPending = useMemo(() => pending.filter(p => p.transactionType === 'deposit'), [pending]);
+  const withdrawalPending = useMemo(() => pending.filter(p => p.transactionType === 'charge'), [pending]);
 
   const lotLabelFor = (p: Payment) => {
     const s = strategies.find((st: any) => st.id === p.strategyId || st.name === p.strategyName);
@@ -134,6 +138,15 @@ const PaymentsPendingPage = () => {
 
   const updateStatus = async (paymentId: string, status: 'approved' | 'rejected') => {
     try {
+      let body: any = undefined;
+      if (status === 'rejected') {
+        const rejectionReason = window.prompt('Enter rejection reason') || '';
+        if (!rejectionReason.trim()) {
+          alert('Rejection reason is required.');
+          return;
+        }
+        body = JSON.stringify({ rejectionReason });
+      }
       // Call explicit approve/reject admin endpoints
       const endpoint = status === 'approved'
         ? `/api/admin/payments/${paymentId}/approve`
@@ -143,7 +156,7 @@ const PaymentsPendingPage = () => {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         cache: 'no-store',
-        body: status === 'rejected' ? JSON.stringify({ rejectionReason: reason || undefined }) : undefined,
+        body,
       });
       if (!res.ok) throw new Error('Failed to update payment');
       await load();
@@ -180,6 +193,70 @@ const PaymentsPendingPage = () => {
           {error} — showing table with no values. <button className="underline ml-1" onClick={() => { setLoading(true); setError(null); load(); }}>Retry</button>
         </div>
       )}
+      <h2 className="text-xl font-bold mb-3">Deposit Requests</h2>
+      <div className="overflow-x-auto mb-8">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="text-left border-b">
+              <th className="p-2">user_id</th>
+              <th className="p-2">Transaction ID</th>
+              <th className="p-2">User Name</th>
+              <th className="p-2">Strategy</th>
+              <th className="p-2">Plan</th>
+              <th className="p-2">Lot Size</th>
+              <th className="p-2">Entered Amount</th>
+              <th className="p-2">Paid Amount</th>
+              <th className="p-2">Payment Method</th>
+              <th className="p-2">Proof</th>
+              <th className="p-2">Admin Message</th>
+              <th className="p-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {depositPending.length === 0 ? (
+              <tr>
+                <td colSpan={12} className="p-4 text-center text-gray-500">No pending deposit requests</td>
+              </tr>
+            ) : depositPending.map((p) => (
+              <tr key={p.id} className="border-b">
+                <td className="p-2">{p.userId}</td>
+                <td className="p-2">{p.txId}</td>
+                <td className="p-2">{p.userName ?? '-'}</td>
+                <td className="p-2">{p.strategyName ?? '-'}</td>
+                <td className="p-2">{p.plan}</td>
+                <td className="p-2">{lotLabelFor(p)}</td>
+                <td className="p-2">{p.capital}</td>
+                <td className="p-2">{p.payable}</td>
+                <td className="p-2">{p.method}</td>
+                <td className="p-2">
+                  {p.proofUrl ? (
+                    <a href={p.proofUrl} target="_blank" rel="noreferrer" className="text-blue-600">View</a>
+                  ) : '-'}
+                </td>
+                <td className="p-2">
+                  {(p as any).admin_message ? (
+                    <span title={(p as any).admin_message} className="text-gray-700 dark:text-gray-300">
+                      {((p as any).admin_message as string).length > 28
+                        ? ((p as any).admin_message as string).slice(0, 28) + '…'
+                        : (p as any).admin_message}
+                      {(p as any).admin_message_status ? ` (${(p as any).admin_message_status})` : ''}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </td>
+                <td className="p-2 space-x-2">
+                  <button onClick={() => updateStatus(p.id, 'approved')} className="px-3 py-1 rounded bg-green-600 text-white">Approve</button>
+                  <button onClick={() => updateStatus(p.id, 'rejected')} className="px-3 py-1 rounded bg-red-600 text-white">Reject</button>
+                  <button onClick={() => setMessageFor(p.id)} className="px-3 py-1 rounded bg-yellow-500 text-white">Send Message</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h2 className="text-xl font-bold mb-3">Withdrawal Requests</h2>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
@@ -199,18 +276,18 @@ const PaymentsPendingPage = () => {
             </tr>
           </thead>
           <tbody>
-            {pending.length === 0 ? (
+            {withdrawalPending.length === 0 ? (
               <tr>
-                <td colSpan={10} className="p-4 text-center text-gray-500">No pending payments</td>
+                <td colSpan={12} className="p-4 text-center text-gray-500">No pending withdrawal requests</td>
               </tr>
-            ) : pending.map(p => (
+            ) : withdrawalPending.map((p) => (
               <tr key={p.id} className="border-b">
                 <td className="p-2">{p.userId}</td>
                 <td className="p-2">{p.txId}</td>
                 <td className="p-2">{p.userName ?? '-'}</td>
                 <td className="p-2">{p.strategyName ?? '-'}</td>
                 <td className="p-2">{p.plan}</td>
-              <td className="p-2">{lotLabelFor(p)}</td>
+                <td className="p-2">{lotLabelFor(p)}</td>
                 <td className="p-2">{p.capital}</td>
                 <td className="p-2">{p.payable}</td>
                 <td className="p-2">{p.method}</td>
@@ -220,10 +297,12 @@ const PaymentsPendingPage = () => {
                   ) : '-'}
                 </td>
                 <td className="p-2">
-                  { (p as any).admin_message ? (
+                  {(p as any).admin_message ? (
                     <span title={(p as any).admin_message} className="text-gray-700 dark:text-gray-300">
-                      {((p as any).admin_message as string).length > 28 ? ((p as any).admin_message as string).slice(0, 28) + '…' : (p as any).admin_message}
-                      { (p as any).admin_message_status ? ` (${(p as any).admin_message_status})` : ''}
+                      {((p as any).admin_message as string).length > 28
+                        ? ((p as any).admin_message as string).slice(0, 28) + '…'
+                        : (p as any).admin_message}
+                      {(p as any).admin_message_status ? ` (${(p as any).admin_message_status})` : ''}
                     </span>
                   ) : (
                     <span className="text-gray-400">—</span>

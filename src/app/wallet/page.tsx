@@ -88,6 +88,7 @@ const WalletPageContent: React.FC = () => {
             </button>
             <button 
               className="flex items-center gap-2 px-8 py-4 bg-white/5 hover:bg-white/10 rounded-2xl font-bold transition-all border border-white/10 active:scale-95"
+              onClick={() => router.push('/wallet/withdraw')}
             >
               <FiArrowUpRight className="w-5 h-5" />
               Withdrawal
@@ -168,6 +169,11 @@ const WalletPageContent: React.FC = () => {
                   {getStatusIcon(tx.status)}
                   <span className="text-[10px] font-bold uppercase tracking-tight text-gray-400">{tx.status}</span>
                 </div>
+                {String(tx.status || '').toLowerCase() === 'failed' && tx.rejection_reason && (
+                  <p className="mt-1 text-[11px] text-red-300 max-w-[240px] break-words">
+                    {tx.rejection_reason}
+                  </p>
+                )}
               </div>
             </div>
           )) : (

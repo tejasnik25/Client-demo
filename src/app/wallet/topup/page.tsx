@@ -37,6 +37,7 @@ const TopupDetailsContent: React.FC = () => {
   const WALLET_APP_DEEPLINK = process.env.NEXT_PUBLIC_USDT_WALLET_APP_LINK || '';
 
   const paymentMethod = useMemo(() => methodParam, [methodParam]);
+  const isStrategyPurchase = !!strategyIdParam;
 
   // Prefill amount and lock editing if provided via query
   useEffect(() => {
@@ -127,17 +128,19 @@ const TopupDetailsContent: React.FC = () => {
       setError('Please upload a payment receipt');
       return;
     }
-    if (!platform) {
-      setError('Please select a platform (MT4 or MT5)');
-      return;
-    }
-    if (!mtAccountId) {
-      setError('Please enter your MT account ID');
-      return;
-    }
-    if (!mtAccountPassword) {
-      setError('Please enter your MT account password');
-      return;
+    if (isStrategyPurchase) {
+      if (!platform) {
+        setError('Please select a platform (MT4 or MT5)');
+        return;
+      }
+      if (!mtAccountId) {
+        setError('Please enter your MT account ID');
+        return;
+      }
+      if (!mtAccountPassword) {
+        setError('Please enter your MT account password');
+        return;
+      }
     }
     if (!termsAccepted) {
       setError('You must accept the Terms and Conditions to proceed');
@@ -152,32 +155,49 @@ const TopupDetailsContent: React.FC = () => {
         // For USDT, amount is already in USD. For QR (UPI), it might be INR.
         const amountValue = paymentMethod === 'QR' ? parseFloat(usdAmount) : parseFloat(inrAmount);
         
+        const formData = new FormData();
+        formData.append('user_id', user.id);
+        formData.append('user_name', user.name || '');
+        formData.append('user_email', user.email || '');
+        formData.append('amount', String(amountValue));
+        formData.append('transaction_type', 'deposit');
+        formData.append('payment_method', paymentMethod);
+        formData.append('transaction_id', transactionId);
+        if (file) formData.append('receipt', file);
+        formData.append('terms_accepted', String(termsAccepted));
+
+        // Only collect master/slave MT credentials if user is paying for a strategy
+        if (isStrategyPurchase) {
+          formData.append('platform', platform as string);
+          formData.append('mt_account_id', mtAccountId);
+          formData.append('mt_account_password', mtAccountPassword);
+          if (strategyIdParam) formData.append('strategy_id', strategyIdParam);
+          if (planParam) formData.append('plan_level', planParam.toUpperCase());
+        }
+
+        formData.append('inr_amount', String(parseFloat(inrAmount)));
+        formData.append('inr_to_usd_rate', String(inrToUsdRate ?? 1));
+        formData.append(
+          'crypto_network',
+          paymentMethod === 'USDT_ERC20' ? 'ERC20' : paymentMethod === 'USDT_TRC20' ? 'TRC20' : ''
+        );
+        formData.append(
+          'crypto_wallet_address',
+          paymentMethod === 'USDT_ERC20'
+            ? USDT_ERC20_ADDRESS
+            : paymentMethod === 'USDT_TRC20'
+            ? USDT_TRC20_ADDRESS
+            : ''
+        );
+        formData.append(
+          'wallet_app_deeplink',
+          paymentMethod?.startsWith('USDT') ? WALLET_APP_DEEPLINK : ''
+        );
+
         const response = await fetch('/api/wallet/transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: user.id,
-          user_name: user.name,
-          user_email: user.email,
-          amount: amountValue,
-          transaction_type: 'deposit',
-          payment_method: paymentMethod,
-          transaction_id: transactionId,
-          receipt_path: file ? file.name : null,
-          platform,
-          mt_account_id: mtAccountId,
-          mt_account_password: mtAccountPassword,
-          terms_accepted: termsAccepted,
-          status: 'pending',
-          strategy_id: strategyIdParam || undefined,
-          plan_level: planParam ? planParam.toUpperCase() : undefined,
-          inr_amount: parseFloat(inrAmount),
-          inr_to_usd_rate: inrToUsdRate,
-          crypto_network: paymentMethod === 'USDT_ERC20' ? 'ERC20' : paymentMethod === 'USDT_TRC20' ? 'TRC20' : null,
-          crypto_wallet_address: paymentMethod === 'USDT_ERC20' ? USDT_ERC20_ADDRESS : paymentMethod === 'USDT_TRC20' ? USDT_TRC20_ADDRESS : null,
-          wallet_app_deeplink: paymentMethod?.startsWith('USDT') ? WALLET_APP_DEEPLINK : null,
-        }),
-      });
+          method: 'POST',
+          body: formData,
+        });
 
         if (!response.ok) throw new Error('Failed to create transaction');
         const transactionResult = await response.json();
@@ -340,30 +360,62 @@ const TopupDetailsContent: React.FC = () => {
               </div>
             </div>
 
-            {/* Platform selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300">Trading Platform</label>
-              <div className="mt-2 flex items-center space-x-6">
-                <label className="inline-flex items-center">
-                  <input type="radio" name="platform" value="MT4" checked={platform === 'MT4'} onChange={() => setPlatform('MT4')} className="h-4 w-4 text-[#7c3aed] focus:ring-0 border-[#283046] bg-[#0f1527] cursor-pointer" />
-                  <span className="ml-2 text-sm text-gray-300">MT4</span>
-                </label>
-                <label className="inline-flex items-center">
-                  <input type="radio" name="platform" value="MT5" checked={platform === 'MT5'} onChange={() => setPlatform('MT5')} className="h-4 w-4 text-[#7c3aed] focus:ring-0 border-[#283046] bg-[#0f1527] cursor-pointer" />
-                  <span className="ml-2 text-sm text-gray-300">MT5</span>
-                </label>
-              </div>
-            </div>
+            {isStrategyPurchase && (
+              <>
+                {/* Platform selection */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-300">Trading Platform</label>
+                  <div className="mt-2 flex items-center space-x-6">
+                    <label className="inline-flex items-center">
+                      <input
+                        type="radio"
+                        name="platform"
+                        value="MT4"
+                        checked={platform === 'MT4'}
+                        onChange={() => setPlatform('MT4')}
+                        className="h-4 w-4 text-[#7c3aed] focus:ring-0 border-[#283046] bg-[#0f1527] cursor-pointer"
+                      />
+                      <span className="ml-2 text-sm text-gray-300">MT4</span>
+                    </label>
+                    <label className="inline-flex items-center">
+                      <input
+                        type="radio"
+                        name="platform"
+                        value="MT5"
+                        checked={platform === 'MT5'}
+                        onChange={() => setPlatform('MT5')}
+                        className="h-4 w-4 text-[#7c3aed] focus:ring-0 border-[#283046] bg-[#0f1527] cursor-pointer"
+                      />
+                      <span className="ml-2 text-sm text-gray-300">MT5</span>
+                    </label>
+                  </div>
+                </div>
 
-            {/* MT account details */}
-            <div className="mb-6">
-              <label htmlFor="mt-account-id" className="block text-sm font-medium text-gray-300">MT4/MT5 Account ID</label>
-              <input type="text" id="mt-account-id" className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3" placeholder="Enter your MT account ID" value={mtAccountId} onChange={(e) => setMtAccountId(e.target.value)} />
-            </div>
-            <div className="mb-6">
-              <label htmlFor="mt-account-password" className="block text-sm font-medium text-gray-300">MT4/MT5 Account Password</label>
-              <input type="password" id="mt-account-password" className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3" placeholder="Enter your MT account password" value={mtAccountPassword} onChange={(e) => setMtAccountPassword(e.target.value)} />
-            </div>
+                {/* MT account details */}
+                <div className="mb-6">
+                  <label htmlFor="mt-account-id" className="block text-sm font-medium text-gray-300">MT4/MT5 Account ID</label>
+                  <input
+                    type="text"
+                    id="mt-account-id"
+                    className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
+                    placeholder="Enter your MT account ID"
+                    value={mtAccountId}
+                    onChange={(e) => setMtAccountId(e.target.value)}
+                  />
+                </div>
+                <div className="mb-6">
+                  <label htmlFor="mt-account-password" className="block text-sm font-medium text-gray-300">MT4/MT5 Account Password</label>
+                  <input
+                    type="password"
+                    id="mt-account-password"
+                    className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
+                    placeholder="Enter your MT account password"
+                    value={mtAccountPassword}
+                    onChange={(e) => setMtAccountPassword(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
 
             {/* Terms */}
             <div className="mb-6">
@@ -377,7 +429,31 @@ const TopupDetailsContent: React.FC = () => {
             {error && <div className="mb-4 text-sm text-red-400">{error}</div>}
 
             <div className="flex justify-end">
-              <button type="submit" disabled={loading || !paymentMethod || !transactionId || !inrAmount || (paymentMethod === 'QR' && !usdAmount) || !file || !platform || !mtAccountId || !mtAccountPassword || !termsAccepted} className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg shadow-sm text-white ${loading || !paymentMethod || !transactionId || !inrAmount || (paymentMethod === 'QR' && !usdAmount) || !file || !platform || !mtAccountId || !mtAccountPassword || !termsAccepted ? 'bg-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]'}`}>
+              <button
+                type="submit"
+                disabled={
+                  loading ||
+                  !paymentMethod ||
+                  !transactionId ||
+                  !inrAmount ||
+                  (paymentMethod === 'QR' && !usdAmount) ||
+                  !file ||
+                  !termsAccepted ||
+                  (isStrategyPurchase && (!platform || !mtAccountId || !mtAccountPassword))
+                }
+                className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg shadow-sm text-white ${
+                  loading ||
+                  !paymentMethod ||
+                  !transactionId ||
+                  !inrAmount ||
+                  (paymentMethod === 'QR' && !usdAmount) ||
+                  !file ||
+                  !termsAccepted ||
+                  (isStrategyPurchase && (!platform || !mtAccountId || !mtAccountPassword))
+                    ? 'bg-gray-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-[#7c3aed] to-[#a855f7] hover:from-[#6d28d9] hover:to-[#9333ea]'
+                }`}
+              >
                 {loading ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

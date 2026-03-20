@@ -29,6 +29,7 @@ export type User = {
   created_at: string;
   updated_at: string;
   enabled?: boolean; // Account status: enabled/disabled
+  strategies?: { strategyName: string; startedAt: string }[];
 };
 
 type UserWithoutPassword = Omit<User, 'password'>;
@@ -252,6 +253,20 @@ export default function UserManagement() {
     }
   };
 
+  // Format date helper
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return 'N/A';
+    try {
+      return new Date(dateStr).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
   return (
     <Card className="w-full bg-white border border-gray-200">
       <CardHeader className="flex flex-row items-center justify-between">
@@ -261,36 +276,71 @@ export default function UserManagement() {
         </Button>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md bg-white border border-gray-200 text-gray-900">
+        <div className="rounded-md bg-white border border-gray-200 text-gray-900 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
+                <TableHead>User Details</TableHead>
+                <TableHead>Account Created</TableHead>
+                <TableHead>Copying Strategy</TableHead>
+                <TableHead>Copying Started</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead>Account Status</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                  <TableCell colSpan={7} className="text-center py-4 text-gray-500">
                     No users found
                   </TableCell>
                 </TableRow>
               ) : (
                 users.map((user) => (
                   <TableRow key={user.id}>
-                    <TableCell className="font-medium text-gray-900">{user.name}</TableCell>
-                    <TableCell className="text-gray-500">{user.email}</TableCell>
                     <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs ${user.role === 'ADMIN' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-gray-900">{user.name}</span>
+                        <span className="text-xs text-gray-500">{user.email}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-gray-500 whitespace-nowrap">
+                      {formatDate(user.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      {user.strategies && user.strategies.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {user.strategies.map((s, idx) => (
+                            <span key={idx} className="text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                              {s.strategyName}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic">None</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-gray-500 whitespace-nowrap">
+                      {user.strategies && user.strategies.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {user.strategies.map((s, idx) => (
+                            <span key={idx} className="text-xs">
+                              {formatDate(s.startedAt)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${user.role === 'ADMIN' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>
                         {user.role}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs ${user.enabled === false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${user.enabled === false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
                         {user.enabled === false ? 'Disabled' : 'Enabled'}
                       </span>
                     </TableCell>
@@ -300,6 +350,7 @@ export default function UserManagement() {
                           variant="outline"
                           className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
                           onClick={() => handleEditUser(user)}
+                          title="Edit User / Change Password"
                         >
                           <FiEdit className="h-4 w-4" />
                         </Button>
@@ -307,6 +358,7 @@ export default function UserManagement() {
                           variant="outline"
                           className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
                           onClick={() => handleDeleteUser(user.id)}
+                          title="Delete User"
                         >
                           <FiTrash2 className="h-4 w-4" />
                         </Button>
@@ -347,6 +399,19 @@ export default function UserManagement() {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4 border-t pt-4">
+              <Label htmlFor="password-update" className="text-right font-bold text-blue-600">
+                Update Password
+              </Label>
+              <Input
+                id="password-update"
+                type="password"
+                placeholder="Leave blank to keep current"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className="col-span-3 border-blue-200 focus:border-blue-500"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">

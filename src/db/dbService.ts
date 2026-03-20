@@ -1775,15 +1775,34 @@ export const updateTransactionStatus = async (
     // If approved, update user's wallet balance
     if (status === 'completed') {
       // Use tokensToAdd if provided (legacy), otherwise use transaction amount
-      const amountToAdd = tokensToAdd && tokensToAdd > 0 ? tokensToAdd : (transaction.amount || 0);
-      
-      if (amountToAdd > 0) {
-        await pool.execute(
-          'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
-          [amountToAdd, transaction.user_id]
-        );
-        const user = await getUserById(transaction.user_id);
-        updatedUser = user as any;
+      const amountToApply = tokensToAdd && tokensToAdd > 0 ? tokensToAdd : (transaction.amount || 0);
+
+      if (amountToApply > 0) {
+        // Deposits add balance; Withdrawals (stored as transaction_type='charge') subtract.
+        if (transaction.transaction_type === 'deposit') {
+          await pool.execute('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [
+            amountToApply,
+            transaction.user_id,
+          ]);
+          const user = await getUserById(transaction.user_id);
+          updatedUser = user as any;
+        } else if (transaction.transaction_type === 'charge') {
+          const [userRows] = await pool.execute('SELECT wallet_balance FROM users WHERE id = ?', [transaction.user_id]);
+          const currentBalance = Array.isArray(userRows) && userRows[0] ? Number((userRows as any)[0].wallet_balance || 0) : 0;
+
+          if (currentBalance < amountToApply) {
+            return { success: false };
+          }
+
+          await pool.execute('UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?', [
+            amountToApply,
+            transaction.user_id,
+          ]);
+          const user = await getUserById(transaction.user_id);
+          updatedUser = user as any;
+        } else {
+          return { success: false };
+        }
       }
     }
 
@@ -1815,8 +1834,18 @@ export const updateTransactionStatus = async (
         const users: any[] = Array.isArray(db.users) ? db.users : [];
         const uIdx = users.findIndex(u => u.id === txs[idx].user_id);
         if (uIdx !== -1) {
-          const amountToAdd = tokensToAdd && tokensToAdd > 0 ? tokensToAdd : (txs[idx].amount || 0);
-          users[uIdx].wallet_balance = (users[uIdx].wallet_balance || 0) + amountToAdd;
+          const amountToApply = tokensToAdd && tokensToAdd > 0 ? tokensToAdd : (txs[idx].amount || 0);
+          if (amountToApply > 0) {
+            if (txs[idx].transaction_type === 'deposit') {
+              users[uIdx].wallet_balance = (users[uIdx].wallet_balance || 0) + amountToApply;
+            } else if (txs[idx].transaction_type === 'charge') {
+              const currentBalance = Number(users[uIdx].wallet_balance || 0);
+              if (currentBalance < amountToApply) {
+                return { success: false };
+              }
+              users[uIdx].wallet_balance = currentBalance - amountToApply;
+            }
+          }
           users[uIdx].updated_at = new Date().toISOString();
           updatedUser = { ...(users[uIdx] as Omit<User, 'password'>) };
         }

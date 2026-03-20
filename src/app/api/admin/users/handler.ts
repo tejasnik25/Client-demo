@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getAllUsers, createUserAdmin, deleteUserAdmin, updateUserAdmin } from '@/db/dbService';
+import { getAllUsers, createUserAdmin, deleteUserAdmin, updateUserAdmin, getRunningStrategiesAdmin } from '@/db/dbService';
 
 // Helper function to check admin authorization
 async function checkAdminAuth() {
@@ -28,7 +28,23 @@ export async function GET(_req: NextRequest) {
 
     // Fetch all users from MySQL
     const users = await getAllUsers();
-    return NextResponse.json({ users });
+    
+    // Fetch running strategies for all users to display copying info
+    const runningStrategies = await getRunningStrategiesAdmin();
+    
+    // Map strategy info to users
+    const usersWithStrategy = users.map(user => {
+      const userStrategies = runningStrategies.filter(rs => rs.userId === user.id);
+      return {
+        ...user,
+        strategies: userStrategies.map(rs => ({
+          strategyName: rs.strategyName,
+          startedAt: rs.createdAt
+        }))
+      };
+    });
+
+    return NextResponse.json({ users: usersWithStrategy });
   } catch (error) {
     console.error('Error fetching users:', error);
     return NextResponse.json(
@@ -140,6 +156,7 @@ export async function PATCH(req: NextRequest) {
     const result = await updateUserAdmin(id, {
       name: updateData.name,
       email: updateData.email,
+      password: updateData.password, // Added password to updateData
       role: updateData.role,
       enabled: typeof updateData.enabled !== 'undefined' ? !!updateData.enabled : undefined,
     });

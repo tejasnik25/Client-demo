@@ -15,7 +15,7 @@ const PaymentStatusInner: React.FC = () => {
         <div className="max-w-3xl mx-auto bg-[#161d31] border border-[#283046] rounded-2xl p-8 text-center">
           <h1 className="text-2xl font-bold">Your payment request is in queue</h1>
           <p className="mt-3 text-gray-300">
-            Once your payment gets approved, your request will be approved and the strategy will be added in the Running Strategy page.
+            Once your request gets approved, your wallet balance will be updated (deposits credited, withdrawals processed).
           </p>
           {tx && (
             <p className="mt-2 text-sm text-gray-400">Transaction ID: {tx}</p>
