@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Button from '@/components/ui/Button';
 import  Input  from '@/components/ui/Input';
 
@@ -35,12 +36,11 @@ export type User = {
 type UserWithoutPassword = Omit<User, 'password'>;
 
 export default function UserManagement() {
+  const router = useRouter();
   const [users, setUsers] = useState<UserWithoutPassword[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<UserWithoutPassword | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -107,56 +107,9 @@ export default function UserManagement() {
     }
   };
 
-  // Edit user
-  const handleEditUser = (user: UserWithoutPassword) => {
-    setSelectedUser(user);
-    setFormData({
-        name: user.name || '',
-        email: user.email || '',
-        role: user.role || 'USER',
-        password: '', // Provide empty password to satisfy formData type
-        enabled: user.enabled !== false,
-      });
-    setIsEditDialogOpen(true);
-  };
-
-  // Update user
-  const handleUpdateUser = async () => {
-    if (!selectedUser) return;
-    
-    try {
-      const response = await fetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id: selectedUser.id,
-          ...formData,
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update user');
-      }
-      
-      const { user } = await response.json();
-      
-      // Update user in state
-      setUsers(users.map(u => u.id === user.id ? user : u));
-      setIsEditDialogOpen(false);
-      toast({
-        title: 'Success',
-        description: 'User updated successfully',
-      });
-    } catch (err) {
-      toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'Failed to update user',
-        variant: 'destructive',
-      });
-    }
+  // Navigate to edit user page
+  const handleEditUser = (userId: string) => {
+    router.push(`/admin/users/${userId}`);
   };
 
   // Handle form input changes
@@ -311,11 +264,14 @@ export default function UserManagement() {
                     <TableCell>
                       {user.strategies && user.strategies.length > 0 ? (
                         <div className="flex flex-col gap-1">
-                          {user.strategies.map((s, idx) => (
-                            <span key={idx} className="text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                              {s.strategyName}
+                          <span className="text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded truncate max-w-[120px]">
+                            {user.strategies[0].strategyName}
+                          </span>
+                          {user.strategies.length > 1 && (
+                            <span className="text-[10px] text-gray-400 font-bold italic">
+                              +{user.strategies.length - 1} more...
                             </span>
-                          ))}
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-gray-400 italic">None</span>
@@ -323,13 +279,9 @@ export default function UserManagement() {
                     </TableCell>
                     <TableCell className="text-gray-500 whitespace-nowrap">
                       {user.strategies && user.strategies.length > 0 ? (
-                        <div className="flex flex-col gap-1">
-                          {user.strategies.map((s, idx) => (
-                            <span key={idx} className="text-xs">
-                              {formatDate(s.startedAt)}
-                            </span>
-                          ))}
-                        </div>
+                        <span className="text-xs">
+                          {formatDate(user.strategies[0].startedAt)}
+                        </span>
                       ) : (
                         <span className="text-xs text-gray-400">-</span>
                       )}
@@ -349,7 +301,7 @@ export default function UserManagement() {
                         <Button
                           variant="outline"
                           className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                          onClick={() => handleEditUser(user)}
+                          onClick={() => handleEditUser(user.id)}
                           title="Edit User / Change Password"
                         >
                           <FiEdit className="h-4 w-4" />
@@ -371,89 +323,6 @@ export default function UserManagement() {
           </Table>
         </div>
       </CardContent>
-
-      {/* Edit User Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Name
-              </Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="email" className="text-right">
-                Email
-              </Label>
-              <Input
-                id="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4 border-t pt-4">
-              <Label htmlFor="password-update" className="text-right font-bold text-blue-600">
-                Update Password
-              </Label>
-              <Input
-                id="password-update"
-                type="password"
-                placeholder="Leave blank to keep current"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="col-span-3 border-blue-200 focus:border-blue-500"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="role" className="text-right">
-                Role
-              </Label>
-              <Select
-                value={formData.role}
-                onValueChange={(value) => setFormData({ ...formData, role: value })}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="USER">User</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Wallet balance field removed */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="enabled" className="text-right">
-                Account Status
-              </Label>
-              <div className="col-span-3 flex items-center gap-3">
-                <Switch
-                  id="enabled"
-                  checked={!!formData.enabled}
-                  onCheckedChange={(checked) => handleSwitchChange('enabled', checked)}
-                />
-                <span className="text-sm">{formData.enabled ? 'Enabled' : 'Disabled'}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleUpdateUser}>Save Changes</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
       
       {/* Add User Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>

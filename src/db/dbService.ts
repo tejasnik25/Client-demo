@@ -409,6 +409,7 @@ const initializeDatabase = async () => {
     try { await pool.execute("ALTER TABLE users ADD COLUMN email_updated_at TIMESTAMP NULL"); } catch (e) {}
     try { await pool.execute("ALTER TABLE users ADD COLUMN country_code VARCHAR(8) NULL"); } catch (e) {}
     try { await pool.execute("ALTER TABLE users ADD COLUMN country VARCHAR(100) NULL"); } catch (e) {}
+    try { await pool.execute("ALTER TABLE users ADD COLUMN enabled BOOLEAN DEFAULT TRUE"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN platform ENUM('MT4', 'MT5')"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_id VARCHAR(255)"); } catch (e) {}
     try { await pool.execute("ALTER TABLE wallet_transactions ADD COLUMN mt_account_password VARCHAR(255)"); } catch (e) {}
