@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import ScrollArea from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import Badge from '@/components/ui/Badge';
 import { Strategy } from "@/types/strategy";
@@ -53,11 +54,6 @@ const StrategyManagement: React.FC = () => {
   const [contentType, setContentType] = useState<'html' | 'pdf' | 'text'>('html');
   const [countryFlag, setCountryFlag] = useState<string>('');
   const [commissionPercent, setCommissionPercent] = useState<string>('30');
-  const [equity, setEquity] = useState<string>('');
-  const [timeframe, setTimeframe] = useState<string>('');
-  const [currencySymbol, setCurrencySymbol] = useState<string>('$');
-  const [chatLink, setChatLink] = useState<string>('');
-
 
   // Fetch strategies from the API
   const fetchStrategies = async () => {
@@ -115,12 +111,7 @@ const resetAddForm = () => {
     setPlanRanges({ Pro: '', Expert: '', Premium: '' });
     setParameters([{ key: '', value: '', id: `param-${Date.now()}` }]);
   setCommissionPercent('30');
-    setEquity('');
-    setTimeframe('');
-    setCurrencySymbol('$');
-    setChatLink('');
     setError(null);
-
     setSuccess(null);
     setSelectedFile(null);
     setSelectedIcon(null);
@@ -181,14 +172,7 @@ const resetAddForm = () => {
       (strategy.parameters && ((strategy.parameters as any).commission ?? (strategy.parameters as any).Commission)) || '';
     const m = String(rawCommission).match(/-?\d+(\.\d+)?/);
     setCommissionPercent(m ? String(m[0]) : '30');
-
-    setEquity((strategy.parameters as any)?.equity || '');
-    setTimeframe((strategy.parameters as any)?.timeframe || '');
-    setCurrencySymbol((strategy.parameters as any)?.currencySymbol || '$');
-    setChatLink((strategy.parameters as any)?.chatLink || '');
-
     setIsEditing(true);
-
     setIsAdding(false);
     setError(null);
     setSuccess(null);
@@ -202,11 +186,10 @@ const resetAddForm = () => {
     
     setCurrentStrategy(prev => ({
       ...prev,
-      [name]: name === 'performance' || name === 'roi' || name === 'profit' || name === 'maxDdi' || name === 'copiers' || name === 'riskScore' || name === 'minCapital' || name === 'avgDrawdown' || name === 'riskReward' || name === 'winStreak'
+      [name]: name === 'performance' || name === 'roi' || name === 'profit' || name === 'maxDdi' || name === 'copiers' || name === 'riskScore'
         ? (value === '' ? undefined : parseFloat(value) || 0) 
         : value
     }));
-
   };
   
   // Handle file selection
@@ -319,17 +302,8 @@ const resetAddForm = () => {
       if (currentStrategy.maxDdi !== undefined) formData.append('maxDdi', String(currentStrategy.maxDdi));
       if (currentStrategy.copiers !== undefined) formData.append('copiers', String(currentStrategy.copiers));
       if (currentStrategy.riskScore !== undefined) formData.append('riskScore', String(currentStrategy.riskScore));
-      if (currentStrategy.minCapital !== undefined) formData.append('minCapital', String(currentStrategy.minCapital));
-      if (currentStrategy.avgDrawdown !== undefined) formData.append('avgDrawdown', String(currentStrategy.avgDrawdown));
-      if (currentStrategy.riskReward !== undefined) formData.append('riskReward', String(currentStrategy.riskReward));
-      if (currentStrategy.winStreak !== undefined) formData.append('winStreak', String(currentStrategy.winStreak));
-      if (equity) formData.append('equity', equity);
-      if (timeframe) formData.append('timeframe', timeframe);
-      if (currencySymbol) formData.append('currencySymbol', currencySymbol);
-      if (chatLink) formData.append('chatLink', chatLink);
       if (currentStrategy.tag !== undefined) formData.append('tag', String(currentStrategy.tag));
       formData.append('mastersTag', String(currentStrategy.mastersTag || ''));
-
       if (currentStrategy.riskLevel) formData.append('riskLevel', String(currentStrategy.riskLevel));
       // Admin commission percent (single commission for the strategy)
       if (commissionPercent.trim().length > 0) {
@@ -610,24 +584,7 @@ const resetAddForm = () => {
                     <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Master</span>
                     <Badge variant="outline" className="bg-white">{strategy.mastersTag || '-'}</Badge>
                   </div>
-                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Min Capital</span>
-                    <span className="text-gray-900 font-bold">${strategy.minCapital ?? '-'}</span>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Avg Drawdown</span>
-                    <span className="text-gray-900 font-bold">{strategy.avgDrawdown ?? '-'}%</span>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Risk/Reward</span>
-                    <span className="text-gray-900 font-bold">{strategy.riskReward ?? '-'}</span>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Win Streak</span>
-                    <span className="text-gray-900 font-bold">{strategy.winStreak ?? '-'}</span>
-                  </div>
                 </div>
-
 
                 <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 text-sm">
                   <div className="flex flex-wrap items-center gap-y-2">
@@ -691,7 +648,7 @@ const resetAddForm = () => {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="flex-1 overflow-y-auto px-6 py-6">
+          <ScrollArea className="flex-1 px-6 py-6">
             <form id="strategy-form" onSubmit={handleSubmit} className="space-y-8 pb-6">
               {/* Content Selection Section */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -772,84 +729,6 @@ const resetAddForm = () => {
                     required
                     className="bg-white border border-gray-200 text-gray-900 rounded-2xl focus:ring-2 focus:ring-[#00d09c]/20 focus:border-[#00d09c] transition-all resize-none"
                   />
-                </div>
-              </div>
-
-              {/* Quick Trading Fields (Always Visible) */}
-              <div className="space-y-4 bg-[#00d09c]/5 p-6 rounded-2xl border border-[#00d09c]/15">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
-                  <h3 className="text-sm font-black uppercase tracking-wider text-[#00b085]">Quick Trading Fields</h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="roi-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">ROI (%)</Label>
-                    <Input id="roi-quick" name="roi" type="number" step="0.01" value={String(currentStrategy.roi ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="profit-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Total Profit</Label>
-                    <Input id="profit-quick" name="profit" type="number" step="0.01" value={String(currentStrategy.profit ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="maxDdi-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Max DDI (%)</Label>
-                    <Input id="maxDdi-quick" name="maxDdi" type="number" step="0.01" value={String(currentStrategy.maxDdi ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="mastersTag-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Tag</Label>
-                    <Input id="mastersTag-quick" name="mastersTag" value={currentStrategy.mastersTag || ''} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="masterAccountId-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Account ID</Label>
-                    <Input
-                      id="masterAccountId-quick"
-                      name="masterAccountId"
-                      value={currentStrategy.masterAccountId || ''}
-                      onChange={handleInputChange}
-                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="masterAccountPassword-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Password</Label>
-                    <Input
-                      id="masterAccountPassword-quick"
-                      name="masterAccountPassword"
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder={currentStrategy.hasMasterPassword ? "•••••••• (Saved)" : "MT Password"}
-                      value={currentStrategy.masterAccountPassword || ''}
-                      onChange={(e) => setCurrentStrategy(prev => ({ ...prev, masterAccountPassword: e.target.value }))}
-                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="masterAccountServer-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Server</Label>
-                    <Input
-                      id="masterAccountServer-quick"
-                      name="masterAccountServer"
-                      value={currentStrategy.masterAccountServer || ''}
-                      onChange={handleInputChange}
-                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="masterPlatform-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Platform</Label>
-                    <Select
-                      value={currentStrategy.masterPlatform || 'mt5'}
-                      onValueChange={(value) => setCurrentStrategy(prev => ({ ...prev, masterPlatform: value as 'mt4' | 'mt5' }))}
-                    >
-                      <SelectTrigger id="masterPlatform-quick" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border border-gray-100 rounded-xl shadow-lg">
-                        <SelectItem value="mt4" className="font-bold">MetaTrader 4</SelectItem>
-                        <SelectItem value="mt5" className="font-bold">MetaTrader 5</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
               </div>
 
@@ -936,10 +815,6 @@ const resetAddForm = () => {
                     <Input id="tag" name="tag" value={currentStrategy.tag || ''} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="mastersTag" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Tag</Label>
-                    <Input id="mastersTag" name="mastersTag" value={currentStrategy.mastersTag || ''} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="riskLevel" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Risk Level</Label>
                     <Select
                       value={currentStrategy.riskLevel || ''}
@@ -956,29 +831,9 @@ const resetAddForm = () => {
                     </Select>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-gray-100">
-                  <div className="space-y-2">
-                    <Label htmlFor="minCapital" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Min. Capital ($)</Label>
-                    <Input id="minCapital" name="minCapital" type="number" value={String(currentStrategy.minCapital ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="avgDrawdown" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Avg. Drawdown (%)</Label>
-                    <Input id="avgDrawdown" name="avgDrawdown" type="number" step="0.01" value={String(currentStrategy.avgDrawdown ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="riskReward" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Risk/Reward</Label>
-                    <Input id="riskReward" name="riskReward" type="number" step="0.01" value={String(currentStrategy.riskReward ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="winStreak" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Win Streak</Label>
-                    <Input id="winStreak" name="winStreak" type="number" value={String(currentStrategy.winStreak ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                </div>
               </div>
 
               {/* Master Connection Section */}
-
               <div className="space-y-4 bg-[#00d09c]/5 p-6 rounded-2xl border border-[#00d09c]/10">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
@@ -1037,35 +892,7 @@ const resetAddForm = () => {
                 </div>
               </div>
 
-              {/* Additional Information Section */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
-                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-900">Additional Information</h3>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="equity" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Equity</Label>
-                    <Input id="equity" value={equity} onChange={(e) => setEquity(e.target.value)} placeholder="e.g. $10,000+" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="timeframe" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Timeframe</Label>
-                    <Input id="timeframe" value={timeframe} onChange={(e) => setTimeframe(e.target.value)} placeholder="e.g. H1 / Daily" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="currencySymbol" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Currency</Label>
-                    <Input id="currencySymbol" value={currencySymbol} onChange={(e) => setCurrencySymbol(e.target.value)} placeholder="e.g. $" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="chatLink" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Telegram Link</Label>
-                    <Input id="chatLink" value={chatLink} onChange={(e) => setChatLink(e.target.value)} placeholder="https://t.me/..." className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
-                  </div>
-                </div>
-              </div>
-
               {/* Pricing Section */}
-
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
@@ -1107,7 +934,7 @@ const resetAddForm = () => {
                 </div>
               </div>
             </form>
-          </div>
+          </ScrollArea>
           
           <DialogFooter className="p-6 border-t border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row gap-3">
             <Button

@@ -44,15 +44,6 @@ export async function POST(req: NextRequest) {
     const maxDdi = formData.get('maxDdi') ? Number(formData.get('maxDdi') as string) : undefined;
     const copiers = formData.get('copiers') ? Number(formData.get('copiers') as string) : undefined;
     const riskScore = formData.get('riskScore') ? Number(formData.get('riskScore') as string) : undefined;
-    const minCapital = formData.get('minCapital') ? Number(formData.get('minCapital') as string) : undefined;
-    const avgDrawdown = formData.get('avgDrawdown') ? Number(formData.get('avgDrawdown') as string) : undefined;
-    const riskReward = formData.get('riskReward') ? Number(formData.get('riskReward') as string) : undefined;
-    const winStreak = formData.get('winStreak') ? Number(formData.get('winStreak') as string) : undefined;
-    const equity = (formData.get('equity') as string) || undefined;
-    const timeframe = (formData.get('timeframe') as string) || undefined;
-    const currencySymbol = (formData.get('currencySymbol') as string) || undefined;
-    const chatLink = (formData.get('chatLink') as string) || undefined;
-
 
     // Admin commission percent for the strategy (single commission field, no plan system required)
     const rawCommissionPercent = (formData.get('commissionPercent') as string) || '';
@@ -224,13 +215,8 @@ export async function POST(req: NextRequest) {
       maxDdi,
       copiers,
       riskScore,
-      minCapital,
-      avgDrawdown,
-      riskReward,
-      winStreak,
       tag,
       mastersTag,
-
       planPrices: { Pro: planPro, Expert: planExpert, Premium: planPremium },
       planDetails: {
         Pro: { priceLabel: planProLabel, percent: planProPercent },
@@ -249,17 +235,12 @@ export async function POST(req: NextRequest) {
         const params: Record<string, string> = {};
         if (countryFlag) params.countryFlag = countryFlag;
         if (lotPricing) params.lotPricing = lotPricing;
-        if (equity) params.equity = equity;
-        if (timeframe) params.timeframe = timeframe;
-        if (currencySymbol) params.currencySymbol = currencySymbol;
-        if (chatLink) params.chatLink = chatLink;
         if (commissionPercent !== undefined && Number.isFinite(commissionPercent)) {
           // Store as string to match parameters JSON type.
           params.commission = String(commissionPercent);
         }
         return params;
       })()
-
     });
 
     if (!result.success) {
@@ -333,14 +314,6 @@ export async function PUT(req: NextRequest) {
     const maxDdi = formData.get('maxDdi') ? Number(formData.get('maxDdi') as string) : undefined;
     const copiers = formData.get('copiers') ? Number(formData.get('copiers') as string) : undefined;
     const riskScore = formData.get('riskScore') ? Number(formData.get('riskScore') as string) : undefined;
-    const minCapital = formData.get('minCapital') ? Number(formData.get('minCapital') as string) : undefined;
-    const avgDrawdown = formData.get('avgDrawdown') ? Number(formData.get('avgDrawdown') as string) : undefined;
-    const riskReward = formData.get('riskReward') ? Number(formData.get('riskReward') as string) : undefined;
-    const winStreak = formData.get('winStreak') ? Number(formData.get('winStreak') as string) : undefined;
-    const equity = (formData.get('equity') as string) || undefined;
-    const timeframe = (formData.get('timeframe') as string) || undefined;
-    const currencySymbol = (formData.get('currencySymbol') as string) || undefined;
-    const chatLink = (formData.get('chatLink') as string) || undefined;
     
     // Handle tags: allow empty string to clear the value
     const rawTag = formData.get('tag');
@@ -425,13 +398,8 @@ export async function PUT(req: NextRequest) {
       maxDdi,
       copiers,
       riskScore,
-      minCapital,
-      avgDrawdown,
-      riskReward,
-      winStreak,
       tag,
       mastersTag,
-
       masterAccountId,
       masterAccountPassword,
       masterAccountServer,
@@ -512,19 +480,14 @@ export async function PUT(req: NextRequest) {
       Expert: { priceLabel: planExpertLabel, percent: planExpertPercent },
       Premium: { priceLabel: planPremiumLabel, percent: planPremiumPercent },
     };
-    if (countryFlag || lotPricing || equity || timeframe || currencySymbol || chatLink || (commissionPercent !== undefined && Number.isFinite(commissionPercent))) {
+    if (countryFlag || lotPricing || (commissionPercent !== undefined && Number.isFinite(commissionPercent))) {
       updates.parameters = {};
       if (countryFlag) (updates.parameters as any).countryFlag = countryFlag;
       if (lotPricing) (updates.parameters as any).lotPricing = lotPricing;
-      if (equity) (updates.parameters as any).equity = equity;
-      if (timeframe) (updates.parameters as any).timeframe = timeframe;
-      if (currencySymbol) (updates.parameters as any).currencySymbol = currencySymbol;
-      if (chatLink) (updates.parameters as any).chatLink = chatLink;
       if (commissionPercent !== undefined && Number.isFinite(commissionPercent)) {
         (updates.parameters as any).commission = String(commissionPercent);
       }
     }
-
 
     // Update strategy in database
     const result = await updateStrategy(id, updates);

@@ -200,14 +200,9 @@ export type Strategy = {
   maxDdi?: number;
   copiers?: number;
   riskScore?: number;
-  minCapital?: number;
-  avgDrawdown?: number;
-  riskReward?: number;
-  winStreak?: number;
   // Tag
   tag?: string;
   mastersTag?: string;
-
   // Master Account Details (Admin Only)
   masterAccountId?: string;
   masterAccountPassword?: string;
@@ -979,8 +974,8 @@ export const createStrategy = async (
 
     const id = `strategy_${Date.now()}`;
     await pool.execute(
-      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, roi, profit, max_ddi, copiers, risk_score, min_capital, avg_drawdown, risk_reward, win_streak, tag, masters_tag, plan_prices, plan_details, details, parameters, content_type, content_url, content_blob, content_mime, icon_blob, icon_mime, enabled, master_account_id, master_account_password, master_account_server, master_platform) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, roi, profit, max_ddi, copiers, risk_score, tag, masters_tag, plan_prices, plan_details, details, parameters, content_type, content_url, content_blob, content_mime, icon_blob, icon_mime, enabled, master_account_id, master_account_password, master_account_server, master_platform) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         strategy.name,
@@ -994,10 +989,6 @@ export const createStrategy = async (
         strategy.maxDdi ?? null,
         strategy.copiers ?? null,
         strategy.riskScore ?? null,
-        (strategy as any).minCapital ?? null,
-        (strategy as any).avgDrawdown ?? null,
-        (strategy as any).riskReward ?? null,
-        (strategy as any).winStreak ?? null,
         strategy.tag ?? null,
         strategy.mastersTag ?? null,
         strategy.planPrices ? JSON.stringify(strategy.planPrices) : null,
@@ -1017,7 +1008,6 @@ export const createStrategy = async (
         strategy.masterPlatform || null
       ]
     );
-
     const created = await getStrategyById(id);
     if (!created) return { success: false, error: 'Failed to read created strategy' };
     return { success: true, strategy: created };
@@ -1040,13 +1030,8 @@ export const createStrategy = async (
         maxDdi: strategy.maxDdi,
         copiers: strategy.copiers,
         riskScore: strategy.riskScore,
-        minCapital: (strategy as any).minCapital,
-        avgDrawdown: (strategy as any).avgDrawdown,
-        riskReward: (strategy as any).riskReward,
-        winStreak: (strategy as any).winStreak,
         tag: strategy.tag,
         mastersTag: strategy.mastersTag,
-
         planPrices: strategy.planPrices,
         planDetails: strategy.planDetails,
         details: strategy.details ?? '',
@@ -1110,12 +1095,7 @@ export const updateStrategy = async (
     if (updates.maxDdi !== undefined) { setClause.push('max_ddi = ?'); values.push(updates.maxDdi); }
     if (updates.copiers !== undefined) { setClause.push('copiers = ?'); values.push(updates.copiers); }
     if (updates.riskScore !== undefined) { setClause.push('risk_score = ?'); values.push(updates.riskScore); }
-    if ((updates as any).minCapital !== undefined) { setClause.push('min_capital = ?'); values.push((updates as any).minCapital); }
-    if ((updates as any).avgDrawdown !== undefined) { setClause.push('avg_drawdown = ?'); values.push((updates as any).avgDrawdown); }
-    if ((updates as any).riskReward !== undefined) { setClause.push('risk_reward = ?'); values.push((updates as any).riskReward); }
-    if ((updates as any).winStreak !== undefined) { setClause.push('win_streak = ?'); values.push((updates as any).winStreak); }
     if (updates.tag !== undefined) { setClause.push('tag = ?'); values.push(updates.tag); }
-
     if (updates.mastersTag !== undefined) { setClause.push('masters_tag = ?'); values.push(updates.mastersTag); }
     if (updates.planPrices !== undefined) { setClause.push('plan_prices = ?'); values.push(JSON.stringify(updates.planPrices)); }
     if (updates.planDetails !== undefined) { setClause.push('plan_details = ?'); values.push(JSON.stringify(updates.planDetails)); }
@@ -1166,19 +1146,12 @@ export const updateStrategy = async (
         riskLevel: updates.riskLevel ?? existing.riskLevel ?? existing.risk_level ?? 'Medium',
         category: updates.category ?? existing.category,
         imageUrl: updates.imageUrl ?? existing.imageUrl ?? existing.image_url,
-        roi: updates.roi ?? existing.roi,
-
-        profit: updates.profit ?? existing.profit,
-        maxDdi: updates.maxDdi ?? existing.maxDdi,
-        copiers: updates.copiers ?? existing.copiers,
-        riskScore: updates.riskScore ?? existing.riskScore,
-        minCapital: (updates as any).minCapital ?? existing.minCapital,
-        avgDrawdown: (updates as any).avgDrawdown ?? existing.avgDrawdown,
-        riskReward: (updates as any).riskReward ?? existing.riskReward,
-        winStreak: (updates as any).winStreak ?? existing.winStreak,
+        roi: updates.roi ?? (existing.roi ?? existing.roi),
+        profit: updates.profit ?? (existing.profit ?? existing.profit),
+        maxDdi: updates.maxDdi ?? (existing.maxDdi ?? existing.max_ddi),
+        copiers: updates.copiers ?? (existing.copiers ?? existing.copiers),
         tag: updates.tag ?? existing.tag,
-        mastersTag: updates.mastersTag ?? existing.mastersTag,
-
+        mastersTag: updates.mastersTag ?? (existing.mastersTag ?? existing.masters_tag),
         planPrices: updates.planPrices ?? (existing.planPrices ?? existing.plan_prices),
         planDetails: updates.planDetails ?? (existing.planDetails ?? existing.plan_details),
         details: updates.details ?? existing.details,
@@ -3087,8 +3060,9 @@ export const getProfitSharingOverviewAdmin = async (): Promise<any[]> => {
         s.master_account_id AS master_id,
         s.parameters AS strategy_parameters,
         COALESCE((SELECT COUNT(*) FROM running_strategies rs WHERE rs.strategy_id = s.id AND (rs.admin_status IN ('running','active') OR rs.status IN ('running','active','in-process'))), 0) AS copiers_count,
-        COALESCE((SELECT SUM(wt.amount) FROM wallet_transactions wt WHERE wt.strategy_id = s.id AND wt.transaction_type = 'deposit' AND wt.status = 'completed'), 0) AS total_deposit,
+        COALESCE((SELECT SUM(rs.capital) FROM running_strategies rs WHERE rs.strategy_id = s.id AND (rs.admin_status IN ('running','active') OR rs.status IN ('running','active','in-process'))), 0) AS total_deposit,
         COALESCE((SELECT SUM(mt.profit) FROM master_trades_cache mt WHERE mt.master_id = s.master_account_id AND mt.is_open = 0), 0) AS total_profit,
+
         COALESCE((SELECT SUM(mt.swap) FROM master_trades_cache mt WHERE mt.master_id = s.master_account_id AND mt.is_open = 0), 0) AS total_swap,
         COALESCE((SELECT COUNT(*) FROM master_trades_cache mt WHERE mt.master_id = s.master_account_id AND mt.is_open = 1), 0) AS open_trades,
         (SELECT ps.created_at FROM profit_settlements ps WHERE ps.strategy_id = s.id ORDER BY ps.created_at DESC LIMIT 1) AS last_settlement_at
@@ -3166,7 +3140,7 @@ export const runProfitSharingSettlementAdmin = async (
     const totalSwap = Number((tradeRows as any[])[0]?.total_swap || 0);
 
     const [userRows] = await pool.execute(
-      `SELECT DISTINCT rs.user_id, u.name, u.email
+      `SELECT rs.user_id, u.name, u.email, rs.capital
        FROM running_strategies rs
        LEFT JOIN users u ON rs.user_id = u.id
        WHERE rs.strategy_id = ? AND (rs.admin_status IN ('running','active') OR rs.status IN ('running','active','in-process'))`,
@@ -3185,13 +3159,19 @@ export const runProfitSharingSettlementAdmin = async (
     const userInvestments: Array<{ userId: string; invested: number; name: string; email: string }> = [];
     let totalDeposit = 0;
     for (const u of users) {
-      const [depRows] = await pool.execute(
-        `SELECT COALESCE(SUM(amount),0) AS invested
-         FROM wallet_transactions
-         WHERE user_id = ? AND strategy_id = ? AND transaction_type = 'deposit' AND status = 'completed'`,
-        [u.user_id, strategyId]
-      );
-      const invested = Number((depRows as any[])[0]?.invested || 0);
+      // Use capital from running_strategies as primary source; fallback to wallet_transactions sum if capital is 0
+      let invested = Number(u.capital || 0);
+      
+      if (invested <= 0) {
+        const [depRows] = await pool.execute(
+          `SELECT COALESCE(SUM(amount),0) AS invested
+           FROM wallet_transactions
+           WHERE user_id = ? AND strategy_id = ? AND transaction_type = 'deposit' AND status = 'completed'`,
+          [u.user_id, strategyId]
+        );
+        invested = Number((depRows as any[])[0]?.invested || 0);
+      }
+      
       totalDeposit += invested;
       userInvestments.push({
         userId: u.user_id,
@@ -3200,6 +3180,7 @@ export const runProfitSharingSettlementAdmin = async (
         email: u.email || '',
       });
     }
+
 
     if (totalDeposit <= 0) {
       return { success: false, error: 'No completed deposit found for this strategy.' };
