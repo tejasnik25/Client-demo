@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 // This is a catch-all route for Admin APIs to save serverless function count on Vercel Hobby Plan.
 export const dynamic = 'force-dynamic';
 
-async function handleRequest(req: NextRequest, { params }: { params: { slug: string[] } }) {
-  const slug = params.slug;
+async function handleRequest(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+  const { slug } = await params;
   const method = req.method;
 
   try {
@@ -21,6 +21,7 @@ async function handleRequest(req: NextRequest, { params }: { params: { slug: str
       else if (path === 'users') handler = await import('../users/handler');
       else if (path === 'transactions') handler = await import('../transactions/handler');
       else if (path === 'running-strategies') handler = await import('../running-strategies/handler');
+      else if (path === 'profit-sharing') handler = await import('../profit-sharing/handler');
       
       if (handler && handler[method]) return (handler[method] as any)(req);
     }

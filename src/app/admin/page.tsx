@@ -119,6 +119,23 @@ export default function AdminPage() {
             </a>
           </CardContent>
         </Card>
+
+        <Card className="hover:shadow-lg transition-shadow duration-300 bg-white border border-gray-200">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <FiDatabase className="mr-2" /> Profit-sharing Settlement
+            </CardTitle>
+            <CardDescription>
+              Settle strategy profits, commissions, and export settlement Excel reports.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-4">View all strategies, copier counts, deposits, and run per-strategy settlement.</p>
+            <a href="/admin/profit-sharing" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Go to Profit-sharing
+            </a>
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs defaultValue="users" className="w-full">

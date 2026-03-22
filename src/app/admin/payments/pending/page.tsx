@@ -1,15 +1,24 @@
-"use client";
+'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  CheckCircleIcon,
-  XCircleIcon,
-  ClockIcon,
-  ExclamationTriangleIcon,
-  PaperAirplaneIcon,
-  ArrowPathIcon,
-} from '@heroicons/react/24/outline';
-import '../../../../styles/themes.css';
+import { useRouter } from 'next/navigation';
+import { 
+  FiCheckCircle, 
+  FiXCircle, 
+  FiClock, 
+  FiAlertTriangle, 
+  FiSend, 
+  FiRefreshCw, 
+  FiUser, 
+  FiActivity, 
+  FiDollarSign, 
+  FiFileText,
+  FiExternalLink
+} from 'react-icons/fi';
+import Button from '@/components/ui/Button';
+import Card from '@/components/ui/Card';
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { toast } from '@/components/ui/use-toast';
 
 type Payment = {
   id: string;
@@ -26,35 +35,28 @@ type Payment = {
   proofUrl: string;
   status: string;
   createdAt?: string;
-  approvedAt?: string;
-  expiresAt?: string;
-  verifiedBy?: string;
   admin_message?: string;
   admin_message_status?: 'pending' | 'sent' | 'resolved';
 };
 
-const PaymentsPendingPage = () => {
+export default function PaymentsPendingPage() {
+  const router = useRouter();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [strategies, setStrategies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
   const [messageFor, setMessageFor] = useState<string | null>(null);
   const [reason, setReason] = useState<string>('');
 
-  const load = async () => {
+  const loadData = async () => {
     try {
-      // Load payments and strategies in parallel
       const [res, sres] = await Promise.all([
-        fetch('/api/admin/payments/pending', { cache: 'no-store', credentials: 'include' }),
+        fetch('/api/admin/payments/pending', { cache: 'no-store' }),
         fetch('/api/strategies', { cache: 'no-store' })
       ]);
-      if (!res.ok) {
-        // Gracefully handle API failure: keep table visible with no rows
-        setPayments([]);
-        setError('Failed to load payments');
-      } else {
+      
+      if (res.ok) {
         const data = await res.json();
-        // Normalize to expected client shape
         const items = Array.isArray(data) ? data : (data.transactions ?? []);
         setPayments(items.map((t: any) => ({
           id: t.id,
@@ -71,500 +73,315 @@ const PaymentsPendingPage = () => {
           proofUrl: t.receipt_path,
           status: t.status,
           createdAt: t.created_at,
-          approvedAt: undefined,
-          expiresAt: undefined,
-          verifiedBy: undefined,
           admin_message: t.admin_message,
           admin_message_status: t.admin_message_status,
         })));
-        setError(null);
       }
+      
       if (sres.ok) {
         const sdata = await sres.json();
         setStrategies(Array.isArray(sdata) ? sdata : (sdata.strategies || []));
-      } else {
-        setStrategies([]);
       }
     } catch (e) {
-      // Network or parsing error: show empty table but keep UI intact
-      setPayments([]);
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      console.error('Failed to load pending payments:', e);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
-    const interval = setInterval(() => {
-      load();
-    }, 8000);
+    loadData();
+    const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  const pending = useMemo(() => payments.filter(p => ['pending','in_process','in-process'].includes(p.status)), [payments]);
-  const depositPending = useMemo(() => pending.filter(p => p.transactionType === 'deposit'), [pending]);
-  const withdrawalPending = useMemo(() => pending.filter(p => p.transactionType === 'charge'), [pending]);
-
-  const lotLabelFor = (p: Payment) => {
-    const s = strategies.find((st: any) => st.id === p.strategyId || st.name === p.strategyName);
-    const lp = s?.parameters?.lotPricing;
-    if (!lp) return '—';
-    let rows: Array<{ amountUSD: number; lot: number }> = [];
-    try {
-      const arr = JSON.parse(lp);
-      if (Array.isArray(arr)) {
-        rows = arr
-          .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
-          .filter((x) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
-      }
-    } catch {}
-    if (rows.length === 0) return '—';
-    const amt = Number(p.payable);
-    if (!Number.isFinite(amt)) return '—';
-    const exact = rows.find((r) => Math.abs(r.amountUSD - amt) < 1e-6);
-    if (exact) return `${exact.lot} Lot`;
-    let best = rows[0];
-    let diff = Math.abs(rows[0].amountUSD - amt);
-    for (let i = 1; i < rows.length; i++) {
-      const d = Math.abs(rows[i].amountUSD - amt);
-      if (d < diff) {
-        diff = d;
-        best = rows[i];
-      }
-    }
-    return `${best.lot} Lot`;
-  };
+  const pendingDeposits = useMemo(() => 
+    payments.filter(p => p.transactionType === 'deposit'), [payments]);
+  
+  const pendingWithdrawals = useMemo(() => 
+    payments.filter(p => p.transactionType === 'charge'), [payments]);
 
   const updateStatus = async (paymentId: string, status: 'approved' | 'rejected') => {
     try {
       let body: any = undefined;
       if (status === 'rejected') {
-        const rejectionReason = window.prompt('Enter rejection reason') || '';
-        if (!rejectionReason.trim()) {
-          alert('Rejection reason is required.');
-          return;
-        }
+        const rejectionReason = window.prompt('Enter rejection reason');
+        if (!rejectionReason || !rejectionReason.trim()) return;
         body = JSON.stringify({ rejectionReason });
       }
-      // Call explicit approve/reject admin endpoints
+
+      setBusyPaymentId(paymentId);
       const endpoint = status === 'approved'
         ? `/api/admin/payments/${paymentId}/approve`
         : `/api/admin/payments/${paymentId}/reject`;
+      
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        cache: 'no-store',
         body,
       });
+      
       if (!res.ok) throw new Error('Failed to update payment');
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Update failed');
+      
+      toast({
+        title: 'Success',
+        description: `Payment ${status} successfully`,
+      });
+      await loadData();
+    } catch (e: any) {
+      toast({
+        title: 'Error',
+        description: e.message || 'Update failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusyPaymentId(null);
     }
   };
 
   const sendMessage = async (paymentId: string) => {
+    if (!reason.trim()) return;
     try {
+      setBusyPaymentId(paymentId);
       const res = await fetch(`/api/admin/payments/${paymentId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        cache: 'no-store',
-        body: JSON.stringify({ message: reason || 'Additional information required' })
+        body: JSON.stringify({ message: reason })
       });
       if (!res.ok) throw new Error('Failed to send message');
+      
+      toast({ title: 'Success', description: 'Message sent to user' });
       setMessageFor(null);
       setReason('');
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Message failed');
+      await loadData();
+    } catch (e: any) {
+      toast({
+        title: 'Error',
+        description: e.message || 'Message failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusyPaymentId(null);
     }
   };
 
-  if (loading) return <div className="p-6">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="h-10 w-10 animate-spin rounded-full border-t-2 border-b-2 border-[#00d09c]" />
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Payments — Pending</h1>
-      {error && (
-        <div className="mb-4 p-3 rounded bg-red-100 text-red-700 border border-red-300">
-          {error} — showing table with no values. <button className="underline ml-1" onClick={() => { setLoading(true); setError(null); load(); }}>Retry</button>
+    <div className="container mx-auto p-4 md:p-8 space-y-8 bg-gray-50/50 min-h-screen">
+      {/* Header */}
+      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-black text-gray-900 tracking-tight uppercase">Pending Payments</h1>
+          <p className="text-sm font-medium text-gray-500 mt-1">Review and verify deposit and withdrawal requests</p>
+        </div>
+        <Button 
+          variant="outline" 
+          onClick={loadData} 
+          className="bg-white border-gray-200 hover:bg-gray-50 flex items-center gap-2 h-11 px-6 rounded-xl font-bold"
+        >
+          <FiRefreshCw className="h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Deposits Section */}
+      <SectionCard 
+        title="Deposit Requests" 
+        icon={<FiDollarSign className="text-green-500" />}
+        payments={pendingDeposits}
+        onApprove={(id) => updateStatus(id, 'approved')}
+        onReject={(id) => updateStatus(id, 'rejected')}
+        onMessage={(id) => setMessageFor(id)}
+        busyId={busyPaymentId}
+      />
+
+      {/* Withdrawals Section */}
+      <SectionCard 
+        title="Withdrawal Requests" 
+        icon={<FiActivity className="text-blue-500" />}
+        payments={pendingWithdrawals}
+        onApprove={(id) => updateStatus(id, 'approved')}
+        onReject={(id) => updateStatus(id, 'rejected')}
+        onMessage={(id) => setMessageFor(id)}
+        busyId={busyPaymentId}
+      />
+
+      {/* Message Modal Overlay */}
+      {messageFor && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <Card className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <CardHeader className="p-8 border-b border-gray-50">
+              <CardTitle className="text-xl font-black text-gray-900 uppercase">Send Admin Message</CardTitle>
+            </CardHeader>
+            <CardContent className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Reason for holding payment</label>
+                <textarea
+                  className="w-full p-4 rounded-xl bg-gray-50 border border-gray-100 text-sm font-medium focus:border-[#00d09c] outline-none transition-all"
+                  rows={4}
+                  placeholder="e.g., Incorrect transaction ID, proof image not clear..."
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => { setMessageFor(null); setReason(''); }}
+                  className="flex-1 h-12 rounded-xl font-bold border-gray-200"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={() => sendMessage(messageFor)}
+                  disabled={!reason.trim() || busyPaymentId === messageFor}
+                  className="flex-1 h-12 bg-[#00d09c] hover:bg-[#00b085] text-white rounded-xl font-black uppercase tracking-widest text-xs"
+                >
+                  {busyPaymentId === messageFor ? 'Sending...' : 'Send Message'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
-      <h2 className="text-xl font-bold mb-3">Deposit Requests</h2>
-      <div className="overflow-x-auto mb-8">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left border-b">
-              <th className="p-2">user_id</th>
-              <th className="p-2">Transaction ID</th>
-              <th className="p-2">User Name</th>
-              <th className="p-2">Strategy</th>
-              <th className="p-2">Plan</th>
-              <th className="p-2">Lot Size</th>
-              <th className="p-2">Entered Amount</th>
-              <th className="p-2">Paid Amount</th>
-              <th className="p-2">Payment Method</th>
-              <th className="p-2">Proof</th>
-              <th className="p-2">Admin Message</th>
-              <th className="p-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {depositPending.length === 0 ? (
-              <tr>
-                <td colSpan={12} className="p-4 text-center text-gray-500">No pending deposit requests</td>
-              </tr>
-            ) : depositPending.map((p) => (
-              <tr key={p.id} className="border-b">
-                <td className="p-2">{p.userId}</td>
-                <td className="p-2">{p.txId}</td>
-                <td className="p-2">{p.userName ?? '-'}</td>
-                <td className="p-2">{p.strategyName ?? '-'}</td>
-                <td className="p-2">{p.plan}</td>
-                <td className="p-2">{lotLabelFor(p)}</td>
-                <td className="p-2">{p.capital}</td>
-                <td className="p-2">{p.payable}</td>
-                <td className="p-2">{p.method}</td>
-                <td className="p-2">
-                  {p.proofUrl ? (
-                    <a href={p.proofUrl} target="_blank" rel="noreferrer" className="text-blue-600">View</a>
-                  ) : '-'}
-                </td>
-                <td className="p-2">
-                  {(p as any).admin_message ? (
-                    <span title={(p as any).admin_message} className="text-gray-700 dark:text-gray-300">
-                      {((p as any).admin_message as string).length > 28
-                        ? ((p as any).admin_message as string).slice(0, 28) + '…'
-                        : (p as any).admin_message}
-                      {(p as any).admin_message_status ? ` (${(p as any).admin_message_status})` : ''}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400">—</span>
-                  )}
-                </td>
-                <td className="p-2 space-x-2">
-                  <button onClick={() => updateStatus(p.id, 'approved')} className="px-3 py-1 rounded bg-green-600 text-white">Approve</button>
-                  <button onClick={() => updateStatus(p.id, 'rejected')} className="px-3 py-1 rounded bg-red-600 text-white">Reject</button>
-                  <button onClick={() => setMessageFor(p.id)} className="px-3 py-1 rounded bg-yellow-500 text-white">Send Message</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <h2 className="text-xl font-bold mb-3">Withdrawal Requests</h2>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left border-b">
-              <th className="p-2">user_id</th>
-              <th className="p-2">Transaction ID</th>
-              <th className="p-2">User Name</th>
-              <th className="p-2">Strategy</th>
-              <th className="p-2">Plan</th>
-              <th className="p-2">Lot Size</th>
-              <th className="p-2">Entered Amount</th>
-              <th className="p-2">Paid Amount</th>
-              <th className="p-2">Payment Method</th>
-              <th className="p-2">Proof</th>
-              <th className="p-2">Admin Message</th>
-              <th className="p-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {withdrawalPending.length === 0 ? (
-              <tr>
-                <td colSpan={12} className="p-4 text-center text-gray-500">No pending withdrawal requests</td>
-              </tr>
-            ) : withdrawalPending.map((p) => (
-              <tr key={p.id} className="border-b">
-                <td className="p-2">{p.userId}</td>
-                <td className="p-2">{p.txId}</td>
-                <td className="p-2">{p.userName ?? '-'}</td>
-                <td className="p-2">{p.strategyName ?? '-'}</td>
-                <td className="p-2">{p.plan}</td>
-                <td className="p-2">{lotLabelFor(p)}</td>
-                <td className="p-2">{p.capital}</td>
-                <td className="p-2">{p.payable}</td>
-                <td className="p-2">{p.method}</td>
-                <td className="p-2">
-                  {p.proofUrl ? (
-                    <a href={p.proofUrl} target="_blank" rel="noreferrer" className="text-blue-600">View</a>
-                  ) : '-'}
-                </td>
-                <td className="p-2">
-                  {(p as any).admin_message ? (
-                    <span title={(p as any).admin_message} className="text-gray-700 dark:text-gray-300">
-                      {((p as any).admin_message as string).length > 28
-                        ? ((p as any).admin_message as string).slice(0, 28) + '…'
-                        : (p as any).admin_message}
-                      {(p as any).admin_message_status ? ` (${(p as any).admin_message_status})` : ''}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400">—</span>
-                  )}
-                </td>
-                <td className="p-2 space-x-2">
-                  <button onClick={() => updateStatus(p.id, 'approved')} className="px-3 py-1 rounded bg-green-600 text-white">Approve</button>
-                  <button onClick={() => updateStatus(p.id, 'rejected')} className="px-3 py-1 rounded bg-red-600 text-white">Reject</button>
-                  <button onClick={() => setMessageFor(p.id)} className="px-3 py-1 rounded bg-yellow-500 text-white">Send Message</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {messageFor && (
-          <div className="mt-4 p-4 border rounded bg-yellow-50 dark:bg-yellow-900/20">
-            <h2 className="font-semibold mb-2">Reason for Holding Payment</h2>
-            <textarea
-              className="w-full p-2 rounded bg-[#0f1527] border border-[#283046] text-white"
-              rows={3}
-              placeholder="e.g., Incorrect transaction ID"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-            <div className="mt-2 space-x-2">
-              <button onClick={() => sendMessage(messageFor)} className="px-3 py-1 rounded bg-blue-600 text-white">Send</button>
-              <button onClick={() => { setMessageFor(null); setReason(''); }} className="px-3 py-1 rounded bg-gray-300 dark:bg-gray-700">Cancel</button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
-};
+}
 
-const PendingPaymentsPage = () => {
-  const [payments, setPayments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showModal, setShowModal] = useState(false);
-  const [modalConfig, setModalConfig] = useState({
-    action: '',
-    paymentId: '',
-    message: '',
-  });
-
-  const fetchPayments = async () => {
-    try {
-      const response = await fetch('/api/payments');
-      const data = await response.json();
-      if (response.ok) {
-        setPayments(data.payments);
-        setError(null);
-      } else {
-        throw new Error(data.error || 'Failed to load payments');
-      }
-    } catch (err: any) {
-      setError(err.message);
-      setPayments([]); // Ensure table renders on failure
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchPayments();
-    const interval = setInterval(fetchPayments, 8000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleAction = (action: string, paymentId: string) => {
-    setModalConfig({ action, paymentId, message: '' });
-    setShowModal(true);
-  };
-
-  const handleModalSubmit = async () => {
-    const { action, paymentId, message } = modalConfig;
-    try {
-      let response: Response | null = null;
-      if (action === 'approve') {
-        response = await fetch(`/api/admin/payments/${paymentId}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      } else if (action === 'reject') {
-        response = await fetch(`/api/admin/payments/${paymentId}/reject`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rejectionReason: message }) });
-      } else if (action === 'message') {
-        response = await fetch(`/api/admin/payments/${paymentId}/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) });
-      }
-      if (!response || !response.ok) {
-        throw new Error('Failed to update payment');
-      }
-      await fetchPayments();
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setShowModal(false);
-    }
-  };
-
-  const pending = payments.filter(
-    (p) => p.status === 'pending' || p.status === 'in_process'
-  );
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'approved':
-      case 'renewal_approved':
-        return <span className="status-badge status-completed">Completed</span>;
-      case 'pending':
-      case 'in_process':
-        return <span className="status-badge status-pending">Pending</span>;
-      case 'failed':
-      case 'rejected':
-        return <span className="status-badge status-failed">Failed</span>;
-      default:
-        return <span className="status-badge">{status}</span>;
-    }
-  };
-
+function SectionCard({ title, icon, payments, onApprove, onReject, onMessage, busyId }: any) {
   return (
-    <div className="p-4 md:p-6 bg-gray-900 text-white min-h-screen">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Pending Transactions</h1>
-        <button
-          onClick={fetchPayments}
-          className="flex items-center px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg hover:bg-gray-700"
-        >
-          <ArrowPathIcon className="h-5 w-5 mr-2" />
-          Refresh
-        </button>
-      </div>
+    <Card className="bg-white border-gray-100 shadow-sm rounded-[2rem] overflow-hidden">
+      <CardHeader className="p-8 border-b border-gray-50 flex flex-row items-center gap-4">
+        <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100">{icon}</div>
+        <CardTitle className="text-xl font-black text-gray-900 uppercase tracking-tight">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          {/* Mobile View: List */}
+          <div className="md:hidden divide-y divide-gray-50">
+            {payments.length === 0 ? (
+              <div className="p-12 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">No pending requests</div>
+            ) : payments.map((p: any) => (
+              <div key={p.id} className="p-6 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="text-sm font-black text-gray-900">{p.userName || 'Anonymous'}</h4>
+                    <p className="text-[10px] font-bold text-gray-400">{p.userId}</p>
+                  </div>
+                  <span className="text-sm font-black text-[#00d09c]">${Number(p.payable).toFixed(2)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-y-2 text-[10px]">
+                  <p className="font-bold text-gray-400 uppercase">Strategy: <span className="text-gray-900">{p.strategyName || '—'}</span></p>
+                  <p className="font-bold text-gray-400 uppercase">Method: <span className="text-gray-900">{p.method}</span></p>
+                  <p className="font-bold text-gray-400 uppercase">Plan: <span className="text-gray-900">{p.plan}</span></p>
+                  <p className="font-bold text-gray-400 uppercase">Proof: 
+                    {p.proofUrl ? (
+                      <a href={p.proofUrl} target="_blank" rel="noreferrer" className="ml-1 text-blue-500 font-black uppercase">View <FiExternalLink className="inline h-2 w-2" /></a>
+                    ) : <span className="text-gray-900 ml-1">—</span>}
+                  </p>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button onClick={() => onApprove(p.id)} className="flex-1 h-9 bg-[#00d09c] hover:bg-[#00b085] text-white text-[10px] font-black uppercase tracking-widest">Approve</Button>
+                  <Button onClick={() => onReject(p.id)} className="flex-1 h-9 bg-red-500 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-widest">Reject</Button>
+                  <Button variant="outline" onClick={() => onMessage(p.id)} className="h-9 w-10 flex items-center justify-center border-gray-200"><FiSend className="w-4 h-4 text-blue-500" /></Button>
+                </div>
+              </div>
+            ))}
+          </div>
 
-      {error && (
-        <div className="bg-red-500 text-white p-4 rounded-lg mb-4 flex justify-between items-center">
-          <span>{error}</span>
-          <button onClick={fetchPayments} className="font-bold">
-            Retry
-          </button>
-        </div>
-      )}
-
-      <div className="overflow-x-auto">
-        <table className="w-full payments-table">
-          <thead>
-            <tr>
-              <th>Transaction ID</th>
-              <th>User</th>
-              <th>Email</th>
-              <th>Amount ($)</th>
-              <th>Payment Method</th>
-              <th>Platform</th>
-              <th>Terms</th>
-              <th>Status</th>
-              <th>Submitted At</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={10} className="text-center py-4">
-                  Loading...
-                </td>
+          {/* Desktop View: Table */}
+          <table className="hidden md:table w-full text-left">
+            <thead>
+              <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-50">
+                <th className="px-8 py-4">User Details</th>
+                <th className="px-8 py-4">Strategy / Plan</th>
+                <th className="px-8 py-4 text-right">Amount</th>
+                <th className="px-8 py-4">Method / TXID</th>
+                <th className="px-8 py-4 text-center">Proof</th>
+                <th className="px-8 py-4 text-center">Actions</th>
               </tr>
-            ) : pending.length > 0 ? (
-              pending.map((payment) => (
-                <tr key={payment.id}>
-                  <td>{payment.txId}</td>
-                  <td>{payment.userId}</td>
-                  <td>{payment.userId}</td>
-                  <td>${payment.payable.toFixed(2)}</td>
-                  <td>{payment.method}</td>
-                  <td>{payment.mt4mt5 ? JSON.parse(payment.mt4mt5).type : 'N/A'}</td>
-                  <td>Accepted</td>
-                  <td>{getStatusBadge(payment.status)}</td>
-                  <td>
-                    {new Date(payment.createdAt).toLocaleString('en-US', {
-                      month: 'short',
-                      day: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: true,
-                    })}
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {payments.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-8 py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">No pending requests</td>
+                </tr>
+              ) : payments.map((p: any) => (
+                <tr key={p.id} className="hover:bg-gray-50/50 transition-colors group">
+                  <td className="px-8 py-5">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-black text-gray-900">{p.userName || 'Anonymous'}</span>
+                      <span className="text-[10px] font-bold text-gray-400">{p.userId}</span>
+                    </div>
                   </td>
-                  <td className="flex space-x-2">
-                    <button
-                      onClick={() => handleAction('approve', payment.id)}
-                      className="p-2 bg-green-600 rounded-full hover:bg-green-500"
-                      title="Approve"
-                    >
-                      <CheckCircleIcon className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={() => handleAction('reject', payment.id)}
-                      className="p-2 bg-red-600 rounded-full hover:bg-red-500"
-                      title="Reject"
-                    >
-                      <XCircleIcon className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={() => handleAction('message', payment.id)}
-                      className="p-2 bg-blue-600 rounded-full hover:bg-blue-500"
-                      title="Send Message"
-                    >
-                      <PaperAirplaneIcon className="h-5 w-5" />
-                    </button>
+                  <td className="px-8 py-5">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-gray-700">{p.strategyName || '—'}</span>
+                      <span className="text-[10px] font-black text-[#00d09c] uppercase tracking-tighter">{p.plan}</span>
+                    </div>
+                  </td>
+                  <td className="px-8 py-5 text-right">
+                    <span className="text-sm font-black text-gray-900">${Number(p.payable).toFixed(2)}</span>
+                  </td>
+                  <td className="px-8 py-5">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-gray-700">{p.method}</span>
+                      <span className="text-[10px] font-mono text-gray-400 truncate max-w-[120px]" title={p.txId}>{p.txId}</span>
+                    </div>
+                  </td>
+                  <td className="px-8 py-5 text-center">
+                    {p.proofUrl ? (
+                      <a 
+                        href={p.proofUrl} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-colors"
+                      >
+                        View <FiFileText className="w-3 h-3" />
+                      </a>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-8 py-5">
+                    <div className="flex items-center justify-center gap-2">
+                      <button 
+                        onClick={() => onApprove(p.id)} 
+                        disabled={busyId === p.id}
+                        className="p-2.5 bg-green-50 text-green-600 rounded-xl border border-green-100 hover:bg-[#00d09c] hover:text-white transition-all shadow-sm"
+                        title="Approve Payment"
+                      >
+                        <FiCheckCircle className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => onReject(p.id)} 
+                        disabled={busyId === p.id}
+                        className="p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                        title="Reject Payment"
+                      >
+                        <FiXCircle className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => onMessage(id)} 
+                        disabled={busyId === p.id}
+                        className="p-2.5 bg-blue-50 text-blue-600 rounded-xl border border-blue-100 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                        title="Send Message"
+                      >
+                        <FiSend className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={10} className="text-center py-4 text-gray-500">
-                  No pending payments available
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4 capitalize">
-              {modalConfig.action} Payment
-            </h2>
-            {(modalConfig.action === 'reject' || modalConfig.action === 'message') && (
-              <div className="mb-4">
-                <label htmlFor="message" className="block mb-2">
-                  Reason
-                </label>
-                <textarea
-                  id="message"
-                  value={modalConfig.message}
-                  onChange={(e) =>
-                    setModalConfig({ ...modalConfig, message: e.target.value })
-                  }
-                  className="w-full p-2 bg-gray-700 rounded-lg"
-                  rows={4}
-                ></textarea>
-              </div>
-            )}
-            <div className="flex justify-end space-x-4">
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-4 py-2 bg-gray-600 rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleModalSubmit}
-                className="px-4 py-2 bg-blue-600 rounded-lg"
-              >
-                Submit
-              </button>
-            </div>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   );
-};
-
-// Replace legacy component with the admin-hydrated version above
-export default PaymentsPendingPage;
+}

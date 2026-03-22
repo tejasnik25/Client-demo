@@ -21,7 +21,6 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import ScrollArea from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import Badge from '@/components/ui/Badge';
 import { Strategy } from "@/types/strategy";
@@ -54,6 +53,11 @@ const StrategyManagement: React.FC = () => {
   const [contentType, setContentType] = useState<'html' | 'pdf' | 'text'>('html');
   const [countryFlag, setCountryFlag] = useState<string>('');
   const [commissionPercent, setCommissionPercent] = useState<string>('30');
+  const [equity, setEquity] = useState<string>('');
+  const [timeframe, setTimeframe] = useState<string>('');
+  const [currencySymbol, setCurrencySymbol] = useState<string>('$');
+  const [chatLink, setChatLink] = useState<string>('');
+
 
   // Fetch strategies from the API
   const fetchStrategies = async () => {
@@ -111,7 +115,12 @@ const resetAddForm = () => {
     setPlanRanges({ Pro: '', Expert: '', Premium: '' });
     setParameters([{ key: '', value: '', id: `param-${Date.now()}` }]);
   setCommissionPercent('30');
+    setEquity('');
+    setTimeframe('');
+    setCurrencySymbol('$');
+    setChatLink('');
     setError(null);
+
     setSuccess(null);
     setSelectedFile(null);
     setSelectedIcon(null);
@@ -172,7 +181,14 @@ const resetAddForm = () => {
       (strategy.parameters && ((strategy.parameters as any).commission ?? (strategy.parameters as any).Commission)) || '';
     const m = String(rawCommission).match(/-?\d+(\.\d+)?/);
     setCommissionPercent(m ? String(m[0]) : '30');
+
+    setEquity((strategy.parameters as any)?.equity || '');
+    setTimeframe((strategy.parameters as any)?.timeframe || '');
+    setCurrencySymbol((strategy.parameters as any)?.currencySymbol || '$');
+    setChatLink((strategy.parameters as any)?.chatLink || '');
+
     setIsEditing(true);
+
     setIsAdding(false);
     setError(null);
     setSuccess(null);
@@ -186,10 +202,11 @@ const resetAddForm = () => {
     
     setCurrentStrategy(prev => ({
       ...prev,
-      [name]: name === 'performance' || name === 'roi' || name === 'profit' || name === 'maxDdi' || name === 'copiers' || name === 'riskScore'
+      [name]: name === 'performance' || name === 'roi' || name === 'profit' || name === 'maxDdi' || name === 'copiers' || name === 'riskScore' || name === 'minCapital' || name === 'avgDrawdown' || name === 'riskReward' || name === 'winStreak'
         ? (value === '' ? undefined : parseFloat(value) || 0) 
         : value
     }));
+
   };
   
   // Handle file selection
@@ -302,8 +319,17 @@ const resetAddForm = () => {
       if (currentStrategy.maxDdi !== undefined) formData.append('maxDdi', String(currentStrategy.maxDdi));
       if (currentStrategy.copiers !== undefined) formData.append('copiers', String(currentStrategy.copiers));
       if (currentStrategy.riskScore !== undefined) formData.append('riskScore', String(currentStrategy.riskScore));
+      if (currentStrategy.minCapital !== undefined) formData.append('minCapital', String(currentStrategy.minCapital));
+      if (currentStrategy.avgDrawdown !== undefined) formData.append('avgDrawdown', String(currentStrategy.avgDrawdown));
+      if (currentStrategy.riskReward !== undefined) formData.append('riskReward', String(currentStrategy.riskReward));
+      if (currentStrategy.winStreak !== undefined) formData.append('winStreak', String(currentStrategy.winStreak));
+      if (equity) formData.append('equity', equity);
+      if (timeframe) formData.append('timeframe', timeframe);
+      if (currencySymbol) formData.append('currencySymbol', currencySymbol);
+      if (chatLink) formData.append('chatLink', chatLink);
       if (currentStrategy.tag !== undefined) formData.append('tag', String(currentStrategy.tag));
       formData.append('mastersTag', String(currentStrategy.mastersTag || ''));
+
       if (currentStrategy.riskLevel) formData.append('riskLevel', String(currentStrategy.riskLevel));
       // Admin commission percent (single commission for the strategy)
       if (commissionPercent.trim().length > 0) {
@@ -434,40 +460,49 @@ const resetAddForm = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 p-4 md:p-0">
       {/* Header and Actions */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Strategy Management</h2>
-          <p className="text-muted-foreground">Add, edit, and delete trading strategies</p>
+          <h2 className="text-3xl font-black text-gray-900 tracking-tight uppercase">Strategy Management</h2>
+          <p className="text-sm font-medium text-gray-500 mt-1">Add, edit, and optimize your trading strategies</p>
         </div>
-        <Button onClick={handleAddClick} className="bg-primary hover:bg-primary/90">
-          <FiPlus className="mr-2 h-4 w-4" /> Add Strategy
+        <Button 
+          onClick={handleAddClick} 
+          className="w-full sm:w-auto bg-[#00d09c] hover:bg-[#00b085] text-white h-11 px-8 rounded-xl font-black uppercase tracking-widest text-[10px] shadow-sm active:scale-95 transition-all"
+        >
+          <FiPlus className="mr-2 h-4 w-4" /> Add New Strategy
         </Button>
       </div>
 
       {/* Success/Error Messages */}
-      {success && (
-        <Alert className="bg-green-50 text-green-800 border-green-200">
-          <FiCheck className="h-4 w-4 mr-2" /> 
-          <AlertTitle>Success</AlertTitle>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
-      {error && (
-        <Alert className="bg-red-50 text-red-800 border-red-200">
-          <FiAlertCircle className="h-4 w-4 mr-2" /> 
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      <div className="space-y-4">
+        {success && (
+          <Alert className="bg-green-50 text-green-800 border-green-100 rounded-2xl p-4 shadow-sm animate-in slide-in-from-top duration-300">
+            <FiCheck className="h-5 w-5 mr-3 text-green-500" /> 
+            <div>
+              <AlertTitle className="font-black text-sm">Success</AlertTitle>
+              <AlertDescription className="text-xs font-medium opacity-80">{success}</AlertDescription>
+            </div>
+          </Alert>
+        )}
+        {error && (
+          <Alert className="bg-red-50 text-red-800 border-red-100 rounded-2xl p-4 shadow-sm animate-in slide-in-from-top duration-300">
+            <FiAlertCircle className="h-5 w-5 mr-3 text-red-500" /> 
+            <div>
+              <AlertTitle className="font-black text-sm">Error</AlertTitle>
+              <AlertDescription className="text-xs font-medium opacity-80">{error}</AlertDescription>
+            </div>
+          </Alert>
+        )}
+      </div>
 
       {/* Strategies List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {loading ? (
           // Loading state
           Array(4).fill(0).map((_, index) => (
-            <Card key={index} className="overflow-hidden bg-white border border-gray-200">
+            <Card key={index} className="overflow-hidden bg-white border border-gray-200 rounded-2xl">
               <div className="animate-pulse p-6 space-y-4">
                 <div className="h-6 bg-gray-200 rounded w-3/4"></div>
                 <div className="h-4 bg-gray-200 rounded w-full"></div>
@@ -481,12 +516,12 @@ const resetAddForm = () => {
           ))
         ) : strategies.length === 0 ? (
           // Empty state
-          <Card className="col-span-full p-8 text-center bg-white border border-gray-200">
+          <Card className="col-span-full p-8 text-center bg-white border border-gray-200 rounded-2xl">
             <FiAlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <CardTitle>No strategies found</CardTitle>
             <CardDescription>Click the &apos;Add Strategy&apos; button to create your first strategy</CardDescription>
             <CardFooter className="justify-center mt-4">
-              <Button onClick={handleAddClick}>
+              <Button onClick={handleAddClick} className="bg-[#00d09c] hover:bg-[#00b085] text-white rounded-xl">
                 <FiPlus className="mr-2 h-4 w-4" /> Add Strategy
               </Button>
             </CardFooter>
@@ -494,22 +529,29 @@ const resetAddForm = () => {
         ) : (
           // Strategies list
           strategies.map((strategy) => (
-            <Card key={strategy.id} className="overflow-hidden transition-all duration-300 hover:shadow-md bg-white border border-gray-200">
+            <Card key={strategy.id} className="overflow-hidden transition-all duration-300 hover:shadow-md bg-white border border-gray-200 rounded-2xl">
               <CardHeader className="pb-2">
                 <div className="flex justify-between items-start">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-xl font-bold text-gray-900">{strategy.name}</CardTitle>
-                    <Badge variant="outline" className={strategy.enabled !== false ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-100 text-gray-800 border-gray-200'}>
-                      {strategy.enabled !== false ? 'Enabled' : 'Disabled'}
-                    </Badge>
+                  <div className="flex items-center gap-3">
+                    {strategy.imageUrl && (
+                      <div className="w-12 h-12 rounded-xl bg-gray-50 flex items-center justify-center border border-gray-100 overflow-hidden">
+                        <img src={strategy.imageUrl} alt={strategy.name} className="w-8 h-8 object-contain" />
+                      </div>
+                    )}
+                    <div>
+                      <CardTitle className="text-xl font-bold text-gray-900">{strategy.name}</CardTitle>
+                      <Badge variant="outline" className={strategy.enabled !== false ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-100 text-gray-800 border-gray-200'}>
+                        {strategy.enabled !== false ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </div>
                   </div>
-                  <div className="flex space-x-1">
+                  <div className="flex space-x-2">
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             variant="outline"
-                            className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                            className="h-10 w-10 rounded-xl border-gray-200 text-gray-500 hover:text-[#00d09c] hover:bg-green-50 hover:border-[#00d09c] transition-all"
                             onClick={() => handleEditClick(strategy)}
                           >
                             <FiEdit className="h-4 w-4" />
@@ -526,7 +568,7 @@ const resetAddForm = () => {
                         <TooltipTrigger asChild>
                           <Button
                             variant="outline"
-                            className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="h-10 w-10 rounded-xl border-gray-200 text-red-600 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all"
                             onClick={() => handleDelete(strategy.id)}
                           >
                             <FiTrash2 className="h-4 w-4" />
@@ -540,56 +582,76 @@ const resetAddForm = () => {
                     </TooltipProvider>
                   </div>
                 </div>
-                <CardDescription className="text-gray-500">{strategy.description}</CardDescription>
+                <CardDescription className="text-gray-500 mt-2">{strategy.description}</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="p-2 bg-gray-50 rounded">
-                    <span className="font-medium text-gray-600">ROI:</span>
-                    <span className="ml-1 text-gray-900">{strategy.roi ?? '-'}%</span>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">ROI</span>
+                    <span className="text-gray-900 font-bold">{strategy.roi ?? '-'}%</span>
                   </div>
-                  <div className="p-2 bg-gray-50 rounded">
-                    <span className="font-medium text-gray-600">Profit:</span>
-                    <span className="ml-1 text-gray-900">+{strategy.profit ?? '-'}</span>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Profit</span>
+                    <span className="text-gray-900 font-bold">+{strategy.profit ?? '-'}</span>
                   </div>
-                  <div className="p-2 bg-gray-50 rounded">
-                    <span className="font-medium text-gray-600">Max DDI:</span>
-                    <span className="ml-1 text-gray-900">{strategy.maxDdi ?? '-'}%</span>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Max DDI</span>
+                    <span className="text-gray-900 font-bold">{strategy.maxDdi ?? '-'}%</span>
                   </div>
-                  <div className="p-2 bg-gray-50 rounded">
-                    <span className="font-medium text-gray-600">Copiers:</span>
-                    <span className="ml-1 text-gray-900">{strategy.copiers ?? '-'}</span>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Copiers</span>
+                    <span className="text-gray-900 font-bold">{strategy.copiers ?? '-'}</span>
                   </div>
-                  <div className="p-2 bg-gray-50 rounded">
-                    <span className="font-medium text-gray-600">Tag:</span>
-                    <Badge variant="outline" className="ml-1">{strategy.tag || '-'}</Badge>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Tag</span>
+                    <Badge variant="outline" className="bg-white">{strategy.tag || '-'}</Badge>
                   </div>
-                  <div className="p-2 bg-gray-50 rounded">
-                    <span className="font-medium text-gray-600">Master's Name:</span>
-                    <Badge variant="outline" className="ml-1">{strategy.mastersTag || '-'}</Badge>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Master</span>
+                    <Badge variant="outline" className="bg-white">{strategy.mastersTag || '-'}</Badge>
                   </div>
-                  <div className="p-2 bg-gray-50 rounded col-span-2">
-                    <span className="font-medium text-gray-600">Master Account:</span>
-                    <span className="ml-1 text-gray-900">
-                      {(strategy.masterAccountId && strategy.masterAccountId.trim().length > 0) ? strategy.masterAccountId : '-'}
-                    </span>
-                    <span className="mx-2 text-gray-400">•</span>
-                    <span className="font-medium text-gray-600">Server:</span>
-                    <span className="ml-1 text-gray-900">
-                      {(strategy.masterAccountServer && strategy.masterAccountServer.trim().length > 0) ? strategy.masterAccountServer : '-'}
-                    </span>
-                    <span className="mx-2 text-gray-400">•</span>
-                    <span className="font-medium text-gray-600">Platform:</span>
-                    <span className="ml-1 text-gray-900">
-                      {(strategy.masterPlatform || '').toUpperCase() || '-'}
-                    </span>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Min Capital</span>
+                    <span className="text-gray-900 font-bold">${strategy.minCapital ?? '-'}</span>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Avg Drawdown</span>
+                    <span className="text-gray-900 font-bold">{strategy.avgDrawdown ?? '-'}%</span>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Risk/Reward</span>
+                    <span className="text-gray-900 font-bold">{strategy.riskReward ?? '-'}</span>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Win Streak</span>
+                    <span className="text-gray-900 font-bold">{strategy.winStreak ?? '-'}</span>
+                  </div>
+                </div>
+
+
+                <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 text-sm">
+                  <div className="flex flex-wrap items-center gap-y-2">
+                    <div className="flex items-center">
+                      <span className="font-bold text-blue-900">ID:</span>
+                      <span className="ml-1 text-blue-800">{(strategy.masterAccountId && strategy.masterAccountId.trim().length > 0) ? strategy.masterAccountId : '-'}</span>
+                    </div>
+                    <span className="mx-2 text-blue-300 hidden sm:inline">•</span>
+                    <div className="flex items-center">
+                      <span className="font-bold text-blue-900">Server:</span>
+                      <span className="ml-1 text-blue-800">{(strategy.masterAccountServer && strategy.masterAccountServer.trim().length > 0) ? strategy.masterAccountServer : '-'}</span>
+                    </div>
+                    <span className="mx-2 text-blue-300 hidden sm:inline">•</span>
+                    <div className="flex items-center">
+                      <span className="font-bold text-blue-900">Platform:</span>
+                      <span className="ml-1 text-blue-800">{(strategy.masterPlatform || '').toUpperCase() || '-'}</span>
+                    </div>
                   </div>
                 </div>
                 
                 {/* Parameters section */}
                 <div className="mt-2">
                   <button
-                    className="flex items-center text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+                    className="flex items-center text-sm font-black text-[#00d09c] hover:opacity-80 transition-all uppercase tracking-wider"
                     onClick={() => toggleParameterExpansion(strategy.id)}
                   >
                     {expandedParameters[strategy.id] ? (
@@ -597,15 +659,15 @@ const resetAddForm = () => {
                     ) : (
                       <FiChevronDown className="mr-1 h-4 w-4" />
                     )}
-                    Parameters
+                    View Detailed Parameters
                   </button>
                   
                   {expandedParameters[strategy.id] && (
-                    <div className="mt-2 space-y-1 text-sm">
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
                       {Object.entries(strategy.parameters).map(([key, value]) => (
-                        <div key={key} className="p-1.5 bg-gray-50 rounded border border-gray-100">
-                          <span className="font-medium text-gray-700">{key}:</span>
-                          <span className="ml-1 text-gray-900">{value}</span>
+                        <div key={key} className="p-2.5 bg-gray-50 rounded-lg border border-gray-100 text-xs">
+                          <span className="font-black text-gray-500 uppercase block mb-0.5">{key}</span>
+                          <span className="text-gray-900 font-bold">{String(value)}</span>
                         </div>
                       ))}
                     </div>
@@ -619,397 +681,448 @@ const resetAddForm = () => {
 
       {/* Add/Edit Strategy Dialog */}
       <Dialog open={isAdding || isEditing} onOpenChange={(open: boolean) => !open && (setIsAdding(false), setIsEditing(false))}>
-        <DialogContent className="sm:max-w-3xl bg-white border border-gray-200 text-gray-900">
-          <DialogHeader>
-            <DialogTitle className="text-gray-900">{isAdding ? 'Add New Strategy' : 'Edit Strategy'}</DialogTitle>
-            <DialogDescription className="text-gray-500">
-              {isAdding ? 'Create a new trading strategy that will be available to all users.' : 'Update the details of this trading strategy.'}
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] bg-white border border-gray-200 text-gray-900 p-0 rounded-2xl overflow-hidden flex flex-col shadow-2xl">
+          <DialogHeader className="p-6 border-b border-gray-100 bg-gray-50/50">
+            <DialogTitle className="text-2xl font-black text-gray-900 uppercase tracking-tight">
+              {isAdding ? 'Create Strategy' : 'Update Strategy'}
+            </DialogTitle>
+            <DialogDescription className="text-gray-500 font-medium">
+              {isAdding ? 'Set up a new copy trading strategy for your users.' : 'Modify the configuration of your existing strategy.'}
             </DialogDescription>
           </DialogHeader>
           
-          <ScrollArea className="h-[60vh] pr-4">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <form id="strategy-form" onSubmit={handleSubmit} className="space-y-8 pb-6">
+              {/* Content Selection Section */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label htmlFor="contentType" className="text-gray-700">Content Type</Label>
+                  <Label htmlFor="contentType" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Content Type</Label>
                   <Select
                     value={contentType}
                     onValueChange={(value) => handleContentTypeChange(value as 'html' | 'pdf' | 'text')}
                   >
-                  <SelectTrigger className="bg-white border border-gray-300 text-gray-900">
+                    <SelectTrigger className="bg-white border border-gray-200 text-gray-900 h-11 rounded-xl focus:ring-2 focus:ring-[#00d09c]/20 focus:border-[#00d09c] transition-all">
                       <SelectValue placeholder="Select content type" />
                     </SelectTrigger>
-                    <SelectContent className="bg-white border border-gray-200">
-                      <SelectItem value="html">HTML Document</SelectItem>
-                      <SelectItem value="pdf">PDF Document</SelectItem>
+                    <SelectContent className="bg-white border border-gray-100 rounded-xl shadow-xl">
+                      <SelectItem value="html" className="focus:bg-green-50 focus:text-[#00d09c] cursor-pointer">HTML Document</SelectItem>
+                      <SelectItem value="pdf" className="focus:bg-green-50 focus:text-[#00d09c] cursor-pointer">PDF Document</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="file" className="text-gray-700">Upload Strategy Document</Label>
-                  <div className="border-2 border-dashed border-gray-300 rounded-md p-4 bg-gray-50">
+                  <Label htmlFor="file" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Upload Document</Label>
+                  <div className="relative">
                     <Input
                       id="file"
                       type="file"
                       accept={contentType === 'html' ? '.html,.htm' : '.pdf'}
                       onChange={handleFileChange}
-                      className="cursor-pointer bg-white border-gray-300 text-gray-900"
+                      className="cursor-pointer bg-white border-gray-200 text-gray-900 h-11 rounded-xl file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:uppercase file:bg-gray-100 file:text-gray-600 hover:file:bg-gray-200 transition-all"
                     />
-                    <p className="text-xs text-gray-500 mt-2">
-                      {contentType === 'html' ? 'Upload HTML file with strategy details' : 'Upload PDF document with strategy details'}
-                    </p>
-                    {selectedFile && (
-                      <div className="mt-2 text-sm text-green-600">
-                        Selected: {selectedFile.name}
-                      </div>
-                    )}
-                    {currentStrategy.contentUrl && !selectedFile && (
-                        <div className="mt-2 text-sm">
-                          Current file: <a href={currentStrategy.contentUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
-                          </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              {/* Basic Information */}
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-gray-700">Strategy Name *</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  value={currentStrategy.name || ''}
-                  onChange={handleInputChange}
-                  placeholder="Enter strategy name"
-                  required
-                className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="description" className="text-gray-700">Short Description *</Label>
-                <Input
-                  id="description"
-                  name="description"
-                  value={currentStrategy.description || ''}
-                  onChange={handleInputChange}
-                  placeholder="Enter a brief description"
-                  required
-                className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="details" className="text-gray-700">Detailed Description *</Label>
-                <Textarea
-                  id="details"
-                  name="details"
-                  value={currentStrategy.details || ''}
-                  onChange={handleInputChange}
-                  placeholder="Enter detailed information about the strategy"
-                  rows={4}
-                  required
-                className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-              </div>
-              
-              {/* Strategy Settings */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="icon" className="text-gray-700">Upload Icon/Image</Label>
-                  <Input
-                    id="icon"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleIconChange}
-                    className="cursor-pointer bg-white border-gray-300 text-gray-900"
-                  />
-                  {currentStrategy.imageUrl && !selectedIcon && (
-                    <p className="text-xs mt-1 text-gray-600">Current: <span className="underline">{currentStrategy.imageUrl}</span></p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="enabled" className="text-gray-700">Status</Label>
-                  <div className="flex items-center space-x-2">
-                  <Switch 
-                    id="enabled" 
-                    checked={currentStrategy.enabled !== false}
-                    onCheckedChange={handleEnabledChange}
-                  />
-                    <Label htmlFor="enabled" className="cursor-pointer text-gray-700">
-                      {currentStrategy.enabled !== false ? 'Enabled' : 'Disabled'}
-                    </Label>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-gray-700">Country Flag</Label>
-                <Select
-                  value={countryFlag}
-                  onValueChange={(value) => setCountryFlag(value)}
-                >
-                  <SelectTrigger className="bg-white border border-gray-300 text-gray-900">
-                    <SelectValue placeholder="Select country" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 max-h-64 overflow-y-auto">
-                    <SelectItem value="US">🇺🇸 United States</SelectItem>
-                    <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
-                    <SelectItem value="CA">🇨🇦 Canada</SelectItem>
-                    <SelectItem value="AU">🇦🇺 Australia</SelectItem>
-                    <SelectItem value="NZ">🇳🇿 New Zealand</SelectItem>
-                    <SelectItem value="DE">🇩🇪 Germany</SelectItem>
-                    <SelectItem value="FR">🇫🇷 France</SelectItem>
-                    <SelectItem value="ES">🇪🇸 Spain</SelectItem>
-                    <SelectItem value="IT">🇮🇹 Italy</SelectItem>
-                    <SelectItem value="NL">🇳🇱 Netherlands</SelectItem>
-                    <SelectItem value="SE">🇸🇪 Sweden</SelectItem>
-                    <SelectItem value="NO">🇳🇴 Norway</SelectItem>
-                    <SelectItem value="DK">🇩🇰 Denmark</SelectItem>
-                    <SelectItem value="FI">🇫🇮 Finland</SelectItem>
-                    <SelectItem value="CH">🇨🇭 Switzerland</SelectItem>
-                    <SelectItem value="BE">🇧🇪 Belgium</SelectItem>
-                    <SelectItem value="IE">🇮🇪 Ireland</SelectItem>
-                    <SelectItem value="PL">🇵🇱 Poland</SelectItem>
-                    <SelectItem value="CZ">🇨🇿 Czechia</SelectItem>
-                    <SelectItem value="AT">🇦🇹 Austria</SelectItem>
-                    <SelectItem value="PT">🇵🇹 Portugal</SelectItem>
-                    <SelectItem value="GR">🇬🇷 Greece</SelectItem>
-                    <SelectItem value="RO">🇷🇴 Romania</SelectItem>
-                    <SelectItem value="HU">🇭🇺 Hungary</SelectItem>
-                    <SelectItem value="BR">🇧🇷 Brazil</SelectItem>
-                    <SelectItem value="MX">🇲🇽 Mexico</SelectItem>
-                    <SelectItem value="AR">🇦🇷 Argentina</SelectItem>
-                    <SelectItem value="CL">🇨🇱 Chile</SelectItem>
-                    <SelectItem value="CO">🇨🇴 Colombia</SelectItem>
-                    <SelectItem value="PE">🇵🇪 Peru</SelectItem>
-                    <SelectItem value="CN">🇨🇳 China</SelectItem>
-                    <SelectItem value="JP">🇯🇵 Japan</SelectItem>
-                    <SelectItem value="KR">🇰🇷 South Korea</SelectItem>
-                    <SelectItem value="IN">🇮🇳 India</SelectItem>
-                    <SelectItem value="ID">🇮🇩 Indonesia</SelectItem>
-                    <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
-                    <SelectItem value="MY">🇲🇾 Malaysia</SelectItem>
-                    <SelectItem value="TH">🇹🇭 Thailand</SelectItem>
-                    <SelectItem value="VN">🇻🇳 Vietnam</SelectItem>
-                    <SelectItem value="PH">🇵🇭 Philippines</SelectItem>
-                    <SelectItem value="AE">🇦🇪 United Arab Emirates</SelectItem>
-                    <SelectItem value="SA">🇸🇦 Saudi Arabia</SelectItem>
-                    <SelectItem value="TR">🇹🇷 Türkiye</SelectItem>
-                    <SelectItem value="EG">🇪🇬 Egypt</SelectItem>
-                    <SelectItem value="ZA">🇿🇦 South Africa</SelectItem>
-                    <SelectItem value="NG">🇳🇬 Nigeria</SelectItem>
-                    <SelectItem value="KE">🇰🇪 Kenya</SelectItem>
-                    <SelectItem value="RU">🇷🇺 Russia</SelectItem>
-                    <SelectItem value="UA">🇺🇦 Ukraine</SelectItem>
-                    <SelectItem value="IL">🇮🇱 Israel</SelectItem>
-                    <SelectItem value="HK">🇭🇰 Hong Kong</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Strategy Content Upload */}
-              <div className="space-y-3">
-                <Label className="text-gray-700">Upload Strategy Document (HTML or PDF) *</Label>
-                <Input
-                  type="file"
-                  accept={contentType === 'pdf' ? 'application/pdf' : '.html,text/html'}
-                  onChange={handleFileChange}
-                className="bg-white border border-gray-300 text-gray-900" />
-              </div>
-
-              {/* New Metrics */}
-              <Separator className="my-2 bg-gray-200" />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="roi" className="text-gray-700">ROI (%)</Label>
-                  <Input id="roi" name="roi" type="number" step="0.01" value={String(currentStrategy.roi ?? '')} onChange={handleInputChange} placeholder="e.g. 15.5" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
+              {/* Basic Info Section */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-900">Basic Information</h3>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="riskScore" className="text-gray-700">Risk Score</Label>
-                  <Input id="riskScore" name="riskScore" type="number" step="0.01" value={String(currentStrategy.riskScore ?? '')} onChange={handleInputChange} placeholder="e.g. 2.5" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="profit" className="text-gray-700">Profit</Label>
-                  <Input id="profit" name="profit" type="number" step="0.01" value={String(currentStrategy.profit ?? '')} onChange={handleInputChange} placeholder="e.g. 2500" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="maxDdi" className="text-gray-700">Max DDI (%)</Label>
-                  <Input id="maxDdi" name="maxDdi" type="number" step="0.01" value={String(currentStrategy.maxDdi ?? '')} onChange={handleInputChange} placeholder="e.g. 5.2" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="commissionPercent" className="text-gray-700">Commission (%)</Label>
-                  <Input
-                    id="commissionPercent"
-                    name="commissionPercent"
-                    type="number"
-                    step="0.01"
-                    value={commissionPercent}
-                    onChange={(e) => setCommissionPercent(e.target.value)}
-                    placeholder="e.g. 30"
-                    className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="copiers" className="text-gray-700">Copiers</Label>
-                  <Input id="copiers" name="copiers" type="number" value={String(currentStrategy.copiers ?? '')} onChange={handleInputChange} placeholder="e.g. 150" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-                </div>
-              </div>
-
-              {/* Tag */}
-              <div className="space-y-2">
-                <Label htmlFor="tag" className="text-gray-700">Tag</Label>
-                <Input id="tag" name="tag" value={currentStrategy.tag || ''} onChange={handleInputChange} placeholder="Enter tag" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-              </div>
-
-              {/* Risk Tag */}
-              <div className="space-y-2">
-                <Label htmlFor="riskLevel" className="text-gray-700">Risk Tag</Label>
-                <Select
-                  value={currentStrategy.riskLevel || ''}
-                  onValueChange={(value) => setCurrentStrategy(prev => ({ ...prev, riskLevel: value as 'Low' | 'Medium' | 'High' }))}
-                >
-                  <SelectTrigger className="bg-white border border-gray-300 text-gray-900">
-                    <SelectValue placeholder="Select risk level" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200">
-                    <SelectItem value="Low">Low</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="High">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Master's Tag */}
-              <div className="space-y-2">
-                <Label htmlFor="mastersTag" className="text-gray-700">Master's Name</Label>
-                <Input id="mastersTag" name="mastersTag" value={currentStrategy.mastersTag || ''} onChange={handleInputChange} placeholder="Enter master's tag" className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" />
-              </div>
-
-              {/* Master Account Details */}
-              <Separator className="my-2 bg-gray-200" />
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
-                <Label className="text-lg font-semibold text-blue-900 mb-2 block">Master Account Connection (Required)</Label>
-                <p className="text-sm text-blue-700 mb-4">
-                  These credentials are required for the copy trading engine to connect to the Master account.
-                  <br />
-                  <span className="font-bold">Note:</span> If updating an existing strategy, please re-enter the password to ensure connectivity.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="masterAccountId" className="text-gray-700">Account ID</Label>
-                    <Input 
-                      id="masterAccountId" 
-                      name="masterAccountId" 
-                      value={currentStrategy.masterAccountId || ''} 
-                      onChange={handleInputChange} 
-                      placeholder="Enter MT account ID" 
-                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" 
+                    <Label htmlFor="name" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Strategy Name *</Label>
+                    <Input
+                      id="name"
+                      name="name"
+                      value={currentStrategy.name || ''}
+                      onChange={handleInputChange}
+                      placeholder="e.g. Alpha Scalper"
+                      required
+                      className="bg-white border border-gray-200 text-gray-900 h-11 rounded-xl focus:ring-2 focus:ring-[#00d09c]/20 focus:border-[#00d09c] transition-all"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="description" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Short Description *</Label>
+                    <Input
+                      id="description"
+                      name="description"
+                      value={currentStrategy.description || ''}
+                      onChange={handleInputChange}
+                      placeholder="e.g. High-frequency scalping strategy"
+                      required
+                      className="bg-white border border-gray-200 text-gray-900 h-11 rounded-xl focus:ring-2 focus:ring-[#00d09c]/20 focus:border-[#00d09c] transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="details" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Detailed Description *</Label>
+                  <Textarea
+                    id="details"
+                    name="details"
+                    value={currentStrategy.details || ''}
+                    onChange={handleInputChange}
+                    placeholder="Provide a comprehensive explanation of the strategy logic..."
+                    rows={4}
+                    required
+                    className="bg-white border border-gray-200 text-gray-900 rounded-2xl focus:ring-2 focus:ring-[#00d09c]/20 focus:border-[#00d09c] transition-all resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Quick Trading Fields (Always Visible) */}
+              <div className="space-y-4 bg-[#00d09c]/5 p-6 rounded-2xl border border-[#00d09c]/15">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-[#00b085]">Quick Trading Fields</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="roi-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">ROI (%)</Label>
+                    <Input id="roi-quick" name="roi" type="number" step="0.01" value={String(currentStrategy.roi ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="profit-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Total Profit</Label>
+                    <Input id="profit-quick" name="profit" type="number" step="0.01" value={String(currentStrategy.profit ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxDdi-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Max DDI (%)</Label>
+                    <Input id="maxDdi-quick" name="maxDdi" type="number" step="0.01" value={String(currentStrategy.maxDdi ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mastersTag-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Tag</Label>
+                    <Input id="mastersTag-quick" name="mastersTag" value={currentStrategy.mastersTag || ''} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="masterAccountId-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Account ID</Label>
+                    <Input
+                      id="masterAccountId-quick"
+                      name="masterAccountId"
+                      value={currentStrategy.masterAccountId || ''}
+                      onChange={handleInputChange}
+                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="masterAccountPassword" className="text-gray-700">Account Password</Label>
-                    <Input 
-                      id="masterAccountPassword" 
-                      name="masterAccountPassword" 
+                    <Label htmlFor="masterAccountPassword-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Password</Label>
+                    <Input
+                      id="masterAccountPassword-quick"
+                      name="masterAccountPassword"
                       type="password"
                       autoComplete="new-password"
-                      placeholder={currentStrategy.hasMasterPassword ? "•••••••• (Saved)" : "MT5 Password"}
-                      value={currentStrategy.masterAccountPassword || ''} 
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setCurrentStrategy(prev => ({ ...prev, masterAccountPassword: val }));
-                      }}
-                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:border-primary" 
+                      placeholder={currentStrategy.hasMasterPassword ? "•••••••• (Saved)" : "MT Password"}
+                      value={currentStrategy.masterAccountPassword || ''}
+                      onChange={(e) => setCurrentStrategy(prev => ({ ...prev, masterAccountPassword: e.target.value }))}
+                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="masterAccountServer" className="text-gray-700">Server</Label>
-                    <Input 
-                      id="masterAccountServer" 
-                      name="masterAccountServer" 
-                      value={currentStrategy.masterAccountServer || ''} 
-                      onChange={handleInputChange} 
-                      placeholder="e.g. MetaQuotes-Demo" 
-                      className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400" 
+                    <Label htmlFor="masterAccountServer-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Server</Label>
+                    <Input
+                      id="masterAccountServer-quick"
+                      name="masterAccountServer"
+                      value={currentStrategy.masterAccountServer || ''}
+                      onChange={handleInputChange}
+                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="masterPlatform" className="text-gray-700">Platform</Label>
+                    <Label htmlFor="masterPlatform-quick" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Platform</Label>
                     <Select
                       value={currentStrategy.masterPlatform || 'mt5'}
                       onValueChange={(value) => setCurrentStrategy(prev => ({ ...prev, masterPlatform: value as 'mt4' | 'mt5' }))}
                     >
-                      <SelectTrigger className="bg-white border border-gray-300 text-gray-900">
-                        <SelectValue placeholder="Select platform" />
+                      <SelectTrigger id="masterPlatform-quick" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold">
+                        <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-white border border-gray-200">
-                        <SelectItem value="mt4">MetaTrader 4</SelectItem>
-                        <SelectItem value="mt5">MetaTrader 5</SelectItem>
+                      <SelectContent className="bg-white border border-gray-100 rounded-xl shadow-lg">
+                        <SelectItem value="mt4" className="font-bold">MetaTrader 4</SelectItem>
+                        <SelectItem value="mt5" className="font-bold">MetaTrader 5</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
               </div>
 
-              {/* Plans: removed Pro/Expert/Premium specific inputs per request */}
-              <Separator className="my-2 bg-gray-200" />
+              {/* Visuals & Status Section */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                <div className="space-y-2">
+                  <Label htmlFor="icon" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Strategy Icon</Label>
+                  <Input
+                    id="icon"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleIconChange}
+                    className="cursor-pointer bg-white border-gray-200 text-gray-900 h-11 rounded-xl file:mr-3 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:uppercase file:bg-gray-100 file:text-gray-600 transition-all"
+                  />
+                </div>
 
-          {/* Lot Size Pricing */}
-          <Separator className="my-4 bg-gray-200" />
-          <div className="space-y-4">
-            <Label className="text-gray-700 font-bold text-lg">Lot Size Pricing</Label>
-            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
-              <div className="space-y-2 max-w-md">
-                <Label className="text-gray-700 font-semibold">Price for 1 Lot (USD) *</Label>
-                <Input
-                  type="number"
-                  value={(lotRows[0] && lotRows[0].amountUSD) || ''}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setLotRows([{ amountUSD: v, lot: '1', id: `lot-1` }]);
-                  }}
-                  placeholder="e.g. 25"
-                  className="bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 font-medium"
-                  required
-                />
-                <p className="text-xs text-gray-500 italic">
-                  Admin should enter the price for 1 Lot only. The system will automatically calculate pricing for Equal (x1), Double (x2), Triple (x3), and Custom lot sizes.
-                </p>
-              </div>
-              
-              {lotRows[0]?.amountUSD && Number(lotRows[0].amountUSD) > 0 && (
-                <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-center p-2 bg-white rounded border border-gray-100">
-                    <div className="text-xs text-gray-500 uppercase font-bold">x1 (Equal)</div>
-                    <div className="text-sm font-bold text-primary">${Number(lotRows[0].amountUSD).toFixed(2)}</div>
-                  </div>
-                  <div className="text-center p-2 bg-white rounded border border-gray-100">
-                    <div className="text-xs text-gray-500 uppercase font-bold">x2 (Double)</div>
-                    <div className="text-sm font-bold text-primary">${(Number(lotRows[0].amountUSD) * 2).toFixed(2)}</div>
-                  </div>
-                  <div className="text-center p-2 bg-white rounded border border-gray-100">
-                    <div className="text-xs text-gray-500 uppercase font-bold">x3 (Triple)</div>
-                    <div className="text-sm font-bold text-primary">${(Number(lotRows[0].amountUSD) * 3).toFixed(2)}</div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Country Origin</Label>
+                  <Select value={countryFlag} onValueChange={setCountryFlag}>
+                    <SelectTrigger className="bg-white border border-gray-200 text-gray-900 h-11 rounded-xl focus:ring-2 focus:ring-[#00d09c]/20 focus:border-[#00d09c]">
+                      <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border border-gray-100 rounded-xl max-h-60">
+                      <SelectItem value="US">🇺🇸 USA</SelectItem>
+                      <SelectItem value="GB">🇬🇧 UK</SelectItem>
+                      <SelectItem value="DE">🇩🇪 Germany</SelectItem>
+                      <SelectItem value="FR">🇫🇷 France</SelectItem>
+                      <SelectItem value="JP">🇯🇵 Japan</SelectItem>
+                      <SelectItem value="IN">🇮🇳 India</SelectItem>
+                      <SelectItem value="AE">🇦🇪 UAE</SelectItem>
+                      <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="enabled" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Status</Label>
+                  <div className="flex items-center h-11 bg-white border border-gray-200 rounded-xl px-4 justify-between">
+                    <span className="text-sm font-bold text-gray-700">{currentStrategy.enabled !== false ? 'Active' : 'Paused'}</span>
+                    <Switch 
+                      id="enabled" 
+                      checked={currentStrategy.enabled !== false}
+                      onCheckedChange={handleEnabledChange}
+                      className="data-[state=checked]:bg-[#00d09c]"
+                    />
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
+
+              {/* Performance Metrics Section */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-900">Performance Metrics</h3>
+                </div>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="roi" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">ROI (%)</Label>
+                    <Input id="roi" name="roi" type="number" step="0.01" value={String(currentStrategy.roi ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="riskScore" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Risk Score</Label>
+                    <Input id="riskScore" name="riskScore" type="number" step="0.01" value={String(currentStrategy.riskScore ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="profit" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Total Profit</Label>
+                    <Input id="profit" name="profit" type="number" step="0.01" value={String(currentStrategy.profit ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxDdi" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Max DDI (%)</Label>
+                    <Input id="maxDdi" name="maxDdi" type="number" step="0.01" value={String(currentStrategy.maxDdi ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="commissionPercent" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Commission (%)</Label>
+                    <Input id="commissionPercent" name="commissionPercent" type="number" step="0.01" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="copiers" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Copiers</Label>
+                    <Input id="copiers" name="copiers" type="number" value={String(currentStrategy.copiers ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="tag" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Tag</Label>
+                    <Input id="tag" name="tag" value={currentStrategy.tag || ''} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mastersTag" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Master Tag</Label>
+                    <Input id="mastersTag" name="mastersTag" value={currentStrategy.mastersTag || ''} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="riskLevel" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Risk Level</Label>
+                    <Select
+                      value={currentStrategy.riskLevel || ''}
+                      onValueChange={(value) => setCurrentStrategy(prev => ({ ...prev, riskLevel: value as 'Low' | 'Medium' | 'High' }))}
+                    >
+                      <SelectTrigger className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold">
+                        <SelectValue placeholder="Level" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border border-gray-100 rounded-xl shadow-lg">
+                        <SelectItem value="Low" className="font-bold text-green-600">Low</SelectItem>
+                        <SelectItem value="Medium" className="font-bold text-yellow-600">Medium</SelectItem>
+                        <SelectItem value="High" className="font-bold text-red-600">High</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-gray-100">
+                  <div className="space-y-2">
+                    <Label htmlFor="minCapital" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Min. Capital ($)</Label>
+                    <Input id="minCapital" name="minCapital" type="number" value={String(currentStrategy.minCapital ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="avgDrawdown" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Avg. Drawdown (%)</Label>
+                    <Input id="avgDrawdown" name="avgDrawdown" type="number" step="0.01" value={String(currentStrategy.avgDrawdown ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="riskReward" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Risk/Reward</Label>
+                    <Input id="riskReward" name="riskReward" type="number" step="0.01" value={String(currentStrategy.riskReward ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="winStreak" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Win Streak</Label>
+                    <Input id="winStreak" name="winStreak" type="number" value={String(currentStrategy.winStreak ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Master Connection Section */}
+
+              <div className="space-y-4 bg-[#00d09c]/5 p-6 rounded-2xl border border-[#00d09c]/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-[#00b085]">Master Account Connection</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="masterAccountId" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Account ID</Label>
+                    <Input 
+                      id="masterAccountId" 
+                      name="masterAccountId" 
+                      value={currentStrategy.masterAccountId || ''} 
+                      onChange={handleInputChange} 
+                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="masterAccountPassword" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Password</Label>
+                    <Input 
+                      id="masterAccountPassword" 
+                      name="masterAccountPassword" 
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={currentStrategy.hasMasterPassword ? "•••••••• (Saved)" : "MT Password"}
+                      value={currentStrategy.masterAccountPassword || ''} 
+                      onChange={(e) => setCurrentStrategy(prev => ({ ...prev, masterAccountPassword: e.target.value }))}
+                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="masterAccountServer" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Server</Label>
+                    <Input 
+                      id="masterAccountServer" 
+                      name="masterAccountServer" 
+                      value={currentStrategy.masterAccountServer || ''} 
+                      onChange={handleInputChange} 
+                      className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="masterPlatform" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Platform</Label>
+                    <Select
+                      value={currentStrategy.masterPlatform || 'mt5'}
+                      onValueChange={(value) => setCurrentStrategy(prev => ({ ...prev, masterPlatform: value as 'mt4' | 'mt5' }))}
+                    >
+                      <SelectTrigger className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border border-gray-100 rounded-xl shadow-lg">
+                        <SelectItem value="mt4" className="font-bold">MetaTrader 4</SelectItem>
+                        <SelectItem value="mt5" className="font-bold">MetaTrader 5</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Information Section */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-900">Additional Information</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="equity" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Equity</Label>
+                    <Input id="equity" value={equity} onChange={(e) => setEquity(e.target.value)} placeholder="e.g. $10,000+" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="timeframe" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Timeframe</Label>
+                    <Input id="timeframe" value={timeframe} onChange={(e) => setTimeframe(e.target.value)} placeholder="e.g. H1 / Daily" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="currencySymbol" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Currency</Label>
+                    <Input id="currencySymbol" value={currencySymbol} onChange={(e) => setCurrencySymbol(e.target.value)} placeholder="e.g. $" className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="chatLink" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Telegram Link</Label>
+                    <Input id="chatLink" value={chatLink} onChange={(e) => setChatLink(e.target.value)} placeholder="https://t.me/..." className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Pricing Section */}
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-1 w-8 bg-[#00d09c] rounded-full" />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-900">Lot Size Pricing</h3>
+                </div>
+                
+                <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 space-y-6">
+                  <div className="max-w-md space-y-2">
+                    <Label className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Price for 1 Lot (USD) *</Label>
+                    <Input
+                      type="number"
+                      value={(lotRows[0] && lotRows[0].amountUSD) || ''}
+                      onChange={(e) => setLotRows([{ amountUSD: e.target.value, lot: '1', id: 'lot-1' }])}
+                      placeholder="e.g. 25.00"
+                      className="h-12 text-lg font-black text-[#00d09c] rounded-xl bg-white border border-gray-200 focus:ring-[#00d09c]/20"
+                      required
+                    />
+                    <p className="text-[10px] text-gray-400 font-bold italic">
+                      System automatically calculates x1, x2, and x3 multipliers based on this base price.
+                    </p>
+                  </div>
+                  
+                  {lotRows[0]?.amountUSD && Number(lotRows[0].amountUSD) > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
+                      <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
+                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">x1 (Equal)</span>
+                        <span className="text-xl font-black text-gray-900">${Number(lotRows[0].amountUSD).toFixed(2)}</span>
+                      </div>
+                      <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
+                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">x2 (Double)</span>
+                        <span className="text-xl font-black text-gray-900">${(Number(lotRows[0].amountUSD) * 2).toFixed(2)}</span>
+                      </div>
+                      <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
+                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">x3 (Triple)</span>
+                        <span className="text-xl font-black text-gray-900">${(Number(lotRows[0].amountUSD) * 3).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </form>
-          </ScrollArea>
+          </div>
           
-          <DialogFooter className="mt-4">
+          <DialogFooter className="p-6 border-t border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row gap-3">
             <Button
-              type="button"
               variant="outline"
-              onClick={() => {
-                setIsAdding(false);
-                setIsEditing(false);
-              }}
+              onClick={() => { setIsAdding(false); setIsEditing(false); }}
+              className="w-full sm:w-auto h-11 px-8 rounded-xl font-black uppercase tracking-widest text-[10px] border-gray-200 text-gray-500 hover:bg-white transition-all"
             >
               Cancel
             </Button>
-            <Button type="submit" onClick={handleSubmit}>
-              {isAdding ? 'Create Strategy' : 'Update Strategy'}
+            <Button
+              form="strategy-form"
+              type="submit"
+              className="w-full sm:w-auto h-11 px-12 rounded-xl font-black uppercase tracking-widest text-[10px] bg-[#00d09c] hover:bg-[#00b085] text-white shadow-lg shadow-[#00d09c]/20 active:scale-95 transition-all"
+            >
+              {isAdding ? 'Create Strategy' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

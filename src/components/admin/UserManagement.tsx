@@ -12,8 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
-import { FiEdit, FiTrash2, FiUserPlus } from 'react-icons/fi';
+import { FiDownload, FiEdit, FiTrash2, FiUserPlus } from 'react-icons/fi';
 import Switch from '@/components/ui/switch';
+import * as XLSX from 'xlsx';
 
 // Custom User type that matches our mock data structure
 export type User = {
@@ -220,17 +221,72 @@ export default function UserManagement() {
     }
   };
 
+  const handleDownloadSettlementSummary = async () => {
+    try {
+      const res = await fetch('/api/admin/profit-sharing?view=user-summary', { cache: 'no-store' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Failed to fetch settlement summary');
+      const users = Array.isArray(json?.users) ? json.users : [];
+      if (users.length === 0) {
+        toast({ title: 'No Data', description: 'No settlement summary available yet.' });
+        return;
+      }
+      const rows = users.map((u: any) => ({
+        UserId: u.userId,
+        Name: u.userName,
+        Email: u.userEmail,
+        Invested: Number(u.totalInvested || 0).toFixed(2),
+        Profit: Number(u.totalProfit || 0).toFixed(2),
+        Swap: Number(u.totalSwap || 0).toFixed(2),
+        Commission: Number(u.totalCommission || 0).toFixed(2),
+        Withdrawal: Number(u.totalWithdrawal || 0).toFixed(2),
+        SettledBalance: Number(u.totalSettledBalance || 0).toFixed(2),
+        SettlementsCount: Number(u.settlementsCount || 0),
+        LastSettlementAt: u.lastSettlementAt ? new Date(u.lastSettlementAt).toLocaleString() : '',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'User Settlement Summary');
+      XLSX.writeFile(wb, `user-settlement-summary-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast({ title: 'Success', description: 'Settlement summary exported.' });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to export summary',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
-    <Card className="w-full bg-white border border-gray-200">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-gray-900">User Management</CardTitle>
-        <Button className="flex items-center gap-1" onClick={handleAddUserClick}>
-          <FiUserPlus className="mr-1" /> Add User
-        </Button>
+    <Card className="w-full bg-white border border-gray-200 shadow-sm overflow-hidden rounded-xl">
+      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-6 border-b border-gray-100">
+        <div>
+          <CardTitle className="text-gray-900 text-xl font-black">User Management</CardTitle>
+          <p className="text-xs font-medium text-gray-500 mt-1">Monitor and manage platform users</p>
+        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button 
+            variant="outline" 
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 h-10 px-4 rounded-lg border-gray-200 hover:bg-gray-50 text-xs font-bold" 
+            onClick={handleDownloadSettlementSummary}
+          >
+            <FiDownload className="w-4 h-4" /> 
+            <span>Summary</span>
+          </Button>
+          <Button 
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 h-10 px-6 rounded-lg bg-[#00d09c] hover:bg-[#00b085] text-white text-xs font-black uppercase tracking-wider shadow-sm" 
+            onClick={handleAddUserClick}
+          >
+            <FiUserPlus className="w-4 h-4" /> 
+            Add User
+          </Button>
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="rounded-md bg-white border border-gray-200 text-gray-900 overflow-x-auto">
-          <Table>
+      <CardContent className="p-0 sm:p-6">
+        <div className="rounded-none sm:rounded-lg bg-white border-0 sm:border border-gray-100 text-gray-900 overflow-x-auto scrollbar-hide">
+          <Table className="min-w-[800px] sm:min-w-full">
             <TableHeader>
               <TableRow>
                 <TableHead>User Details</TableHead>

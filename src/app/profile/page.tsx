@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import Image from 'next/image';
-import { FiMail, FiMapPin, FiCheckCircle, FiLock, FiEdit2, FiCopy, FiPhone } from 'react-icons/fi';
+import { FiMail, FiMapPin, FiCheckCircle, FiLock, FiEdit2, FiCopy, FiPhone, FiEye, FiEyeOff } from 'react-icons/fi';
 import { useToast } from '@/components/ui/use-toast';
 import UserLayout from '@/components/UserLayout';
 
@@ -29,6 +29,8 @@ function ProfileContent() {
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [isPhoneModalOpen, setIsPhoneModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [showPasswordNew, setShowPasswordNew] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [nameForm, setNameForm] = useState('');
   const [emailForm, setEmailForm] = useState('');
   const [phoneForm, setPhoneForm] = useState('');
@@ -531,24 +533,46 @@ function ProfileContent() {
             <form onSubmit={handleUpdatePassword}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-                <input 
-                  type="password" 
-                  value={passwordForm.new} 
-                  onChange={(e) => setPasswordForm({...passwordForm, new: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black"
-                  required
-                  minLength={6}
-                />
+                <div className="relative">
+                  <input
+                    type={showPasswordNew ? 'text' : 'password'}
+                    value={passwordForm.new}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black pr-10"
+                    required
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordNew((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    aria-label={showPasswordNew ? 'Hide new password' : 'Show new password'}
+                    title={showPasswordNew ? 'Hide new password' : 'Show new password'}
+                  >
+                    {showPasswordNew ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-                <input 
-                  type="password" 
-                  value={passwordForm.confirm} 
-                  onChange={(e) => setPasswordForm({...passwordForm, confirm: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showPasswordConfirm ? 'text' : 'password'}
+                    value={passwordForm.confirm}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black pr-10"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordConfirm((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    aria-label={showPasswordConfirm ? 'Hide confirm password' : 'Show confirm password'}
+                    title={showPasswordConfirm ? 'Hide confirm password' : 'Show confirm password'}
+                  >
+                    {showPasswordConfirm ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
               <div className="flex justify-end gap-3">
                 <button 

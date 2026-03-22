@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Switch from '@/components/ui/switch';
-import { FiArrowLeft, FiRefreshCw, FiShield, FiUser, FiActivity, FiSettings } from 'react-icons/fi';
+import { FiArrowLeft, FiRefreshCw, FiShield, FiUser, FiActivity, FiSettings, FiEye, FiEyeOff } from 'react-icons/fi';
 
 export default function UserDetailsPage() {
   const { id } = useParams();
@@ -19,6 +19,8 @@ export default function UserDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [strategies, setStrategies] = useState<any[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -295,13 +297,40 @@ export default function UserDetailsPage() {
                     {/* Update Password */}
                     <div className="grid grid-cols-3 items-center gap-4">
                       <Label className="text-sm font-bold text-blue-600 text-right">Update Password</Label>
-                      <Input
-                        type="password"
-                        placeholder="Leave blank to keep current"
-                        value={formData.password}
-                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        className="col-span-2 h-10 bg-gray-50/50 border-gray-100 rounded-lg focus:border-[#00d09c] font-medium"
-                      />
+                      <div className="col-span-2 relative">
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="Leave blank to keep current"
+                          value={formData.password}
+                          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                          className="h-10 bg-gray-50/50 border-gray-100 rounded-lg focus:border-[#00d09c] font-medium pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          {showPassword ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Show Current Password (Admin Only) */}
+                    <div className="grid grid-cols-3 items-center gap-4 pt-2">
+                      <Label className="text-xs font-bold text-gray-400 text-right uppercase tracking-wider">Current Password</Label>
+                      <div className="col-span-2 flex items-center gap-3">
+                        <div className="flex-1 px-3 py-2 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-xs font-mono text-gray-600 break-all">
+                          {showCurrentPassword ? (user?.password || 'No password hash') : '••••••••••••••••'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          className="p-2 hover:bg-gray-100 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                          title={showCurrentPassword ? "Hide password hash" : "Show password hash"}
+                        >
+                          {showCurrentPassword ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Role */}

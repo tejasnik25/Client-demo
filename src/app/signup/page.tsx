@@ -9,6 +9,7 @@ import { validateEmail, validatePassword } from '@/utils/auth';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FiEye, FiEyeOff } from 'react-icons/fi';
 import '@/styles/vuexy-theme.css';
 
 import { COUNTRY_OPTIONS } from '@/utils/countries';
@@ -45,6 +46,7 @@ export default function SignupPage() {
     countryCode: '+91',
     country: 'India',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({
     name: '',
     email: '',
@@ -290,21 +292,30 @@ export default function SignupPage() {
     />
   </div>
   <div>
-    <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+    <label htmlFor="password" title="Password" className="block text-sm font-medium text-gray-700 mb-1">
       Password
     </label>
-    <Input
-      id="password"
-      name="password"
-      type="password"
-      autoComplete="new-password"
-      required
-      className="appearance-none relative block w-full px-3 py-2 h-10 border border-gray-300 placeholder-gray-400 text-black rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-      placeholder="Password"
-      value={formData.password}
-      onChange={handleChange}
-      error={errors.password}
-    />
+    <div className="relative">
+      <Input
+        id="password"
+        name="password"
+        type={showPassword ? "text" : "password"}
+        autoComplete="new-password"
+        required
+        className="appearance-none relative block w-full px-3 py-2 h-10 border border-gray-300 placeholder-gray-400 text-black rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm pr-10"
+        placeholder="Password"
+        value={formData.password}
+        onChange={handleChange}
+        error={errors.password}
+      />
+      <button
+        type="button"
+        onClick={() => setShowPassword(!showPassword)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-20"
+      >
+        {showPassword ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+      </button>
+    </div>
   </div>
 </div>
 

@@ -11,6 +11,7 @@ import { signIn } from 'next-auth/react';
 import { validateEmail } from '@/utils/auth';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
+import { FiEye, FiEyeOff } from 'react-icons/fi';
 import '@/styles/vuexy-theme.css';
 
 function LoginFormInner() {
@@ -41,6 +42,7 @@ function LoginFormInner() {
     email: '',
     password: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({
     email: '',
     password: '',
@@ -172,20 +174,27 @@ function LoginFormInner() {
                 error={errors.email}
               />
             </div>
-            <div>
-              <label htmlFor="password" className="sr-only">Password</label>
+            <div className="relative">
+              <label htmlFor="password" title="Password" className="sr-only">Password</label>
               <Input
                 id="password"
                 name="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-black rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-black rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm pr-10"
                 placeholder="Password"
                 value={formData.password}
                 onChange={handleChange}
                 error={errors.password}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-[10px] text-gray-400 hover:text-gray-600 z-20"
+              >
+                {showPassword ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 

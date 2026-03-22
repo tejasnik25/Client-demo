@@ -44,9 +44,14 @@ export default function AdminMobileMenu({ isOpen, onClose }: AdminMobileMenuProp
           </button>
         </div>
 
-        <div className="p-2 space-y-1">
+        <div className="p-2 space-y-1 overflow-y-auto max-h-[calc(100vh-80px)] pb-10">
           <MobileLink href="/admin" label="Users" active={pathname === "/admin"} onClick={onClose} />
           <MobileLink href="/admin/analytics" label="Analytics" active={pathname === "/admin/analytics"} onClick={onClose} />
+          <MobileLink href="/admin/strategy" label="Strategy Management" active={pathname === "/admin/strategy"} onClick={onClose} />
+          <MobileLink href="/admin/profit-sharing" label="Profit Sharing" active={pathname.startsWith("/admin/profit-sharing")} onClick={onClose} />
+          <MobileLink href="/admin/servers" label="Server Management" active={pathname === "/admin/servers"} onClick={onClose} />
+          <MobileLink href="/admin/ads" label="Ads Management" active={pathname === "/admin/ads"} onClick={onClose} />
+          
           <SectionTitle title="Payments" />
           <MobileLink href="/admin/payments" label="Overview" active={pathname === "/admin/payments"} onClick={onClose} />
           <MobileLink href="/admin/payments/pending" label="Pending" active={pathname === "/admin/payments/pending"} onClick={onClose} />

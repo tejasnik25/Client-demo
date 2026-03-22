@@ -200,9 +200,14 @@ export type Strategy = {
   maxDdi?: number;
   copiers?: number;
   riskScore?: number;
+  minCapital?: number;
+  avgDrawdown?: number;
+  riskReward?: number;
+  winStreak?: number;
   // Tag
   tag?: string;
   mastersTag?: string;
+
   // Master Account Details (Admin Only)
   masterAccountId?: string;
   masterAccountPassword?: string;
@@ -974,8 +979,8 @@ export const createStrategy = async (
 
     const id = `strategy_${Date.now()}`;
     await pool.execute(
-      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, roi, profit, max_ddi, copiers, risk_score, tag, masters_tag, plan_prices, plan_details, details, parameters, content_type, content_url, content_blob, content_mime, icon_blob, icon_mime, enabled, master_account_id, master_account_password, master_account_server, master_platform) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO strategies (id, name, description, performance, risk_level, category, image_url, roi, profit, max_ddi, copiers, risk_score, min_capital, avg_drawdown, risk_reward, win_streak, tag, masters_tag, plan_prices, plan_details, details, parameters, content_type, content_url, content_blob, content_mime, icon_blob, icon_mime, enabled, master_account_id, master_account_password, master_account_server, master_platform) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         strategy.name,
@@ -989,6 +994,10 @@ export const createStrategy = async (
         strategy.maxDdi ?? null,
         strategy.copiers ?? null,
         strategy.riskScore ?? null,
+        (strategy as any).minCapital ?? null,
+        (strategy as any).avgDrawdown ?? null,
+        (strategy as any).riskReward ?? null,
+        (strategy as any).winStreak ?? null,
         strategy.tag ?? null,
         strategy.mastersTag ?? null,
         strategy.planPrices ? JSON.stringify(strategy.planPrices) : null,
@@ -1008,6 +1017,7 @@ export const createStrategy = async (
         strategy.masterPlatform || null
       ]
     );
+
     const created = await getStrategyById(id);
     if (!created) return { success: false, error: 'Failed to read created strategy' };
     return { success: true, strategy: created };
@@ -1030,8 +1040,13 @@ export const createStrategy = async (
         maxDdi: strategy.maxDdi,
         copiers: strategy.copiers,
         riskScore: strategy.riskScore,
+        minCapital: (strategy as any).minCapital,
+        avgDrawdown: (strategy as any).avgDrawdown,
+        riskReward: (strategy as any).riskReward,
+        winStreak: (strategy as any).winStreak,
         tag: strategy.tag,
         mastersTag: strategy.mastersTag,
+
         planPrices: strategy.planPrices,
         planDetails: strategy.planDetails,
         details: strategy.details ?? '',
@@ -1095,7 +1110,12 @@ export const updateStrategy = async (
     if (updates.maxDdi !== undefined) { setClause.push('max_ddi = ?'); values.push(updates.maxDdi); }
     if (updates.copiers !== undefined) { setClause.push('copiers = ?'); values.push(updates.copiers); }
     if (updates.riskScore !== undefined) { setClause.push('risk_score = ?'); values.push(updates.riskScore); }
+    if ((updates as any).minCapital !== undefined) { setClause.push('min_capital = ?'); values.push((updates as any).minCapital); }
+    if ((updates as any).avgDrawdown !== undefined) { setClause.push('avg_drawdown = ?'); values.push((updates as any).avgDrawdown); }
+    if ((updates as any).riskReward !== undefined) { setClause.push('risk_reward = ?'); values.push((updates as any).riskReward); }
+    if ((updates as any).winStreak !== undefined) { setClause.push('win_streak = ?'); values.push((updates as any).winStreak); }
     if (updates.tag !== undefined) { setClause.push('tag = ?'); values.push(updates.tag); }
+
     if (updates.mastersTag !== undefined) { setClause.push('masters_tag = ?'); values.push(updates.mastersTag); }
     if (updates.planPrices !== undefined) { setClause.push('plan_prices = ?'); values.push(JSON.stringify(updates.planPrices)); }
     if (updates.planDetails !== undefined) { setClause.push('plan_details = ?'); values.push(JSON.stringify(updates.planDetails)); }
@@ -1146,12 +1166,19 @@ export const updateStrategy = async (
         riskLevel: updates.riskLevel ?? existing.riskLevel ?? existing.risk_level ?? 'Medium',
         category: updates.category ?? existing.category,
         imageUrl: updates.imageUrl ?? existing.imageUrl ?? existing.image_url,
-        roi: updates.roi ?? (existing.roi ?? existing.roi),
-        profit: updates.profit ?? (existing.profit ?? existing.profit),
-        maxDdi: updates.maxDdi ?? (existing.maxDdi ?? existing.max_ddi),
-        copiers: updates.copiers ?? (existing.copiers ?? existing.copiers),
+        roi: updates.roi ?? existing.roi,
+
+        profit: updates.profit ?? existing.profit,
+        maxDdi: updates.maxDdi ?? existing.maxDdi,
+        copiers: updates.copiers ?? existing.copiers,
+        riskScore: updates.riskScore ?? existing.riskScore,
+        minCapital: (updates as any).minCapital ?? existing.minCapital,
+        avgDrawdown: (updates as any).avgDrawdown ?? existing.avgDrawdown,
+        riskReward: (updates as any).riskReward ?? existing.riskReward,
+        winStreak: (updates as any).winStreak ?? existing.winStreak,
         tag: updates.tag ?? existing.tag,
-        mastersTag: updates.mastersTag ?? (existing.mastersTag ?? existing.masters_tag),
+        mastersTag: updates.mastersTag ?? existing.mastersTag,
+
         planPrices: updates.planPrices ?? (existing.planPrices ?? existing.plan_prices),
         planDetails: updates.planDetails ?? (existing.planDetails ?? existing.plan_details),
         details: updates.details ?? existing.details,
@@ -2175,6 +2202,12 @@ export const updateUserAdmin = async (
   updates: { name?: string; email?: string; password?: string; role?: 'USER' | 'ADMIN'; enabled?: boolean; password_updated_at?: Date | string; email_updated_at?: Date | string; phone?: string }
 ): Promise<{ success: boolean; user?: User; error?: string }> => {
   try {
+    // Some legacy DBs may not have the `enabled` column yet.
+    // If admin is trying to update it (e.g. when password is updated too), ensure the column exists first.
+    if (typeof updates.enabled !== 'undefined') {
+      try { await pool.execute("ALTER TABLE users ADD COLUMN enabled BOOLEAN DEFAULT TRUE"); } catch { /* ignore */ }
+    }
+
     const fields: string[] = [];
     const values: any[] = [];
 
@@ -2982,6 +3015,324 @@ export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
       console.error('JSON fallback getRunningStrategiesAdmin failed:', jsonError);
       return [];
     }
+  }
+};
+
+const ensureProfitSharingTables = async () => {
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS profit_settlements (
+        id VARCHAR(255) PRIMARY KEY,
+        strategy_id VARCHAR(255) NOT NULL,
+        strategy_name VARCHAR(255),
+        settlement_start TIMESTAMP NULL,
+        settlement_end TIMESTAMP NOT NULL,
+        commission_percent DECIMAL(8,2) DEFAULT 0,
+        total_deposit DECIMAL(18,2) DEFAULT 0,
+        total_profit DECIMAL(18,2) DEFAULT 0,
+        total_swap DECIMAL(18,2) DEFAULT 0,
+        total_commission DECIMAL(18,2) DEFAULT 0,
+        total_withdrawal DECIMAL(18,2) DEFAULT 0,
+        users_count INT DEFAULT 0,
+        status VARCHAR(32) DEFAULT 'completed',
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_profit_settlement_strategy (strategy_id, created_at)
+      )
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS profit_settlement_items (
+        id VARCHAR(255) PRIMARY KEY,
+        settlement_id VARCHAR(255) NOT NULL,
+        strategy_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        user_name VARCHAR(255),
+        user_email VARCHAR(255),
+        invested_amount DECIMAL(18,2) DEFAULT 0,
+        gross_profit DECIMAL(18,2) DEFAULT 0,
+        swap_amount DECIMAL(18,2) DEFAULT 0,
+        commission_amount DECIMAL(18,2) DEFAULT 0,
+        withdrawal_amount DECIMAL(18,2) DEFAULT 0,
+        settled_balance DECIMAL(18,2) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_profit_settlement_items_settlement (settlement_id),
+        INDEX idx_profit_settlement_items_user (user_id, created_at)
+      )
+    `);
+  } catch (e) {
+    console.warn('ensureProfitSharingTables failed:', e);
+  }
+};
+
+const parseCommissionPercent = (strategy: any): number => {
+  const raw =
+    strategy?.parameters?.commission ??
+    strategy?.parameters?.Commission ??
+    30;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  const m = String(raw ?? '').match(/-?\d+(\.\d+)?/);
+  const num = m ? Number(m[0]) : 30;
+  return Number.isFinite(num) ? num : 30;
+};
+
+export const getProfitSharingOverviewAdmin = async (): Promise<any[]> => {
+  await ensureProfitSharingTables();
+  try {
+    const [rows] = await pool.execute(`
+      SELECT
+        s.id AS strategy_id,
+        s.name AS strategy_name,
+        s.created_at AS strategy_created_at,
+        s.master_account_id AS master_id,
+        s.parameters AS strategy_parameters,
+        COALESCE((SELECT COUNT(*) FROM running_strategies rs WHERE rs.strategy_id = s.id AND (rs.admin_status IN ('running','active') OR rs.status IN ('running','active','in-process'))), 0) AS copiers_count,
+        COALESCE((SELECT SUM(wt.amount) FROM wallet_transactions wt WHERE wt.strategy_id = s.id AND wt.transaction_type = 'deposit' AND wt.status = 'completed'), 0) AS total_deposit,
+        COALESCE((SELECT SUM(mt.profit) FROM master_trades_cache mt WHERE mt.master_id = s.master_account_id AND mt.is_open = 0), 0) AS total_profit,
+        COALESCE((SELECT SUM(mt.swap) FROM master_trades_cache mt WHERE mt.master_id = s.master_account_id AND mt.is_open = 0), 0) AS total_swap,
+        COALESCE((SELECT COUNT(*) FROM master_trades_cache mt WHERE mt.master_id = s.master_account_id AND mt.is_open = 1), 0) AS open_trades,
+        (SELECT ps.created_at FROM profit_settlements ps WHERE ps.strategy_id = s.id ORDER BY ps.created_at DESC LIMIT 1) AS last_settlement_at
+      FROM strategies s
+      ORDER BY s.created_at DESC
+    `);
+
+    return (rows as any[]).map((r) => {
+      let parameters: any = {};
+      try {
+        parameters = typeof r.strategy_parameters === 'string'
+          ? JSON.parse(r.strategy_parameters || '{}')
+          : (r.strategy_parameters || {});
+      } catch {
+        parameters = {};
+      }
+      const commissionPercent = parseCommissionPercent({ parameters });
+      return {
+        strategyId: r.strategy_id,
+        strategyName: r.strategy_name,
+        strategyCreatedAt: r.strategy_created_at?.toISOString?.() || r.strategy_created_at,
+        masterId: r.master_id,
+        copiersCount: Number(r.copiers_count || 0),
+        totalDeposit: Number(r.total_deposit || 0),
+        totalProfit: Number(r.total_profit || 0),
+        totalSwap: Number(r.total_swap || 0),
+        openTrades: Number(r.open_trades || 0),
+        commissionPercent,
+        lastSettlementAt: r.last_settlement_at?.toISOString?.() || r.last_settlement_at || null,
+      };
+    });
+  } catch (error) {
+    console.error('getProfitSharingOverviewAdmin failed:', error);
+    return [];
+  }
+};
+
+export const runProfitSharingSettlementAdmin = async (
+  strategyId: string,
+  adminId: string
+): Promise<{ success: boolean; error?: string; settlement?: any; items?: any[] }> => {
+  await ensureProfitSharingTables();
+  try {
+    const [strategyRows] = await pool.execute(
+      'SELECT id, name, parameters, master_account_id, created_at FROM strategies WHERE id = ? LIMIT 1',
+      [strategyId]
+    );
+    const strategy = (strategyRows as any[])[0];
+    if (!strategy) return { success: false, error: 'Strategy not found' };
+
+    const [openRows] = await pool.execute(
+      'SELECT COUNT(*) AS cnt FROM master_trades_cache WHERE master_id = ? AND is_open = 1',
+      [strategy.master_account_id]
+    );
+    const openTrades = Number((openRows as any[])[0]?.cnt || 0);
+    if (openTrades > 0) {
+      return { success: false, error: 'Settlement blocked: strategy has open trades.' };
+    }
+
+    const [lastRows] = await pool.execute(
+      'SELECT settlement_end, created_at FROM profit_settlements WHERE strategy_id = ? ORDER BY created_at DESC LIMIT 1',
+      [strategyId]
+    );
+    const lastSettlement = (lastRows as any[])[0];
+    const settlementStart = lastSettlement?.settlement_end || strategy.created_at;
+    const settlementEnd = new Date();
+
+    const [tradeRows] = await pool.execute(
+      `SELECT COALESCE(SUM(profit),0) AS total_profit, COALESCE(SUM(swap),0) AS total_swap
+       FROM master_trades_cache
+       WHERE master_id = ? AND is_open = 0 AND time_close > ? AND time_close <= ?`,
+      [strategy.master_account_id, settlementStart, settlementEnd]
+    );
+    const totalProfit = Number((tradeRows as any[])[0]?.total_profit || 0);
+    const totalSwap = Number((tradeRows as any[])[0]?.total_swap || 0);
+
+    const [userRows] = await pool.execute(
+      `SELECT DISTINCT rs.user_id, u.name, u.email
+       FROM running_strategies rs
+       LEFT JOIN users u ON rs.user_id = u.id
+       WHERE rs.strategy_id = ? AND (rs.admin_status IN ('running','active') OR rs.status IN ('running','active','in-process'))`,
+      [strategyId]
+    );
+
+    const users = userRows as any[];
+    if (users.length === 0) {
+      return { success: false, error: 'No active copiers for this strategy.' };
+    }
+
+    const commissionPercent = parseCommissionPercent({
+      parameters: typeof strategy.parameters === 'string' ? JSON.parse(strategy.parameters || '{}') : (strategy.parameters || {}),
+    });
+
+    const userInvestments: Array<{ userId: string; invested: number; name: string; email: string }> = [];
+    let totalDeposit = 0;
+    for (const u of users) {
+      const [depRows] = await pool.execute(
+        `SELECT COALESCE(SUM(amount),0) AS invested
+         FROM wallet_transactions
+         WHERE user_id = ? AND strategy_id = ? AND transaction_type = 'deposit' AND status = 'completed'`,
+        [u.user_id, strategyId]
+      );
+      const invested = Number((depRows as any[])[0]?.invested || 0);
+      totalDeposit += invested;
+      userInvestments.push({
+        userId: u.user_id,
+        invested,
+        name: u.name || 'Unknown',
+        email: u.email || '',
+      });
+    }
+
+    if (totalDeposit <= 0) {
+      return { success: false, error: 'No completed deposit found for this strategy.' };
+    }
+
+    const settlementId = `ps_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const items: any[] = [];
+    let totalCommission = 0;
+    let totalWithdrawal = 0;
+
+    for (const u of userInvestments) {
+      const share = u.invested / totalDeposit;
+      const userGrossProfit = totalProfit * share;
+      const userSwap = totalSwap * share;
+      const commission = userGrossProfit > 0 ? (userGrossProfit * Math.max(commissionPercent, 0)) / 100 : 0;
+      const withdrawal = userGrossProfit - commission;
+      const settledBalance = u.invested + withdrawal - userSwap;
+
+      totalCommission += commission;
+      totalWithdrawal += withdrawal;
+
+      items.push({
+        id: `psi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        settlementId,
+        strategyId,
+        userId: u.userId,
+        userName: u.name,
+        userEmail: u.email,
+        investedAmount: Number(u.invested.toFixed(2)),
+        grossProfit: Number(userGrossProfit.toFixed(2)),
+        swapAmount: Number(userSwap.toFixed(2)),
+        commissionAmount: Number(commission.toFixed(2)),
+        withdrawalAmount: Number(withdrawal.toFixed(2)),
+        settledBalance: Number(settledBalance.toFixed(2)),
+      });
+    }
+
+    await pool.execute(
+      `INSERT INTO profit_settlements
+      (id, strategy_id, strategy_name, settlement_start, settlement_end, commission_percent, total_deposit, total_profit, total_swap, total_commission, total_withdrawal, users_count, status, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        settlementId,
+        strategyId,
+        strategy.name,
+        settlementStart,
+        settlementEnd,
+        commissionPercent,
+        Number(totalDeposit.toFixed(2)),
+        Number(totalProfit.toFixed(2)),
+        Number(totalSwap.toFixed(2)),
+        Number(totalCommission.toFixed(2)),
+        Number(totalWithdrawal.toFixed(2)),
+        items.length,
+        'completed',
+        adminId,
+      ]
+    );
+
+    if (items.length > 0) {
+      const placeholders = items.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const values = items.flatMap((i) => ([
+        i.id, i.settlementId, i.strategyId, i.userId, i.userName, i.userEmail,
+        i.investedAmount, i.grossProfit, i.swapAmount, i.commissionAmount, i.withdrawalAmount, i.settledBalance,
+      ]));
+      await pool.execute(
+        `INSERT INTO profit_settlement_items
+        (id, settlement_id, strategy_id, user_id, user_name, user_email, invested_amount, gross_profit, swap_amount, commission_amount, withdrawal_amount, settled_balance)
+        VALUES ${placeholders}`,
+        values
+      );
+    }
+
+    return {
+      success: true,
+      settlement: {
+        settlementId,
+        strategyId,
+        strategyName: strategy.name,
+        settlementStart,
+        settlementEnd,
+        commissionPercent,
+        totalDeposit: Number(totalDeposit.toFixed(2)),
+        totalProfit: Number(totalProfit.toFixed(2)),
+        totalSwap: Number(totalSwap.toFixed(2)),
+        totalCommission: Number(totalCommission.toFixed(2)),
+        totalWithdrawal: Number(totalWithdrawal.toFixed(2)),
+      },
+      items,
+    };
+  } catch (error) {
+    console.error('runProfitSharingSettlementAdmin failed:', error);
+    return { success: false, error: 'Failed to run settlement' };
+  }
+};
+
+export const getProfitSharingUserSummaryAdmin = async (): Promise<any[]> => {
+  await ensureProfitSharingTables();
+  try {
+    const [rows] = await pool.execute(`
+      SELECT
+        psi.user_id,
+        COALESCE(MAX(psi.user_name), '') AS user_name,
+        COALESCE(MAX(psi.user_email), '') AS user_email,
+        COALESCE(SUM(psi.invested_amount), 0) AS total_invested,
+        COALESCE(SUM(psi.gross_profit), 0) AS total_profit,
+        COALESCE(SUM(psi.swap_amount), 0) AS total_swap,
+        COALESCE(SUM(psi.commission_amount), 0) AS total_commission,
+        COALESCE(SUM(psi.withdrawal_amount), 0) AS total_withdrawal,
+        COALESCE(SUM(psi.settled_balance), 0) AS total_settled_balance,
+        COUNT(DISTINCT psi.settlement_id) AS settlements_count,
+        MAX(psi.created_at) AS last_settlement_at
+      FROM profit_settlement_items psi
+      GROUP BY psi.user_id
+      ORDER BY last_settlement_at DESC
+    `);
+
+    return (rows as any[]).map((r) => ({
+      userId: r.user_id,
+      userName: r.user_name || 'Unknown',
+      userEmail: r.user_email || '',
+      totalInvested: Number(r.total_invested || 0),
+      totalProfit: Number(r.total_profit || 0),
+      totalSwap: Number(r.total_swap || 0),
+      totalCommission: Number(r.total_commission || 0),
+      totalWithdrawal: Number(r.total_withdrawal || 0),
+      totalSettledBalance: Number(r.total_settled_balance || 0),
+      settlementsCount: Number(r.settlements_count || 0),
+      lastSettlementAt: r.last_settlement_at?.toISOString?.() || r.last_settlement_at || null,
+    }));
+  } catch (error) {
+    console.error('getProfitSharingUserSummaryAdmin failed:', error);
+    return [];
   }
 };
 

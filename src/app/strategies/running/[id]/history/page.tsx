@@ -466,29 +466,38 @@ export default function CopierHistoryPage() {
     }
 
     // 5) Commission & withdrawal rules:
-    //    - If profit is <= 0 → no commission, no withdrawal.
-    //    - If profit > 0 → commission = % of profit, withdrawal = remaining.
-    //    - We only "book" commission/withdrawal when settlement is eligible.
+    //    - If settlement is not eligible yet → book nothing (commission/withdrawal/swap are all locked).
+    //    - If profit > 0 → commission = % of profit, withdrawal = profit - commission.
+    //    - If profit <= 0 → no commission; withdrawal reflects net profit (can be negative).
     let bookedCommission = 0;
     let bookedWithdrawal = 0;
-    if (grossProfitLastMonth > 0) {
-      const fullCommission =
-        (grossProfitLastMonth * Math.max(commissionPercent, 0)) / 100;
-      const fullWithdrawal = grossProfitLastMonth - fullCommission;
+    let swapBooked = 0;
 
-      if (eligibleForSettlement) {
+    if (eligibleForSettlement) {
+      // Swap is applied only at settlement time (when everything is closed).
+      swapBooked = swapLastMonth;
+
+      const profit = grossProfitLastMonth;
+      if (profit > 0) {
+        const fullCommission = (profit * Math.max(commissionPercent, 0)) / 100;
+        const fullWithdrawal = profit - fullCommission;
         bookedCommission = fullCommission;
         bookedWithdrawal = fullWithdrawal;
+      } else {
+        // If profit is zero/negative: no commission; the "withdrawal" reflects net profit (can be negative).
+        bookedCommission = 0;
+        bookedWithdrawal = profit;
       }
     }
 
     // 6) Balance formula from spec: Balance = Deposit + Withdrawal – Swap
-    const balance = deposit + bookedWithdrawal - swapLastMonth;
+    const balance = deposit + bookedWithdrawal - swapBooked;
 
     return {
       deposit: deposit.toFixed(2),
       profitLastMonth: grossProfitLastMonth.toFixed(2), // real-time profit (last 30d)
       swapLastMonth: swapLastMonth.toFixed(2),
+      swapBooked: swapBooked.toFixed(2),
       commissionPercent,
       commissionBooked: bookedCommission.toFixed(2),
       withdrawalBooked: bookedWithdrawal.toFixed(2),
@@ -732,7 +741,7 @@ export default function CopierHistoryPage() {
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${stats.swapLastMonth}</p>
+                <p className="text-2xl font-black text-gray-900">${stats.swapBooked}</p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
@@ -746,7 +755,13 @@ export default function CopierHistoryPage() {
                   ${filter === 'opened' ? stats.floatPL : stats.balance}
                 </p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">
-                  {filter === 'opened' ? 'Float P/L' : 'Balance'}
+                  {filter === 'opened'
+                    ? 'Float P/L'
+                    : filter === 'balance'
+                      ? stats.settlementEligible
+                        ? 'Settled Balance'
+                        : 'Locked Balance'
+                      : 'Balance'}
                 </p>
               </div>
             </div>

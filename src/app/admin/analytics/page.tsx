@@ -180,130 +180,80 @@ export default function AdminAnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50/50 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto space-y-8">
         {/* Header */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Analytics Dashboard</h1>
-          <p className="text-gray-600">Comprehensive overview of platform performance and metrics</p>
+        <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-black text-gray-900 tracking-tight uppercase">Analytics Dashboard</h1>
+            <p className="text-sm font-medium text-gray-500 mt-1">Platform performance and key metrics overview</p>
+          </div>
+          <div className="flex items-center gap-2 px-4 py-2 bg-[#00d09c]/10 text-[#00d09c] rounded-xl text-xs font-black uppercase tracking-wider">
+            <FiClock className="w-4 h-4" />
+            Real-time Data
+          </div>
         </div>
 
         {/* Key Metrics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Total Profit */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Total Profit</p>
-                <p className="text-2xl font-bold text-gray-900">${analytics.totalProfit.toLocaleString()}</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <FiTrendingUp className="h-6 w-6 text-green-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Total Payments Received */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Total Payments</p>
-                <p className="text-2xl font-bold text-gray-900">${analytics.totalPayments.toLocaleString()}</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <FiDollarSign className="h-6 w-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Listed Strategies */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Listed Strategies</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.totalStrategies}</p>
-              </div>
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <FiBarChart2 className="h-6 w-6 text-purple-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Running Strategies */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Running Strategies</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.runningStrategies}</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <FiActivity className="h-6 w-6 text-green-600" />
-              </div>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard 
+            icon={<FiTrendingUp />} 
+            label="Total Profit" 
+            value={`$${analytics.totalProfit.toLocaleString()}`} 
+            color="green" 
+          />
+          <StatCard 
+            icon={<FiDollarSign />} 
+            label="Total Payments" 
+            value={`$${analytics.totalPayments.toLocaleString()}`} 
+            color="blue" 
+          />
+          <StatCard 
+            icon={<FiBarChart2 />} 
+            label="Listed Strategies" 
+            value={analytics.totalStrategies.toString()} 
+            color="purple" 
+          />
+          <StatCard 
+            icon={<FiActivity />} 
+            label="Running Strategies" 
+            value={analytics.runningStrategies.toString()} 
+            color="green" 
+          />
         </div>
 
         {/* Secondary Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Pending Payments */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Pending Payments</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.pendingPayments}</p>
-              </div>
-              <div className="p-3 bg-yellow-100 rounded-lg">
-                <FiClock className="h-6 w-6 text-yellow-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Pending Strategies */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Pending Strategies</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.pendingStrategies}</p>
-              </div>
-              <div className="p-3 bg-yellow-100 rounded-lg">
-                <FiClock className="h-6 w-6 text-yellow-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Approved Payments */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Approved Payments</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.approvedPayments}</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <FiCheckCircle className="h-6 w-6 text-green-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Total Users */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Total Users</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.totalUsers}</p>
-                <p className="text-xs text-gray-500 mt-1">{analytics.activeUsers} active</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <FiUsers className="h-6 w-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard 
+            icon={<FiClock />} 
+            label="Pending Payments" 
+            value={analytics.pendingPayments.toString()} 
+            color="yellow" 
+          />
+          <StatCard 
+            icon={<FiClock />} 
+            label="Pending Strategies" 
+            value={analytics.pendingStrategies.toString()} 
+            color="yellow" 
+          />
+          <StatCard 
+            icon={<FiCheckCircle />} 
+            label="Approved Payments" 
+            value={analytics.approvedPayments.toString()} 
+            color="green" 
+          />
+          <StatCard 
+            icon={<FiUsers />} 
+            label="Total Users" 
+            value={analytics.totalUsers.toString()} 
+            subValue={`${analytics.activeUsers} active`}
+            color="blue" 
+          />
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Payment Status Chart */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Status Distribution</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <ChartContainer title="Payment Status Distribution">
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
@@ -320,15 +270,13 @@ export default function AdminAnalyticsPage() {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
-                <Legend />
+                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                <Legend iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
-          </div>
+          </ChartContainer>
 
-          {/* Strategy Status Chart */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Strategy Status Distribution</h3>
+          <ChartContainer title="Strategy Status Distribution">
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
@@ -345,90 +293,117 @@ export default function AdminAnalyticsPage() {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
-                <Legend />
+                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                <Legend iconType="circle" />
               </PieChart>
             </ResponsiveContainer>
-          </div>
+          </ChartContainer>
         </div>
 
         {/* Strategy Type Breakdown */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Strategy Type Breakdown</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={strategyTypeData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="value" fill="#00d09c" />
+        <ChartContainer title="Strategy Type Breakdown">
+          <ResponsiveContainer width="100%" height={350}>
+            <BarChart data={strategyTypeData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700 }} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700 }} />
+              <Tooltip 
+                cursor={{ fill: '#f8f8f8' }}
+                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} 
+              />
+              <Legend iconType="circle" />
+              <Bar dataKey="value" fill="#00d09c" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+        </ChartContainer>
 
-        {/* Additional Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Strategy Types</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">New Strategies</span>
-                <span className="font-semibold text-gray-900">{analytics.newStrategies}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Renewal Strategies</span>
-                <span className="font-semibold text-gray-900">{analytics.renewalStrategies}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Modification Requests</span>
-                <span className="font-semibold text-gray-900">{analytics.modificationStrategies}</span>
-              </div>
-            </div>
-          </div>
+        {/* Detailed Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <StatsCard title="Strategy Metrics">
+            <StatsItem label="New Strategies" value={analytics.newStrategies} />
+            <StatsItem label="Renewal Strategies" value={analytics.renewalStrategies} />
+            <StatsItem label="Modification Requests" value={analytics.modificationStrategies} />
+          </StatsCard>
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Summary</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Total Received</span>
-                <span className="font-semibold text-green-600">${analytics.totalPayments.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Approved</span>
-                <span className="font-semibold text-gray-900">{analytics.approvedPayments}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Pending</span>
-                <span className="font-semibold text-yellow-600">{analytics.pendingPayments}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Rejected</span>
-                <span className="font-semibold text-red-600">{analytics.rejectedPayments}</span>
-              </div>
-            </div>
-          </div>
+          <StatsCard title="Financial Summary">
+            <StatsItem label="Total Received" value={`$${analytics.totalPayments.toLocaleString()}`} highlight="green" />
+            <StatsItem label="Approved" value={analytics.approvedPayments} />
+            <StatsItem label="Pending" value={analytics.pendingPayments} highlight="yellow" />
+            <StatsItem label="Rejected" value={analytics.rejectedPayments} highlight="red" />
+          </StatsCard>
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">User Activity</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Total Users</span>
-                <span className="font-semibold text-gray-900">{analytics.totalUsers}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Active Users</span>
-                <span className="font-semibold text-green-600">{analytics.activeUsers}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Running Strategies</span>
-                <span className="font-semibold text-gray-900">{analytics.runningStrategies}</span>
-              </div>
-            </div>
-          </div>
+          <StatsCard title="User Engagement">
+            <StatsItem label="Total Registered" value={analytics.totalUsers} />
+            <StatsItem label="Active Copiers" value={analytics.activeUsers} highlight="green" />
+            <StatsItem label="Running Portfolios" value={analytics.runningStrategies} />
+          </StatsCard>
         </div>
       </div>
     </div>
   );
 }
+
+function StatCard({ icon, label, value, subValue, color }: { icon: any, label: string, value: string, subValue?: string, color: string }) {
+  const colors: any = {
+    green: "bg-green-50 text-green-600 border-green-100",
+    blue: "bg-blue-50 text-blue-600 border-blue-100",
+    purple: "bg-purple-50 text-purple-600 border-purple-100",
+    yellow: "bg-yellow-50 text-yellow-600 border-yellow-100",
+    red: "bg-red-50 text-red-600 border-red-100",
+  };
+
+  return (
+    <div className="bg-white rounded-[1.5rem] border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all group">
+      <div className="flex items-center justify-between mb-4">
+        <div className={`p-3 rounded-2xl ${colors[color]} border group-hover:scale-110 transition-transform`}>
+          {icon}
+        </div>
+      </div>
+      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{label}</p>
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-2xl font-black text-gray-900 tracking-tight">{value}</h3>
+        {subValue && <span className="text-[10px] font-bold text-gray-400">{subValue}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ChartContainer({ title, children }: { title: string, children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-8">
+      <h3 className="text-lg font-black text-gray-900 mb-8 uppercase tracking-tight">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function StatsCard({ title, children }: { title: string, children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-[1.5rem] border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-50 bg-gray-50/50">
+        <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest">{title}</h3>
+      </div>
+      <div className="p-6 space-y-4">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function StatsItem({ label, value, highlight }: { label: string, value: any, highlight?: string }) {
+  const highlights: any = {
+    green: "text-[#00d09c]",
+    yellow: "text-orange-500",
+    red: "text-red-500",
+    blue: "text-blue-500",
+  };
+
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-xs font-bold text-gray-500">{label}</span>
+      <span className={`text-sm font-black ${highlight ? highlights[highlight] : 'text-gray-900'}`}>{value}</span>
+    </div>
+  );
+}
+
 

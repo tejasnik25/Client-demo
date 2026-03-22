@@ -14,7 +14,8 @@ import {
   FaNetworkWired,
   FaChevronDown,
   FaChartBar,
-  FaHdd
+  FaHdd,
+  FaHandshake
 } from 'react-icons/fa';
 
 type NavItemProps = {
@@ -81,6 +82,12 @@ export function Sidebar() {
           icon={<FaHdd size={18} />} 
           label="Server Management" 
           active={pathname === '/admin/servers'} 
+        />
+        <NavItem
+          href="/admin/profit-sharing"
+          icon={<FaHandshake size={18} />}
+          label="Profit-sharing"
+          active={pathname === '/admin/profit-sharing'}
         />
         <div className={`rounded-lg ${pathname.startsWith('/admin/payments') ? 'bg-gray-100' : ''}`}>
           <div className={`flex items-center justify-between px-4 py-3 text-sm rounded-lg cursor-pointer ${pathname.startsWith('/admin/payments') 
