@@ -3113,7 +3113,12 @@ export const runProfitSharingSettlementAdmin = async (
     const strategy = (strategyRows as any[])[0];
     if (!strategy) return { success: false, error: 'Strategy not found' };
 
+    if (!strategy.master_account_id) {
+      return { success: false, error: 'Strategy has no master account assigned for profit sharing.' };
+    }
+
     const [openRows] = await pool.execute(
+
       'SELECT COUNT(*) AS cnt FROM master_trades_cache WHERE master_id = ? AND is_open = 1',
       [strategy.master_account_id]
     );
@@ -3190,17 +3195,27 @@ export const runProfitSharingSettlementAdmin = async (
     const items: any[] = [];
     let totalCommission = 0;
     let totalWithdrawal = 0;
+    let settledTotalDeposit = 0;
+    let settledTotalProfit = 0;
+    let settledTotalSwap = 0;
 
     for (const u of userInvestments) {
       const share = u.invested / totalDeposit;
       const userGrossProfit = totalProfit * share;
       const userSwap = totalSwap * share;
-      const commission = userGrossProfit > 0 ? (userGrossProfit * Math.max(commissionPercent, 0)) / 100 : 0;
+      
+      // User requested: skip if profit is negative (or zero)
+      if (userGrossProfit <= 0) continue;
+
+      const commission = (userGrossProfit * Math.max(commissionPercent, 0)) / 100;
       const withdrawal = userGrossProfit - commission;
       const settledBalance = u.invested + withdrawal - userSwap;
 
       totalCommission += commission;
       totalWithdrawal += withdrawal;
+      settledTotalDeposit += u.invested;
+      settledTotalProfit += userGrossProfit;
+      settledTotalSwap += userSwap;
 
       items.push({
         id: `psi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -3218,6 +3233,10 @@ export const runProfitSharingSettlementAdmin = async (
       });
     }
 
+    if (items.length === 0) {
+      return { success: false, error: 'No users with positive profit found for this strategy in this period.' };
+    }
+
     await pool.execute(
       `INSERT INTO profit_settlements
       (id, strategy_id, strategy_name, settlement_start, settlement_end, commission_percent, total_deposit, total_profit, total_swap, total_commission, total_withdrawal, users_count, status, created_by)
@@ -3229,9 +3248,9 @@ export const runProfitSharingSettlementAdmin = async (
         settlementStart,
         settlementEnd,
         commissionPercent,
-        Number(totalDeposit.toFixed(2)),
-        Number(totalProfit.toFixed(2)),
-        Number(totalSwap.toFixed(2)),
+        Number(settledTotalDeposit.toFixed(2)),
+        Number(settledTotalProfit.toFixed(2)),
+        Number(settledTotalSwap.toFixed(2)),
         Number(totalCommission.toFixed(2)),
         Number(totalWithdrawal.toFixed(2)),
         items.length,
@@ -3239,6 +3258,7 @@ export const runProfitSharingSettlementAdmin = async (
         adminId,
       ]
     );
+
 
     if (items.length > 0) {
       const placeholders = items.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');

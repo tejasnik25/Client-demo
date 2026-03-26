@@ -331,12 +331,9 @@ export default function CopierHistoryPage() {
   }, [history, connectAt]);
 
   const filteredOpen = useMemo(() => {
-    const startTs = connectAt ? toMs(connectAt) : 0;
+    // For open positions, we show EVERYTHING currently open on the master.
+    // The copier script will attempt to sync these trades to the slave regardless of when they were opened.
     return openPositions
-      .filter(p => {
-        const openMs = toMs(p.server_time || p.server_time_open || p.time_open || p.open_time || p.time);
-        return openMs >= startTs;
-      })
       .map((p) => {
       return {
         isOpen: true as const,
@@ -346,46 +343,17 @@ export default function CopierHistoryPage() {
         type: p.type,
         volume: p.volume,
         openPrice: p.price_open,
-        closeOrCurrentPrice: p.price_current,
-        profit: Number(p.profit),
-        swap: Number(p.swap || 0),
+        closeOrCurrentPrice: p.price_current, // Real-time price
+        profit: Number(p.profit), // Real-time profit
+        swap: Number(p.swap || 0), // Real-time swap
       };
     });
-  }, [openPositions, connectAt]);
-
-  const displayRows = useMemo(() => {
-    const closedRows = [...filteredClosed];
-    
-    if (filter === "opened") return filteredOpen;
-    if (filter === "closed") return closedRows.sort((a, b) => {
-      const ta = toMs(a.closeTimeStr) || 0;
-      const tb = toMs(b.closeTimeStr) || 0;
-      return sortOrder === "desc" ? tb - ta : ta - tb;
-    });
-    // For 'balance' tab, return empty or balance operations if available
-    return [];
-  }, [filter, filteredOpen, filteredClosed, sortOrder]);
-
-  const ENTRIES_PER_PAGE = 20;
-  const totalPages = Math.max(1, Math.ceil(displayRows.length / ENTRIES_PER_PAGE));
-  const currentPage = Math.min(historyPage, totalPages);
-  const paginatedRows = useMemo(() => {
-    const start = (currentPage - 1) * ENTRIES_PER_PAGE;
-    return displayRows.slice(start, start + ENTRIES_PER_PAGE);
-  }, [displayRows, currentPage]);
-
-  // Reset to page 1 when filter changes
-  useEffect(() => {
-    setHistoryPage(1);
-  }, [filter]);
-
-  // Clamp page when total pages shrinks (e.g. data refresh)
-  useEffect(() => {
-    if (historyPage > totalPages && totalPages >= 1) setHistoryPage(totalPages);
-  }, [historyPage, totalPages]);
+  }, [openPositions]);
 
   const stats = useMemo(() => {
     const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
+    const now = Date.now();
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
     const parsePercent = (val: any): number | null => {
       if (val == null) return null;
@@ -434,80 +402,131 @@ export default function CopierHistoryPage() {
       )
       .reduce((sum, p) => sum + (Number(p.payable) || 0), 0);
 
-    // 3) Last 30 days closed trades (MT5 history) for this master.
-    const now = Date.now();
-    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-    const windowStart = now - THIRTY_DAYS_MS;
-
-    let grossProfitLastMonth = 0;
-    let swapLastMonth = 0;
+    // 3) Calculate totals for all closed trades
+    let totalRealizedProfit = 0;
+    let totalSwap = 0;
 
     filteredClosed.forEach((row: any) => {
-      const closeMs = toMs(row.closeTimeStr);
-      if (!Number.isFinite(closeMs) || closeMs < windowStart) return;
-
-      const profit = (Number(row.profit) || 0) * mult;
-      const swap = (Number(row.swap) || 0) * mult;
-
-      grossProfitLastMonth += profit;
-      swapLastMonth += swap;
+      totalRealizedProfit += (Number(row.profit) || 0) * mult;
+      totalSwap += (Number(row.swap) || 0) * mult;
     });
 
-    // 4) Monthly settlement eligibility:
+    // 4) Calculate current Float P/L from open positions
+    let currentFloatPL = 0;
+    filteredOpen.forEach((row: any) => {
+      currentFloatPL += (Number(row.profit) || 0) * mult + (Number(row.swap) || 0) * mult;
+    });
+
+    // 5) Monthly settlement eligibility:
     //    - At least 30 days since connection
     //    - No open trades at the moment
+    //    - Profit MUST be positive for settlement to happen
     let eligibleForSettlement = false;
     if (connectAt) {
       const connectedMs = toMs(connectAt);
       if (Number.isFinite(connectedMs)) {
         eligibleForSettlement =
-          now - connectedMs >= THIRTY_DAYS_MS && filteredOpen.length === 0;
+          now - connectedMs >= THIRTY_DAYS_MS && 
+          filteredOpen.length === 0 &&
+          totalRealizedProfit > 0;
       }
     }
 
-    // 5) Commission & withdrawal rules:
-    //    - If settlement is not eligible yet → book nothing (commission/withdrawal/swap are all locked).
-    //    - If profit > 0 → commission = % of profit, withdrawal = profit - commission.
-    //    - If profit <= 0 → no commission; withdrawal reflects net profit (can be negative).
+    // 6) Commission & withdrawal rules:
+    //    - If settlement is not eligible yet → booked values are 0.
+    //    - Withdrawal = Profit - Commission (only if profit > 0).
     let bookedCommission = 0;
     let bookedWithdrawal = 0;
     let swapBooked = 0;
 
     if (eligibleForSettlement) {
-      // Swap is applied only at settlement time (when everything is closed).
-      swapBooked = swapLastMonth;
-
-      const profit = grossProfitLastMonth;
-      if (profit > 0) {
-        const fullCommission = (profit * Math.max(commissionPercent, 0)) / 100;
-        const fullWithdrawal = profit - fullCommission;
-        bookedCommission = fullCommission;
-        bookedWithdrawal = fullWithdrawal;
-      } else {
-        // If profit is zero/negative: no commission; the "withdrawal" reflects net profit (can be negative).
-        bookedCommission = 0;
-        bookedWithdrawal = profit;
-      }
+      swapBooked = totalSwap;
+      const profit = totalRealizedProfit;
+      // Since eligibleForSettlement already checks profit > 0, we can calculate commission.
+      const fullCommission = (profit * Math.max(commissionPercent, 0)) / 100;
+      bookedCommission = fullCommission;
+      bookedWithdrawal = profit - fullCommission;
     }
 
-    // 6) Balance formula from spec: Balance = Deposit + Withdrawal – Swap
-    const balance = deposit + bookedWithdrawal - swapBooked;
+    // 7) Balance formula: Balance = Deposit + Total Realized Profit + Total Swap (for non-settled)
+    //    Wait, user said: Balance = Profit + Balance (Profit gets added to balance when trade closes)
+    //    And final calculation: Balance = Deposit + Withdrawal + Profit + Swap - Commission
+    //    Let's interpret: 
+    //    For non-settled: Balance = Deposit + totalRealizedProfit + totalSwap
+    //    For settled: Balance = Deposit + bookedWithdrawal - swapBooked (where withdrawal already includes profit and commission is deducted)
+    
+    let currentBalance = deposit + totalRealizedProfit + totalSwap;
+    if (eligibleForSettlement) {
+       // After settlement, balance is Deposit + (Profit - Commission) - Swap
+       currentBalance = deposit + bookedWithdrawal - swapBooked;
+    }
+
+    // 8) Generate Balance Operations
+    const balanceOperations = (() => {
+      const ops = [];
+      
+      // 1. Deposits (from payments)
+      payments
+        .filter(p => p.strategyId === params.id && (!sessionUserId || p.userId === sessionUserId) && successfulStatuses.has(String(p.status || "").toLowerCase()))
+        .forEach(p => {
+          ops.push({
+            type: 'DEPOSIT',
+            amount: Number(p.payable),
+            time: p.createdAt,
+            comment: 'Initial Investment'
+          });
+        });
+
+      // 2. Settlement Operations (only if eligible)
+      if (eligibleForSettlement) {
+        // Profit (Withdrawal)
+        ops.push({
+          type: 'WITHDRAWAL',
+          amount: totalRealizedProfit,
+          time: new Date().toISOString(), // Current settlement time
+          comment: 'Profit Settlement'
+        });
+
+        // Commission
+        if (bookedCommission > 0) {
+          ops.push({
+            type: 'COMMISSION',
+            amount: bookedCommission,
+            time: new Date().toISOString(),
+            comment: `Strategy Commission (${commissionPercent}%)`
+          });
+        }
+
+        // Swap
+        if (swapBooked !== 0) {
+          ops.push({
+            type: 'SWAP',
+            amount: swapBooked,
+            time: new Date().toISOString(),
+            comment: 'Total Swap Deduction'
+          });
+        }
+      }
+
+      return ops.sort((a, b) => toMs(b.time) - toMs(a.time));
+    })();
 
     return {
       deposit: deposit.toFixed(2),
-      profitLastMonth: grossProfitLastMonth.toFixed(2), // real-time profit (last 30d)
-      swapLastMonth: swapLastMonth.toFixed(2),
+      profitLastMonth: totalRealizedProfit.toFixed(2),
+      swapLastMonth: totalSwap.toFixed(2),
       swapBooked: swapBooked.toFixed(2),
       commissionPercent,
       commissionBooked: bookedCommission.toFixed(2),
       withdrawalBooked: bookedWithdrawal.toFixed(2),
-      balance: balance.toFixed(2),
+      balance: currentBalance.toFixed(2),
       settlementEligible: eligibleForSettlement,
-      floatPL: (grossProfitLastMonth - swapLastMonth).toFixed(2),
+      floatPL: currentFloatPL.toFixed(2),
+      balanceOperations
     };
   }, [
     filteredClosed,
-    filteredOpen.length,
+    filteredOpen,
     lotSize,
     payments,
     params.id,
@@ -516,6 +535,39 @@ export default function CopierHistoryPage() {
     connectAt,
     selectedPlan,
   ]);
+
+  const displayRows = useMemo(() => {
+    const closedRows = [...filteredClosed];
+    
+    if (filter === "opened") return filteredOpen;
+    if (filter === "closed") return closedRows.sort((a, b) => {
+      const ta = toMs(a.closeTimeStr) || 0;
+      const tb = toMs(b.closeTimeStr) || 0;
+      return sortOrder === "desc" ? tb - ta : ta - tb;
+    });
+    // For 'balance' tab, return balance operations
+    if (filter === "balance") return stats.balanceOperations;
+    
+    return [];
+  }, [filter, filteredOpen, filteredClosed, sortOrder, stats.balanceOperations]);
+
+  const ENTRIES_PER_PAGE = 20;
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / ENTRIES_PER_PAGE));
+  const currentPage = Math.min(historyPage, totalPages);
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * ENTRIES_PER_PAGE;
+    return displayRows.slice(start, start + ENTRIES_PER_PAGE);
+  }, [displayRows, currentPage]);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [filter]);
+
+  // Clamp page when total pages shrinks (e.g. data refresh)
+  useEffect(() => {
+    if (historyPage > totalPages && totalPages >= 1) setHistoryPage(totalPages);
+  }, [historyPage, totalPages]);
 
   const getSymbolIcon = (symbol: string) => {
     const s = symbol.toUpperCase();
@@ -771,30 +823,71 @@ export default function CopierHistoryPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="text-[10px] font-black text-gray-400 uppercase border-b border-gray-50">
-                    <th className="px-6 py-4">Symbol</th>
-                    <th className="px-6 py-4 text-center">Type</th>
-                    <th className="px-6 py-4">Opening time, UTC</th>
-                    {filter === 'closed' && (
-                      <th 
-                        className="px-6 py-4 cursor-pointer hover:text-gray-600 transition-colors flex items-center gap-1"
-                        onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
-                      >
-                        Closing time, UTC {sortOrder === "desc" ? "↓" : "↑"}
-                      </th>
+                    {filter === 'balance' ? (
+                      <>
+                        <th className="px-6 py-4">Operation Type</th>
+                        <th className="px-6 py-4">Time, UTC</th>
+                        <th className="px-6 py-4">Comment</th>
+                        <th className="px-6 py-4 text-right">Amount, USD</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-6 py-4">Symbol</th>
+                        <th className="px-6 py-4 text-center">Type</th>
+                        <th className="px-6 py-4">Opening time, UTC</th>
+                        {filter === 'closed' && (
+                          <th 
+                            className="px-6 py-4 cursor-pointer hover:text-gray-600 transition-colors flex items-center gap-1"
+                            onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+                          >
+                            Closing time, UTC {sortOrder === "desc" ? "↓" : "↑"}
+                          </th>
+                        )}
+                        <th className="px-6 py-4 text-center">Lots</th>
+                        <th className="px-6 py-4 text-right">Opening price</th>
+                        <th className="px-6 py-4 text-right">{filter === 'opened' ? 'Current price' : 'Closing price'}</th>
+                        <th className="px-6 py-4 text-right">Profit, USD</th>
+                      </>
                     )}
-                    <th className="px-6 py-4 text-center">Lots</th>
-                    <th className="px-6 py-4 text-right">Opening price</th>
-                    <th className="px-6 py-4 text-right">Closing price</th>
-                    <th className="px-6 py-4 text-right">Profit, USD</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                 {paginatedRows.length > 0 ? (
-                  paginatedRows.map((pos, idx) => {
+                  paginatedRows.map((row: any, idx: number) => {
+                    if (filter === 'balance') {
+                      return (
+                        <tr key={idx} className="hover:bg-gray-50 transition-colors group">
+                          <td className="px-6 py-5">
+                            <span className={`text-[9px] font-black px-2.5 py-1 rounded-full border ${
+                              row.type === 'DEPOSIT' ? 'text-green-500 border-green-100 bg-green-50/30' :
+                              row.type === 'WITHDRAWAL' ? 'text-blue-500 border-blue-100 bg-blue-50/30' :
+                              row.type === 'COMMISSION' ? 'text-purple-500 border-purple-100 bg-purple-50/30' :
+                              'text-red-500 border-red-100 bg-red-50/30'
+                            }`}>
+                              {row.type}
+                            </span>
+                          </td>
+                          <td className="px-6 py-5 text-xs font-bold text-gray-500">
+                            {formatDateShort(row.time)}
+                          </td>
+                          <td className="px-6 py-5 text-xs font-bold text-gray-700">
+                            {row.comment}
+                          </td>
+                          <td className={`px-6 py-5 text-xs font-black text-right ${
+                            row.type === 'DEPOSIT' || (row.type === 'WITHDRAWAL' && row.amount >= 0) ? 'text-[#00d09c]' : 'text-red-500'
+                          }`}>
+                            {row.amount >= 0 ? '+' : ''}{row.amount.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    const pos = row;
                     const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
                     const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
                     const vol = (Number(pos.volume) || 0) * mult;
                     const profitVal = (Number(pos.profit) || 0) * mult;
+                    const swapVal = (Number(pos.swap) || 0) * mult;
                     const symbolIcon = getSymbolIcon(pos.symbol || '');
                     const flagIcon = getFlagIcon(pos.symbol || '');
 
@@ -844,7 +937,14 @@ export default function CopierHistoryPage() {
                           {pos.closeOrCurrentPrice ? Number(pos.closeOrCurrentPrice).toFixed(pos.symbol?.includes('JPY') ? 3 : 5) : "-"}
                         </td>
                         <td className={`px-6 py-5 text-xs font-bold text-right ${profitVal >= 0 ? "text-green-500" : "text-red-500"}`}>
-                          {profitVal >= 0 ? "" : "-"}{Math.abs(profitVal).toFixed(2)}
+                          <div className="flex flex-col">
+                            <span>{profitVal >= 0 ? "" : "-"}{Math.abs(profitVal).toFixed(2)}</span>
+                            {swapVal !== 0 && (
+                              <span className="text-[10px] text-gray-400 font-medium">
+                                Swap: {swapVal.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

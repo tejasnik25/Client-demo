@@ -196,7 +196,12 @@ def save_master_history(history_data, open_positions=None):
         # [PUSH ARCHITECTURE] Push data to Next.js API
         def push_sync():
             try:
-                for m_id in history_data.keys(): # Only push for masters that were updated
+                # Merge keys from both updates to ensure we push if EITHER changed
+                masters_to_push = set(history_data.keys())
+                if open_positions:
+                    masters_to_push.update(open_positions.keys())
+
+                for m_id in masters_to_push:
                     if m_id in existing:
                         m_data = existing[m_id]
                         raw_deals = m_data.get("history", [])
@@ -2244,9 +2249,9 @@ def copy_trade_worker():
                                 current_tickets = set([str(p.ticket) for p in master_positions])
                                 last_tickets = last_master_position_tickets.get(str(m_id), set())
                                 history_needs_refresh = False
-                                if last_tickets and current_tickets != last_tickets:
-                                    # If a ticket disappeared, it means a trade was closed.
-                                    # Also refresh if new tickets appear (open trades) to keep history up-to-date.
+                                if current_tickets != last_tickets:
+                                    # If tickets changed (added or removed), it means a trade was opened or closed.
+                                    # We should refresh history to keep the portal up-to-date.
                                     history_needs_refresh = True
                                 last_master_position_tickets[str(m_id)] = current_tickets
 
