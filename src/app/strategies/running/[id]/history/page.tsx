@@ -393,10 +393,11 @@ export default function CopierHistoryPage() {
       "renewal_approved",
       "in-process",
     ]);
+    const strategyIdForFilter = strategy?.id || params.id;
     const deposit = payments
       .filter(
         (p) =>
-          p.strategyId === params.id &&
+          (p.strategyId === strategyIdForFilter || p.strategyId === params.id) &&
           (!userId || p.userId === userId) &&
           successfulStatuses.has(String(p.status || "").toLowerCase())
       )
@@ -448,17 +449,13 @@ export default function CopierHistoryPage() {
       bookedWithdrawal = profit - fullCommission;
     }
 
-    // 7) Balance formula: Balance = Deposit + Total Realized Profit + Total Swap (for non-settled)
-    //    Wait, user said: Balance = Profit + Balance (Profit gets added to balance when trade closes)
-    //    And final calculation: Balance = Deposit + Withdrawal + Profit + Swap - Commission
-    //    Let's interpret: 
-    //    For non-settled: Balance = Deposit + totalRealizedProfit + totalSwap
-    //    For settled: Balance = Deposit + bookedWithdrawal - swapBooked (where withdrawal already includes profit and commission is deducted)
+    // 7) Balance formula: Balance = Deposit + Withdrawal + Swap
+    //    Where Withdrawal = Profit - Commission
     
     let currentBalance = deposit + totalRealizedProfit + totalSwap;
     if (eligibleForSettlement) {
-       // After settlement, balance is Deposit + (Profit - Commission) - Swap
-       currentBalance = deposit + bookedWithdrawal - swapBooked;
+       // After settlement, balance is Deposit + (Profit - Commission) + Swap
+       currentBalance = deposit + bookedWithdrawal + swapBooked;
     }
 
     // 8) Generate Balance Operations

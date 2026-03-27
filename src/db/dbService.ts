@@ -3209,7 +3209,7 @@ export const runProfitSharingSettlementAdmin = async (
 
       const commission = (userGrossProfit * Math.max(commissionPercent, 0)) / 100;
       const withdrawal = userGrossProfit - commission;
-      const settledBalance = u.invested + withdrawal - userSwap;
+      const settledBalance = u.invested + withdrawal + userSwap;
 
       totalCommission += commission;
       totalWithdrawal += withdrawal;

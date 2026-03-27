@@ -247,12 +247,20 @@ export default function StrategySettlementDetailPage() {
             <h3 className="text-lg font-black uppercase tracking-widest opacity-80 mb-6">Settlement Ready</h3>
             <div className="space-y-4">
               <div className="flex justify-between items-end border-b border-white/20 pb-4">
-                <span className="text-sm font-bold opacity-80">Payable Profit</span>
+                <span className="text-sm font-bold opacity-80">Gross Profit</span>
                 <span className="text-3xl font-black">${strategy.totalProfit.toLocaleString()}</span>
               </div>
               <div className="flex justify-between items-center pt-2">
                 <span className="text-xs font-bold opacity-80">Admin Commission ({strategy.commissionPercent}%)</span>
-                <span className="text-sm font-black">${(strategy.totalProfit * (strategy.commissionPercent / 100)).toLocaleString()}</span>
+                <span className="text-sm font-black">-${(strategy.totalProfit * (strategy.commissionPercent / 100)).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center pt-1">
+                <span className="text-xs font-bold opacity-80">Payable Withdrawal</span>
+                <span className="text-sm font-black">${(strategy.totalProfit * (1 - strategy.commissionPercent / 100)).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center pt-1">
+                <span className="text-xs font-bold opacity-80">Total Swap Share</span>
+                <span className="text-sm font-black">{strategy.totalSwap >= 0 ? '+' : ''}${strategy.totalSwap.toLocaleString()}</span>
               </div>
             </div>
             <Button 
