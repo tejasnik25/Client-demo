@@ -506,26 +506,69 @@ export const getCachedMasterTrades = async (masterId: string) => {
 };
 
 export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen: boolean) => {
+  if (!Array.isArray(trades) || trades.length === 0) return;
+
   try {
-    for (const trade of trades) {
-      const positionId = String(trade.position_id || trade.ticket || trade.id);
-      const uniqueId = `${masterId}_${positionId}`;
-      await pool.execute(
-        `REPLACE INTO master_trades_cache (
-          master_id, position_id, symbol, type, volume, price_open, price_close, 
-          profit, commission, swap, time_open, time_close, is_open, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [
-          masterId, positionId, trade.symbol, trade.type, trade.volume, 
-          trade.price_open, trade.price_close || trade.price_current || null,
-          trade.profit, trade.commission || 0, trade.swap || 0,
-          trade.time_open || trade.time, trade.time_close || null,
-          isOpen ? 1 : 0
-        ]
-      );
-    }
+    const rows = trades.map((trade) => {
+      const positionId = String(trade.position_id || trade.ticket || trade.id || '');
+      return [
+        masterId,
+        positionId,
+        trade.symbol || null,
+        trade.type || null,
+        Number(trade.volume || 0),
+        Number(trade.price_open || 0),
+        Number(trade.price_close ?? trade.price_current ?? null),
+        Number(trade.profit || 0),
+        Number(trade.commission || 0),
+        Number(trade.swap || 0),
+        trade.time_open || trade.time || null,
+        trade.time_close || null,
+        isOpen ? 1 : 0,
+      ];
+    });
+
+    const placeholders = rows.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const params = rows.reduce((acc, row) => acc.concat(row), []);
+
+    await pool.execute(
+      `REPLACE INTO master_trades_cache (
+        master_id, position_id, symbol, type, volume, price_open, price_close,
+        profit, commission, swap, time_open, time_close, is_open
+      ) VALUES ${placeholders}`,
+      params
+    );
   } catch (error) {
-    console.error('Error upserting master trades:', error);
+    console.error('Error upserting master trades (bulk):', error);
+
+    try {
+      for (const trade of trades) {
+        const positionId = String(trade.position_id || trade.ticket || trade.id || '');
+        await pool.execute(
+          `REPLACE INTO master_trades_cache (
+            master_id, position_id, symbol, type, volume, price_open, price_close,
+            profit, commission, swap, time_open, time_close, is_open
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            masterId,
+            positionId,
+            trade.symbol || null,
+            trade.type || null,
+            Number(trade.volume || 0),
+            Number(trade.price_open || 0),
+            Number(trade.price_close ?? trade.price_current ?? null),
+            Number(trade.profit || 0),
+            Number(trade.commission || 0),
+            Number(trade.swap || 0),
+            trade.time_open || trade.time || null,
+            trade.time_close || null,
+            isOpen ? 1 : 0,
+          ]
+        );
+      }
+    } catch (innerError) {
+      console.error('Error upserting master trades row-by-row:', innerError);
+    }
   }
 };
 
