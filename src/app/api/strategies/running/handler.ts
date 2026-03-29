@@ -38,41 +38,58 @@ export async function GET() {
       .forEach((s: any) => enabledMap.set(s.id, s));
 
     // Approved transactions for this user that reference a strategy
-    const running = await Promise.all(runningRows
-      .map(async (r: any) => {
-        const s = Array.isArray(strategies) ? strategies.find((st: any) => st.id === r.strategyId) : null;
-        const id = r.strategyId || s?.id;
-        const name = s?.name || r.strategyName;
-        if (!id) return null;
+    const running: any[] = [];
+    for (const r of runningRows) {
+      const s = Array.isArray(strategies) ? strategies.find((st: any) => st.id === r.strategyId) : null;
+      const id = r.strategyId || s?.id;
+      const name = s?.name || r.strategyName;
+      if (!id) {
+        running.push(null);
+        continue;
+      }
 
-        const [modifications, snapshots, periods] = await Promise.all([
-          getRunningStrategyModifications(r.id),
-          getDisconnectSnapshots(r.id),
-          getRunningPeriods(r.id)
-        ]);
+      // avoid opening too many DB connections in parallel by resolving each row sequentially.
+      let modifications: any[] = [];
+      let snapshots: any[] = [];
+      let periods: any[] = [];
+      try {
+        modifications = await getRunningStrategyModifications(r.id);
+      } catch (err) {
+        console.error('[RunningStrategiesAPI] Error reading modifications for', r.id, err);
+      }
+      try {
+        snapshots = await getDisconnectSnapshots(r.id);
+      } catch (err) {
+        console.error('[RunningStrategiesAPI] Error reading disconnect snapshots for', r.id, err);
+      }
+      try {
+        periods = await getRunningPeriods(r.id);
+      } catch (err) {
+        console.error('[RunningStrategiesAPI] Error reading running periods for', r.id, err);
+      }
 
-        const obj = {
-          id,
-          rsId: r.id,
-          strategyId: id,
-          name,
-          orders: [],
-          profit: 0,
-          adminStatus: r.adminStatus || r.admin_status || 'in-process',
-          status: r.status,
-          updatedAt: r.updatedAt || r.updated_at,
-          createdAt: r.createdAt || r.created_at,
-          plan: r.plan,
-          capital: r.capital,
-          platform: r.platform ?? null,
-          rejectionReason: r.rejectionReason ?? r.rejection_reason ?? null,
-          modifications,
-          snapshots,
-          periods
-        };
-        console.log(`[RunningStrategiesAPI] Strategy ${obj.strategyId} for user ${userId} has adminStatus: ${obj.adminStatus}`);
-        return obj;
-      }));
+      const obj = {
+        id,
+        rsId: r.id,
+        strategyId: id,
+        name,
+        orders: [],
+        profit: 0,
+        adminStatus: r.adminStatus || r.admin_status || 'in-process',
+        status: r.status,
+        updatedAt: r.updatedAt || r.updated_at,
+        createdAt: r.createdAt || r.created_at,
+        plan: r.plan,
+        capital: r.capital,
+        platform: r.platform ?? null,
+        rejectionReason: r.rejectionReason ?? r.rejection_reason ?? null,
+        modifications,
+        snapshots,
+        periods
+      };
+      console.log(`[RunningStrategiesAPI] Strategy ${obj.strategyId} for user ${userId} has adminStatus: ${obj.adminStatus}`);
+      running.push(obj);
+    }
 
     const filteredRunning = running.filter(Boolean);
 
