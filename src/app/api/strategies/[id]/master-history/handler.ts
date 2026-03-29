@@ -101,6 +101,62 @@ export async function GET(
     console.warn('[MasterHistory] COPY_TRADING_API_KEY missing/empty; serving cached data');
     return fallbackFromCache();
   }
+
+  const cached = await getCachedMasterTrades(masterId);
+  const cachedHist = Array.isArray(cached.history) ? cached.history.map(normalizeCachedTrade) : [];
+  const cachedOpen = Array.isArray(cached.open_positions) ? cached.open_positions.map(normalizeCachedTrade) : [];
+
+  if (cachedHist.length > 0 || cachedOpen.length > 0) {
+    // Return cached immediately on prod to avoid 30s function timeout while trying to reach an unstable remote.
+    void (async () => {
+      try {
+        const baseUrl = getTradingServiceBaseUrl();
+        const liveUrl = `${baseUrl}/master/${encodeURIComponent(masterId)}/history`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), Math.min(PYTHON_SERVICE_TIMEOUT_MS, 9000));
+
+        const res = await fetch(liveUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const history = Array.isArray(data.history) ? data.history : [];
+        const open_positions = (Array.isArray(data.open_positions) ? data.open_positions : []).map((p: any) => ({
+          ...p,
+          server_time_open: p.server_time_open ?? p.server_time ?? null,
+          price_current: p.price_current ?? p.price ?? p.price_open ?? null,
+        }));
+
+        // Do local cache refresh in background if we have new data
+        const finalHistory = history;
+        const finalOpenPositions = open_positions;
+        if (finalHistory.length > 0) {
+          await upsertMasterTrades(masterId, finalHistory, false);
+        }
+        await reconcileMasterOpenPositions(masterId, finalOpenPositions);
+      } catch (err) {
+        console.warn('[MasterHistory] Background refresh failed:', err);
+      }
+    })();
+
+    return NextResponse.json({
+      history: cachedHist,
+      open_positions: cachedOpen,
+      error: undefined,
+      last_updated: cached.last_updated,
+      info: 'Serving cached data while live refresh is in progress',
+    });
+  }
+
   const baseUrl = getTradingServiceBaseUrl();
   const liveUrl = `${baseUrl}/master/${encodeURIComponent(masterId)}/history`;
 
