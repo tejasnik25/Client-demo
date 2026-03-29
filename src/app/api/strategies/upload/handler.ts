@@ -50,6 +50,12 @@ export async function POST(req: NextRequest) {
     const commissionPercentMatch = rawCommissionPercent.match(/-?\d+(\.\d+)?/);
     const commissionPercent = commissionPercentMatch ? Number(commissionPercentMatch[0]) : undefined;
     
+    // Add min/max/drawdown/risk fields
+    const minCapital = formData.get('minCapital') ? Number(formData.get('minCapital') as string) : undefined;
+    const avgDrawdown = formData.get('avgDrawdown') ? Number(formData.get('avgDrawdown') as string) : undefined;
+    const riskReward = formData.get('riskReward') ? Number(formData.get('riskReward') as string) : undefined;
+    const winStreak = formData.get('winStreak') ? Number(formData.get('winStreak') as string) : undefined;
+
     // Handle tags: allow empty string to clear the value
     const rawTag = formData.get('tag');
     const tag = rawTag !== null ? String(rawTag) : undefined;
@@ -215,6 +221,10 @@ export async function POST(req: NextRequest) {
       maxDdi,
       copiers,
       riskScore,
+      minCapital,
+      avgDrawdown,
+      riskReward,
+      winStreak,
       tag,
       mastersTag,
       planPrices: { Pro: planPro, Expert: planExpert, Premium: planPremium },
@@ -302,6 +312,11 @@ export async function PUT(req: NextRequest) {
     const icon = formData.get('icon') as File | null;
     const countryFlag = (formData.get('countryFlag') as string) || '';
     const lotPricing = (formData.get('lotPricing') as string) || '';
+
+    const minCapital = formData.get('minCapital') ? Number(formData.get('minCapital') as string) : undefined;
+    const avgDrawdown = formData.get('avgDrawdown') ? Number(formData.get('avgDrawdown') as string) : undefined;
+    const riskReward = formData.get('riskReward') ? Number(formData.get('riskReward') as string) : undefined;
+    const winStreak = formData.get('winStreak') ? Number(formData.get('winStreak') as string) : undefined;
 
     // Admin commission percent for the strategy (single commission field, no plan system required)
     const rawCommissionPercent = (formData.get('commissionPercent') as string) || '';
@@ -398,6 +413,10 @@ export async function PUT(req: NextRequest) {
       maxDdi,
       copiers,
       riskScore,
+      minCapital,
+      avgDrawdown,
+      riskReward,
+      winStreak,
       tag,
       mastersTag,
       masterAccountId,

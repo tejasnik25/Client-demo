@@ -84,6 +84,8 @@ export default function CopierHistoryPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyInfo, setHistoryInfo] = useState<string | null>(null);
+  const [historyUpdatedAt, setHistoryUpdatedAt] = useState<string | null>(null);
   const [connectAt, setConnectAt] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [filter, setFilter] = useState<"opened" | "closed" | "balance">("closed");
@@ -166,6 +168,8 @@ export default function CopierHistoryPage() {
         
         setHistory(data.history || []);
         setOpenPositions(data.open_positions || []);
+        setHistoryInfo(data.info || null);
+        setHistoryUpdatedAt(data.last_updated || null);
 
         // Persist latest known-good data for instant display on next visit.
         if (typeof window !== "undefined") {
@@ -349,9 +353,13 @@ export default function CopierHistoryPage() {
   const filteredClosed = useMemo(() => {
     return history
       .filter(h => {
-        const openMs = toMs(h.server_time_open ?? h.time_open ?? h.open_time);
-        const closeMs = toMs(h.server_time_close ?? h.time_close ?? h.close_time);
+        const openRaw = h.server_time_open ?? h.time_open ?? h.open_time ?? h.time;
+        const closeRaw = h.server_time_close ?? h.time_close ?? h.close_time ?? h.time;
+        const openMs = toMs(openRaw);
+        const closeMs = toMs(closeRaw);
         if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return false;
+
+        const effectiveMs = Number.isFinite(openMs) ? openMs : closeMs;
 
         // If no running periods yet, fallback to connectedAt (original behavior)
         if (runningPeriods.length === 0) {
@@ -360,11 +368,11 @@ export default function CopierHistoryPage() {
           return (Number.isFinite(openMs) && openMs >= startTs) || (Number.isFinite(closeMs) && closeMs >= startTs);
         }
 
-        // Check if openMs falls within ANY of the running periods
+        // Check if time falls within ANY of the running periods
         const inPeriod = runningPeriods.some(period => {
           const start = toMs(period.start_time);
           const end = period.end_time ? toMs(period.end_time) : Infinity;
-          return Number.isFinite(openMs) && openMs >= start && openMs <= end;
+          return Number.isFinite(effectiveMs) && effectiveMs >= start && effectiveMs <= end;
         });
 
         // Also include trades that were opened BEFORE the first period but closed AFTER it started
@@ -377,19 +385,21 @@ export default function CopierHistoryPage() {
         return inPeriod;
       })
       .map((h) => {
-      return {
-        isOpen: false as const,
-        openTimeStr: h.server_time_open || (h.time_open ? String(h.time_open) : (h.open_time ? String(h.open_time) : "")),
-        closeTimeStr: h.server_time_close || (h.time_close ? String(h.time_close) : (h.close_time ? String(h.close_time) : "")),
-        symbol: h.symbol,
-        type: h.type,
-        volume: h.volume,
-        openPrice: h.price_open,
-        closeOrCurrentPrice: h.price_close,
-        profit: Number(h.profit),
-        swap: Number(h.swap || 0),
-      };
-    });
+        const openRaw = h.server_time_open ?? h.time_open ?? h.open_time ?? h.time;
+        const closeRaw = h.server_time_close ?? h.time_close ?? h.close_time ?? h.time;
+        return {
+          isOpen: false as const,
+          openTimeStr: openRaw != null ? String(openRaw) : "",
+          closeTimeStr: closeRaw != null ? String(closeRaw) : "",
+          symbol: h.symbol,
+          type: h.type,
+          volume: h.volume,
+          openPrice: h.price_open,
+          closeOrCurrentPrice: h.price_close,
+          profit: Number(h.profit),
+          swap: Number(h.swap || 0),
+        };
+      });
   }, [history, connectAt, runningPeriods]);
 
   const filteredOpen = useMemo(() => {

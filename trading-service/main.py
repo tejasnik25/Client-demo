@@ -254,6 +254,7 @@ def save_trade_cache():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global MT5_PATH
     load_subscriptions()
     load_trade_cache()
     
@@ -289,7 +290,7 @@ app.add_middleware(
 # ---------------------------------------------------------
 # If MT5 is installed in a custom location, set this path.
 # Example: r"C:\Program Files\MetaTrader 5\terminal64.exe"
-MT5_PATH = "" 
+# NOTE: MT5_PATH is initialized above from args/env and should not be reset here.
 FILTER_MASTER_ID = args.master_id # Set from CLI args
 # ---------------------------------------------------------
 
@@ -1009,6 +1010,20 @@ def clean_string(s):
     # Users might have passwords starting/ending with space.
     return cleaned
 
+def normalize_mt5_path(path_value: str) -> str:
+    """
+    Normalize MT5 path to terminal64.exe when a directory is provided.
+    """
+    if not path_value:
+        return ""
+    try:
+        if os.path.isdir(path_value):
+            candidate = os.path.join(path_value, "terminal64.exe")
+            return candidate if os.path.exists(candidate) else path_value
+    except Exception:
+        pass
+    return path_value
+
 def safe_mt5_login(account_id, password, server):
     """
     Robust login with retry, status checks, and connection wait.
@@ -1019,12 +1034,42 @@ def safe_mt5_login(account_id, password, server):
         
         # Initialize MT5 if not already
         if not mt5.terminal_info():
-            if MT5_PATH:
-                if not mt5.initialize(path=MT5_PATH):
-                    return False, f"MT5 Initialize Failed with path: {MT5_PATH}"
+            init_path = normalize_mt5_path(MT5_PATH)
+            if init_path:
+                if not mt5.initialize(path=init_path):
+                    # Try auto-detecting a running MT5 terminal as a fallback
+                    detected = detect_running_mt5_path()
+                    if detected:
+                        detected = normalize_mt5_path(detected)
+                        if mt5.initialize(path=detected):
+                            # Update global path for subsequent calls
+                            try:
+                                globals()["MT5_PATH"] = detected
+                            except Exception:
+                                pass
+                        else:
+                            code, msg = mt5.last_error()
+                            return False, f"MT5 Initialize Failed with path: {init_path} ({code}: {msg})"
+                    else:
+                        code, msg = mt5.last_error()
+                        return False, f"MT5 Initialize Failed with path: {init_path} ({code}: {msg})"
             else:
                 if not mt5.initialize():
-                    return False, "MT5 Initialize Failed"
+                    # Fallback to detected running terminal, if any
+                    detected = detect_running_mt5_path()
+                    if detected:
+                        detected = normalize_mt5_path(detected)
+                        if mt5.initialize(path=detected):
+                            try:
+                                globals()["MT5_PATH"] = detected
+                            except Exception:
+                                pass
+                        else:
+                            code, msg = mt5.last_error()
+                            return False, f"MT5 Initialize Failed ({code}: {msg})"
+                    else:
+                        code, msg = mt5.last_error()
+                        return False, f"MT5 Initialize Failed ({code}: {msg})"
         
         # 0. Clean Inputs (Crucial for Automation)
         account_id = clean_string(account_id)
@@ -2752,8 +2797,8 @@ async def get_master_history(master_id: str):
                         pd['server_time'] = datetime.fromtimestamp(pd.get('time', time.time())).strftime('%Y.%m.%d %H:%M:%S')
                         open_positions.append(pd)
 
-                    # Fetch LIVE history (last 365 days)
-                    from_date = datetime.now() - timedelta(days=365)
+                    # Fetch LIVE history (extended range for older strategies)
+                    from_date = datetime.now() - timedelta(days=3650)
                     deals = mt5.history_deals_get(from_date, datetime.now()) or []
                     # Filter out deals with magic number 123456 (copied trades)
                     raw_deals = [d._asdict() for d in deals if getattr(d, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]

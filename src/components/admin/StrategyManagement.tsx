@@ -127,12 +127,42 @@ const resetAddForm = () => {
 
   // Open edit strategy dialog
   const handleEditClick = (strategy: Strategy) => {
-    setCurrentStrategy({ ...strategy });
+    const initialPlanPrices = strategy.planPrices || { Pro: undefined, Expert: undefined, Premium: undefined };
+
+    // fallback from lotPricing parameter when planPrices is missing
+    if ((initialPlanPrices.Pro === undefined || initialPlanPrices.Expert === undefined || initialPlanPrices.Premium === undefined)) {
+      try {
+        const lp = (strategy.parameters as any)?.lotPricing;
+        if (typeof lp === 'string') {
+          const parsedLp = JSON.parse(lp);
+          if (Array.isArray(parsedLp) && parsedLp[0]?.amountUSD) {
+            const base = Number(parsedLp[0].amountUSD);
+            if (Number.isFinite(base) && base > 0) {
+              initialPlanPrices.Pro = initialPlanPrices.Pro ?? base;
+              initialPlanPrices.Expert = initialPlanPrices.Expert ?? base * 2;
+              initialPlanPrices.Premium = initialPlanPrices.Premium ?? base * 3;
+            }
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    setCurrentStrategy({
+      ...strategy,
+      planPrices: initialPlanPrices,
+      minCapital: (strategy as any).minCapital ?? (strategy as any).min_capital,
+      avgDrawdown: (strategy as any).avgDrawdown ?? (strategy as any).avg_drawdown,
+      riskReward: (strategy as any).riskReward ?? (strategy as any).risk_reward,
+      winStreak: (strategy as any).winStreak ?? (strategy as any).win_streak,
+    });
+
     // Initialize range strings from existing numeric prices (fallback to "+" style)
     setPlanRanges({
-      Pro: strategy.planPrices?.Pro !== undefined ? `$${strategy.planPrices.Pro}+` : '',
-      Expert: strategy.planPrices?.Expert !== undefined ? `$${strategy.planPrices.Expert}+` : '',
-      Premium: strategy.planPrices?.Premium !== undefined ? `$${strategy.planPrices.Premium}+` : ''
+      Pro: initialPlanPrices.Pro !== undefined ? `$${initialPlanPrices.Pro}+` : '',
+      Expert: initialPlanPrices.Expert !== undefined ? `$${initialPlanPrices.Expert}+` : '',
+      Premium: initialPlanPrices.Premium !== undefined ? `$${initialPlanPrices.Premium}+` : ''
     });
     // Initialize percents from planDetails if present
     setPlanPercents({
@@ -186,8 +216,8 @@ const resetAddForm = () => {
     
     setCurrentStrategy(prev => ({
       ...prev,
-      [name]: name === 'performance' || name === 'roi' || name === 'profit' || name === 'maxDdi' || name === 'copiers' || name === 'riskScore'
-        ? (value === '' ? undefined : parseFloat(value) || 0) 
+      [name]: ['performance','roi','profit','maxDdi','copiers','riskScore','minCapital','avgDrawdown','riskReward','winStreak'].includes(name)
+        ? (value === '' ? undefined : parseFloat(value) || 0)
         : value
     }));
   };
@@ -242,6 +272,15 @@ const resetAddForm = () => {
   // Add new parameter row
   const addParameter = () => {
     setParameters(prev => [...prev, { key: '', value: '', id: `param-${Date.now()}` }]);
+  };
+
+  // Handle plan price override values
+  const handlePlanPriceChange = (plan: 'Pro' | 'Expert' | 'Premium', value: string) => {
+    setCurrentStrategy(prev => {
+      const priceObj = { ...(prev.planPrices || { Pro: undefined, Expert: undefined, Premium: undefined }) };
+      priceObj[plan] = value === '' ? undefined : Number(value);
+      return { ...prev, planPrices: priceObj };
+    });
   };
 
   // Remove parameter row
@@ -302,9 +341,20 @@ const resetAddForm = () => {
       if (currentStrategy.maxDdi !== undefined) formData.append('maxDdi', String(currentStrategy.maxDdi));
       if (currentStrategy.copiers !== undefined) formData.append('copiers', String(currentStrategy.copiers));
       if (currentStrategy.riskScore !== undefined) formData.append('riskScore', String(currentStrategy.riskScore));
+      if (currentStrategy.minCapital !== undefined) formData.append('minCapital', String(currentStrategy.minCapital));
+      if (currentStrategy.avgDrawdown !== undefined) formData.append('avgDrawdown', String(currentStrategy.avgDrawdown));
+      if (currentStrategy.riskReward !== undefined) formData.append('riskReward', String(currentStrategy.riskReward));
+      if (currentStrategy.winStreak !== undefined) formData.append('winStreak', String(currentStrategy.winStreak));
       if (currentStrategy.tag !== undefined) formData.append('tag', String(currentStrategy.tag));
       formData.append('mastersTag', String(currentStrategy.mastersTag || ''));
       if (currentStrategy.riskLevel) formData.append('riskLevel', String(currentStrategy.riskLevel));
+
+      // Plan price values
+      const planPriceObj = currentStrategy.planPrices || {};
+      if (planPriceObj.Pro !== undefined) formData.append('planPro', String(planPriceObj.Pro));
+      if (planPriceObj.Expert !== undefined) formData.append('planExpert', String(planPriceObj.Expert));
+      if (planPriceObj.Premium !== undefined) formData.append('planPremium', String(planPriceObj.Premium));
+
       // Admin commission percent (single commission for the strategy)
       if (commissionPercent.trim().length > 0) {
         formData.append('commissionPercent', commissionPercent.trim());
@@ -316,14 +366,16 @@ const resetAddForm = () => {
       if (currentStrategy.masterAccountServer) formData.append('masterAccountServer', currentStrategy.masterAccountServer);
       if (currentStrategy.masterPlatform) formData.append('masterPlatform', currentStrategy.masterPlatform);
 
-      // Plans: removed Pro/Expert/Premium specific inputs per request
-      // We will now only use the base lot pricing
-      formData.append('planPro', '0');
-      formData.append('planExpert', '0');
-      formData.append('planPremium', '0');
-      formData.append('planProPercent', '0');
-      formData.append('planExpertPercent', '0');
-      formData.append('planPremiumPercent', '0');
+      // Plans: store explicit per-plan pricing from planPrices object
+      const planPrices = currentStrategy.planPrices || { Pro: undefined, Expert: undefined, Premium: undefined };
+      if (planPrices.Pro !== undefined) formData.append('planPro', String(planPrices.Pro));
+      if (planPrices.Expert !== undefined) formData.append('planExpert', String(planPrices.Expert));
+      if (planPrices.Premium !== undefined) formData.append('planPremium', String(planPrices.Premium));
+
+      // Plan percentages (if set from planPercents)
+      if (planPercents.Pro !== undefined) formData.append('planProPercent', String(planPercents.Pro));
+      if (planPercents.Expert !== undefined) formData.append('planExpertPercent', String(planPercents.Expert));
+      if (planPercents.Premium !== undefined) formData.append('planPremiumPercent', String(planPercents.Premium));
 
       // Lot pricing rows -> JSON string
       const lotPricing = lotRows
@@ -584,6 +636,22 @@ const resetAddForm = () => {
                     <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Master</span>
                     <Badge variant="outline" className="bg-white">{strategy.mastersTag || '-'}</Badge>
                   </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Drawdown</span>
+                    <span className="text-gray-900 font-bold">{strategy.avgDrawdown !== undefined ? `${strategy.avgDrawdown}%` : '-'}</span>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Min Capital</span>
+                    <span className="text-gray-900 font-bold">{strategy.minCapital !== undefined ? `$${strategy.minCapital}` : '-'}</span>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Risk Reward</span>
+                    <span className="text-gray-900 font-bold">{strategy.riskReward !== undefined ? strategy.riskReward : '-'}</span>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="block text-[10px] uppercase font-black text-gray-400 mb-1">Win Streak</span>
+                    <span className="text-gray-900 font-bold">{strategy.winStreak !== undefined ? strategy.winStreak : '-'}</span>
+                  </div>
                 </div>
 
                 <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 text-sm">
@@ -602,6 +670,15 @@ const resetAddForm = () => {
                       <span className="font-bold text-blue-900">Platform:</span>
                       <span className="ml-1 text-blue-800">{(strategy.masterPlatform || '').toUpperCase() || '-'}</span>
                     </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-sm mt-3">
+                  <div className="font-black text-gray-500 uppercase tracking-wider text-[10px]">Plan Pricing</div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                    <span className="font-bold">Pro:</span> ${strategy.planPrices?.Pro ?? '-'}
+                    <span className="font-bold">Expert:</span> ${strategy.planPrices?.Expert ?? '-'}
+                    <span className="font-bold">Premium:</span> ${strategy.planPrices?.Premium ?? '-'}
                   </div>
                 </div>
                 
@@ -638,7 +715,7 @@ const resetAddForm = () => {
 
       {/* Add/Edit Strategy Dialog */}
       <Dialog open={isAdding || isEditing} onOpenChange={(open: boolean) => !open && (setIsAdding(false), setIsEditing(false))}>
-        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] bg-white border border-gray-200 text-gray-900 p-0 rounded-2xl overflow-hidden flex flex-col shadow-2xl">
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[95vh] bg-white border border-gray-200 text-gray-900 p-0 rounded-2xl overflow-hidden flex flex-col shadow-2xl">
           <DialogHeader className="p-6 border-b border-gray-100 bg-gray-50/50">
             <DialogTitle className="text-2xl font-black text-gray-900 uppercase tracking-tight">
               {isAdding ? 'Create Strategy' : 'Update Strategy'}
@@ -648,7 +725,10 @@ const resetAddForm = () => {
             </DialogDescription>
           </DialogHeader>
           
-          <ScrollArea className="flex-1 px-6 py-6">
+          <ScrollArea className="flex-1 px-6 py-6 overflow-y-auto" style={{ maxHeight: 'calc(95vh - 170px)' }}>
+              <div className="p-2 mb-4 rounded-lg bg-yellow-50 border border-yellow-100 text-sm font-bold text-yellow-700">
+                Scroll down to complete “Master Account Connection” and “Lot Size Pricing” fields.
+              </div>
             <form id="strategy-form" onSubmit={handleSubmit} className="space-y-8 pb-6">
               {/* Content Selection Section */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -803,6 +883,34 @@ const resetAddForm = () => {
                     <Input id="maxDdi" name="maxDdi" type="number" step="0.01" value={String(currentStrategy.maxDdi ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="minCapital" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Min Capital</Label>
+                    <Input id="minCapital" name="minCapital" type="number" step="0.01" value={String(currentStrategy.minCapital ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="avgDrawdown" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Avg Drawdown (%)</Label>
+                    <Input id="avgDrawdown" name="avgDrawdown" type="number" step="0.01" value={String(currentStrategy.avgDrawdown ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="riskReward" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Risk Reward</Label>
+                    <Input id="riskReward" name="riskReward" type="number" step="0.01" value={String(currentStrategy.riskReward ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="winStreak" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Win Streak</Label>
+                    <Input id="winStreak" name="winStreak" type="number" step="1" value={String(currentStrategy.winStreak ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="planPro" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Pro Price</Label>
+                    <Input id="planPro" name="planPro" type="number" step="0.01" value={String(currentStrategy.planPrices?.Pro ?? '')} onChange={(e) => handlePlanPriceChange('Pro', e.target.value)} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="planExpert" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Expert Price</Label>
+                    <Input id="planExpert" name="planExpert" type="number" step="0.01" value={String(currentStrategy.planPrices?.Expert ?? '')} onChange={(e) => handlePlanPriceChange('Expert', e.target.value)} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="planPremium" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Premium Price</Label>
+                    <Input id="planPremium" name="planPremium" type="number" step="0.01" value={String(currentStrategy.planPrices?.Premium ?? '')} onChange={(e) => handlePlanPriceChange('Premium', e.target.value)} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="commissionPercent" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Commission (%)</Label>
                     <Input id="commissionPercent" name="commissionPercent" type="number" step="0.01" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
                   </div>
@@ -915,19 +1023,19 @@ const resetAddForm = () => {
                     </p>
                   </div>
                   
-                  {lotRows[0]?.amountUSD && Number(lotRows[0].amountUSD) > 0 && (
+                  {((currentStrategy.planPrices?.Pro !== undefined && currentStrategy.planPrices?.Expert !== undefined && currentStrategy.planPrices?.Premium !== undefined) || (lotRows[0]?.amountUSD && Number(lotRows[0].amountUSD) > 0)) && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
                       <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
-                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">x1 (Equal)</span>
-                        <span className="text-xl font-black text-gray-900">${Number(lotRows[0].amountUSD).toFixed(2)}</span>
+                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">Pro</span>
+                        <span className="text-xl font-black text-gray-900">${currentStrategy.planPrices?.Pro !== undefined ? Number(currentStrategy.planPrices.Pro).toFixed(2) : Number(lotRows[0]?.amountUSD || 0).toFixed(2)}</span>
                       </div>
                       <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
-                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">x2 (Double)</span>
-                        <span className="text-xl font-black text-gray-900">${(Number(lotRows[0].amountUSD) * 2).toFixed(2)}</span>
+                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">Expert</span>
+                        <span className="text-xl font-black text-gray-900">${currentStrategy.planPrices?.Expert !== undefined ? Number(currentStrategy.planPrices.Expert).toFixed(2) : (Number(lotRows[0]?.amountUSD || 0) * 2).toFixed(2)}</span>
                       </div>
                       <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
-                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">x3 (Triple)</span>
-                        <span className="text-xl font-black text-gray-900">${(Number(lotRows[0].amountUSD) * 3).toFixed(2)}</span>
+                        <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">Premium</span>
+                        <span className="text-xl font-black text-gray-900">${currentStrategy.planPrices?.Premium !== undefined ? Number(currentStrategy.planPrices.Premium).toFixed(2) : (Number(lotRows[0]?.amountUSD || 0) * 3).toFixed(2)}</span>
                       </div>
                     </div>
                   )}

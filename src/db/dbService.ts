@@ -234,18 +234,25 @@ export const getStrategyById = async (id: string) => {
     const [rows]: any = await pool.execute('SELECT * FROM strategies WHERE id = ?', [id]);
     if (!rows[0]) return null;
     const s = rows[0];
+    const parsedParameters = typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : s.parameters || {};
+    const rawRiskScore = s.risk_score ?? s.riskScore ?? parsedParameters.riskScore ?? parsedParameters.risk_score;
     return {
       ...s,
       masterAccountId: s.master_account_id,
       masterAccountPassword: s.master_account_password,
       masterAccountServer: s.master_account_server,
       masterPlatform: s.master_platform,
-      roi: Number(s.roi ?? 0),
-      profit: Number(s.profit ?? 0),
-      maxDdi: Number(s.max_ddi ?? 0),
-      copiers: Number(s.copiers ?? 0),
+      roi: s.roi !== undefined && s.roi !== null ? Number(s.roi) : undefined,
+      profit: s.profit !== undefined && s.profit !== null ? Number(s.profit) : undefined,
+      maxDdi: s.max_ddi !== undefined && s.max_ddi !== null ? Number(s.max_ddi) : undefined,
+      copiers: s.copiers !== undefined && s.copiers !== null ? Number(s.copiers) : undefined,
+      riskScore: rawRiskScore !== undefined && rawRiskScore !== null ? Number(rawRiskScore) : undefined,
+      minCapital: s.min_capital !== undefined && s.min_capital !== null ? Number(s.min_capital) : undefined,
+      avgDrawdown: s.avg_drawdown !== undefined && s.avg_drawdown !== null ? Number(s.avg_drawdown) : undefined,
+      riskReward: s.risk_reward !== undefined && s.risk_reward !== null ? Number(s.risk_reward) : undefined,
+      winStreak: s.win_streak !== undefined && s.win_streak !== null ? Number(s.win_streak) : undefined,
       imageUrl: s.image_url,
-      parameters: typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : s.parameters,
+      parameters: parsedParameters,
       planPrices: typeof s.plan_prices === 'string' ? JSON.parse(s.plan_prices || '{}') : s.plan_prices,
       planDetails: typeof s.plan_details === 'string' ? JSON.parse(s.plan_details || '{}') : s.plan_details,
     };
@@ -259,21 +266,30 @@ export const getStrategyById = async (id: string) => {
 export const getAllStrategies = async () => {
   try {
     const [rows]: any = await pool.execute('SELECT * FROM strategies');
-    return rows.map((s: any) => ({
-      ...s,
-      masterAccountId: s.master_account_id,
-      masterAccountPassword: s.master_account_password,
-      masterAccountServer: s.master_account_server,
-      masterPlatform: s.master_platform,
-      roi: Number(s.roi ?? 0),
-      profit: Number(s.profit ?? 0),
-      maxDdi: Number(s.max_ddi ?? 0),
-      copiers: Number(s.copiers ?? 0),
-      imageUrl: s.image_url,
-      parameters: typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : s.parameters,
-      planPrices: typeof s.plan_prices === 'string' ? JSON.parse(s.plan_prices || '{}') : s.plan_prices,
-      planDetails: typeof s.plan_details === 'string' ? JSON.parse(s.plan_details || '{}') : s.plan_details,
-    }));
+    return rows.map((s: any) => {
+      const parsedParameters = typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : s.parameters || {};
+      const rawRiskScore = s.risk_score ?? s.riskScore ?? parsedParameters.riskScore ?? parsedParameters.risk_score;
+      return {
+        ...s,
+        masterAccountId: s.master_account_id,
+        masterAccountPassword: s.master_account_password,
+        masterAccountServer: s.master_account_server,
+        masterPlatform: s.master_platform,
+        roi: s.roi !== undefined && s.roi !== null ? Number(s.roi) : undefined,
+        profit: s.profit !== undefined && s.profit !== null ? Number(s.profit) : undefined,
+        maxDdi: s.max_ddi !== undefined && s.max_ddi !== null ? Number(s.max_ddi) : undefined,
+        copiers: s.copiers !== undefined && s.copiers !== null ? Number(s.copiers) : undefined,
+        riskScore: rawRiskScore !== undefined && rawRiskScore !== null ? Number(rawRiskScore) : undefined,
+        minCapital: s.min_capital !== undefined && s.min_capital !== null ? Number(s.min_capital) : undefined,
+        avgDrawdown: s.avg_drawdown !== undefined && s.avg_drawdown !== null ? Number(s.avg_drawdown) : undefined,
+        riskReward: s.risk_reward !== undefined && s.risk_reward !== null ? Number(s.risk_reward) : undefined,
+        winStreak: s.win_streak !== undefined && s.win_streak !== null ? Number(s.win_streak) : undefined,
+        imageUrl: s.image_url,
+        parameters: parsedParameters,
+        planPrices: typeof s.plan_prices === 'string' ? JSON.parse(s.plan_prices || '{}') : s.plan_prices,
+        planDetails: typeof s.plan_details === 'string' ? JSON.parse(s.plan_details || '{}') : s.plan_details,
+      };
+    });
   } catch (error) {
     console.error('Error getting all strategies:', error);
     const db = readDatabase();
@@ -652,12 +668,50 @@ export const updateStrategy = async (id: string, updates: any) => {
   try {
     const fields = [];
     const values = [];
-    if (updates.name) { fields.push('name = ?'); values.push(updates.name); }
-    if (updates.description) { fields.push('description = ?'); values.push(updates.description); }
-    if (updates.parameters) { fields.push('parameters = ?'); values.push(JSON.stringify(updates.parameters)); }
-    if (updates.plan_prices) { fields.push('plan_prices = ?'); values.push(JSON.stringify(updates.plan_prices)); }
-    if (updates.plan_details) { fields.push('plan_details = ?'); values.push(JSON.stringify(updates.plan_details)); }
-    
+
+    if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name); }
+    if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
+    if (updates.imageUrl !== undefined) { fields.push('image_url = ?'); values.push(updates.imageUrl); }
+    if (updates.details !== undefined) { fields.push('details = ?'); values.push(updates.details); }
+    if (updates.performance !== undefined) { fields.push('performance = ?'); values.push(updates.performance); }
+    if (updates.riskLevel !== undefined) { fields.push('risk_level = ?'); values.push(updates.riskLevel); }
+    if (updates.category !== undefined) { fields.push('category = ?'); values.push(updates.category); }
+
+    if (updates.parameters) {
+      const merged = { ...updates.parameters };
+      if (updates.riskScore !== undefined) merged.riskScore = updates.riskScore;
+      fields.push('parameters = ?');
+      values.push(JSON.stringify(merged));
+    } else if (updates.riskScore !== undefined) {
+      const existing = await getStrategyById(id);
+      const merged = { ...((existing && existing.parameters) || {}), riskScore: updates.riskScore };
+      fields.push('parameters = ?');
+      values.push(JSON.stringify(merged));
+    }
+
+    const planPrices = updates.planPrices || updates.plan_prices;
+    if (planPrices !== undefined) { fields.push('plan_prices = ?'); values.push(JSON.stringify(planPrices)); }
+
+    const planDetails = updates.planDetails || updates.plan_details;
+    if (planDetails !== undefined) { fields.push('plan_details = ?'); values.push(JSON.stringify(planDetails)); }
+
+    if (updates.roi !== undefined) { fields.push('roi = ?'); values.push(updates.roi); }
+    if (updates.profit !== undefined) { fields.push('profit = ?'); values.push(updates.profit); }
+    if (updates.maxDdi !== undefined) { fields.push('max_ddi = ?'); values.push(updates.maxDdi); }
+    if (updates.copiers !== undefined) { fields.push('copiers = ?'); values.push(updates.copiers); }
+    if (updates.minCapital !== undefined) { fields.push('min_capital = ?'); values.push(updates.minCapital); }
+    if (updates.avgDrawdown !== undefined) { fields.push('avg_drawdown = ?'); values.push(updates.avgDrawdown); }
+    if (updates.riskReward !== undefined) { fields.push('risk_reward = ?'); values.push(updates.riskReward); }
+    if (updates.winStreak !== undefined) { fields.push('win_streak = ?'); values.push(updates.winStreak); }
+    if (updates.tag !== undefined) { fields.push('tag = ?'); values.push(updates.tag); }
+    if (updates.mastersTag !== undefined) { fields.push('masters_tag = ?'); values.push(updates.mastersTag); }
+    if (updates.enabled !== undefined) { fields.push('enabled = ?'); values.push(updates.enabled ? 1 : 0); }
+
+    if (updates.masterAccountId !== undefined) { fields.push('master_account_id = ?'); values.push(updates.masterAccountId); }
+    if (updates.masterAccountPassword !== undefined) { fields.push('master_account_password = ?'); values.push(updates.masterAccountPassword); }
+    if (updates.masterAccountServer !== undefined) { fields.push('master_account_server = ?'); values.push(updates.masterAccountServer); }
+    if (updates.masterPlatform !== undefined) { fields.push('master_platform = ?'); values.push(updates.masterPlatform); }
+
     if (fields.length === 0) return true;
     values.push(id);
     await pool.execute(`UPDATE strategies SET ${fields.join(', ')} WHERE id = ?`, values);
@@ -671,12 +725,42 @@ export const updateStrategy = async (id: string, updates: any) => {
 export const createStrategy = async (strategy: any) => {
   try {
     const id = strategy.id || `strat_${Date.now()}`;
+    const mergedParameters: any = {
+      ...(strategy.parameters || {}),
+    };
+    if (strategy.riskScore !== undefined && strategy.riskScore !== null) {
+      mergedParameters.riskScore = strategy.riskScore;
+    }
+
     await pool.execute(
-      'INSERT INTO strategies (id, name, description, master_account_id, master_account_password, master_account_server, master_platform, parameters, plan_prices, plan_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO strategies (id, name, description, image_url, details, performance, risk_level, category, parameters, plan_prices, plan_details, roi, profit, max_ddi, copiers, min_capital, avg_drawdown, risk_reward, win_streak, tag, masters_tag, enabled, master_account_id, master_account_password, master_account_server, master_platform) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
-        id, strategy.name, strategy.description || '', 
-        strategy.masterAccountId, strategy.masterAccountPassword, strategy.masterAccountServer, strategy.masterPlatform || 'MT5',
-        JSON.stringify(strategy.parameters || {}), JSON.stringify(strategy.planPrices || {}), JSON.stringify(strategy.planDetails || {})
+        id,
+        strategy.name,
+        strategy.description || '',
+        strategy.imageUrl || null,
+        strategy.details || '',
+        strategy.performance || 0,
+        strategy.riskLevel || 'Medium',
+        strategy.category || 'Value',
+        JSON.stringify(mergedParameters),
+        JSON.stringify(strategy.planPrices || {}),
+        JSON.stringify(strategy.planDetails || {}),
+        strategy.roi !== undefined && strategy.roi !== null ? strategy.roi : null,
+        strategy.profit !== undefined && strategy.profit !== null ? strategy.profit : null,
+        strategy.maxDdi !== undefined && strategy.maxDdi !== null ? strategy.maxDdi : null,
+        strategy.copiers !== undefined && strategy.copiers !== null ? strategy.copiers : null,
+        strategy.minCapital !== undefined && strategy.minCapital !== null ? strategy.minCapital : null,
+        strategy.avgDrawdown !== undefined && strategy.avgDrawdown !== null ? strategy.avgDrawdown : null,
+        strategy.riskReward !== undefined && strategy.riskReward !== null ? strategy.riskReward : null,
+        strategy.winStreak !== undefined && strategy.winStreak !== null ? strategy.winStreak : null,
+        strategy.tag || null,
+        strategy.mastersTag || null,
+        strategy.enabled !== undefined ? (strategy.enabled ? 1 : 0) : 1,
+        strategy.masterAccountId || null,
+        strategy.masterAccountPassword || null,
+        strategy.masterAccountServer || null,
+        strategy.masterPlatform || 'MT5',
       ]
     );
     return { success: true, id };
