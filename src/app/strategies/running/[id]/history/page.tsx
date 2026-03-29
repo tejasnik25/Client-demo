@@ -85,6 +85,7 @@ export default function CopierHistoryPage() {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyInfo, setHistoryInfo] = useState<string | null>(null);
+  const [usingCachedData, setUsingCachedData] = useState(false);
   const [historyUpdatedAt, setHistoryUpdatedAt] = useState<string | null>(null);
   const [connectAt, setConnectAt] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -187,8 +188,9 @@ export default function CopierHistoryPage() {
             // ignore
           }
         }
-        
+
         setHistoryError(data.error || null);
+        setUsingCachedData(Boolean(data.info && String(data.info).toLowerCase().includes('cached')));
         const runData = await runRes.json().catch(() => null);
         const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => (x.id === params.id || x.rsId === params.id || x.strategyId === params.id)) : null;
         
@@ -243,6 +245,28 @@ export default function CopierHistoryPage() {
         }
       } catch (e: any) {
         console.error("Failed to load history data:", e);
+
+        // Try to restore cached values when live endpoint is down
+        if (typeof window !== "undefined") {
+          try {
+            const key = `copier_history_cache_${params.id}`;
+            const raw = window.localStorage.getItem(key);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed?.history) || Array.isArray(parsed?.open_positions)) {
+                setHistory(Array.isArray(parsed.history) ? parsed.history : []);
+                setOpenPositions(Array.isArray(parsed.open_positions) ? parsed.open_positions : []);
+                setHistoryError("Live data is unavailable, showing cached history data.");
+                setUsingCachedData(true);
+                setHistoryLoading(false);
+                return;
+              }
+            }
+          } catch (cacheErr) {
+            console.warn("Failed to read cached history data:", cacheErr);
+          }
+        }
+
         setHistoryError(e?.message || "Failed to load history data. Please check connection.");
       } finally {
         setHistoryLoading(false);
@@ -908,6 +932,17 @@ export default function CopierHistoryPage() {
           {/* History Container */}
           <div className="bg-white rounded-[2rem] p-8 shadow-sm">
             <h2 className="text-xl font-bold text-gray-900 mb-6">History</h2>
+            {(historyError || historyInfo || usingCachedData) && (
+              <div className="mb-4 rounded-lg border p-3 text-xs"
+                   style={{
+                     borderColor: historyError ? '#f59e0b' : '#93c5fd',
+                     color: historyError ? '#b45309' : '#1e3a8a',
+                     backgroundColor: historyError ? '#fef3c7' : '#bfdbfe',
+                   }}
+              >
+                {historyError ? historyError : usingCachedData ? 'Using cached history data while live data is unavailable.' : historyInfo}
+              </div>
+            )}
             
             {/* Tabs */}
             <div className="flex items-center gap-8 border-b border-gray-100 mb-8">

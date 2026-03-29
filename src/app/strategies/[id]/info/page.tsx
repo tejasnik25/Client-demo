@@ -46,6 +46,7 @@ const StrategyInfoPage: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [connectAt, setConnectAt] = useState<string | null>(null);
+  const [usingCachedData, setUsingCachedData] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [openPositionsPage, setOpenPositionsPage] = useState(1);
   const entriesPerPage = 20;
@@ -92,9 +93,32 @@ const StrategyInfoPage: React.FC = () => {
           
           if (!res.ok) {
             console.error('API response not ok:', res.status, res.statusText);
-            setHistoryError(data.error || `API error: ${res.status} ${res.statusText}`);
-            setHistory([]);
-            setOpenPositions([]);
+            const cacheKey = `copier_history_cache_${params.id}`;
+            let cachedUsed = false;
+
+            if (typeof window !== 'undefined') {
+              try {
+                const raw = window.localStorage.getItem(cacheKey);
+                if (raw) {
+                  const parsed = JSON.parse(raw);
+                  if (Array.isArray(parsed?.history) || Array.isArray(parsed?.open_positions)) {
+                    setHistory(Array.isArray(parsed.history) ? parsed.history : []);
+                    setOpenPositions(Array.isArray(parsed.open_positions) ? parsed.open_positions : []);
+                    setHistoryError('Live data is unavailable, showing cached history data.');
+                    setUsingCachedData(true);
+                    cachedUsed = true;
+                  }
+                }
+              } catch (cacheErr) {
+                console.warn('Failed to read cached history data:', cacheErr);
+              }
+            }
+
+            if (!cachedUsed) {
+              setHistoryError(data.error || `API error: ${res.status} ${res.statusText}`);
+              setHistory([]);
+              setOpenPositions([]);
+            }
             return;
           }
           
@@ -116,6 +140,7 @@ const StrategyInfoPage: React.FC = () => {
           } else {
             setHistoryError(null);
           }
+          setUsingCachedData(Boolean(data.info && String(data.info).toLowerCase().includes('cached')));
           const runData = await runRes.json().catch(() => null);
           const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => x.strategyId === params.id) : null;
           setConnectAt(me?.createdAt || null);
@@ -126,10 +151,33 @@ const StrategyInfoPage: React.FC = () => {
             stack: e?.stack || 'No stack trace',
             paramsId: params.id
           });
-          setHistoryError('Failed to fetch master history');
-          // Set empty arrays to prevent crashes
-          setHistory([]);
-          setOpenPositions([]);
+
+          const cacheKey = `copier_history_cache_${params.id}`;
+          let cacheApplied = false;
+
+          if (typeof window !== 'undefined') {
+            try {
+              const raw = window.localStorage.getItem(cacheKey);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed?.history) || Array.isArray(parsed?.open_positions)) {
+                  setHistory(Array.isArray(parsed.history) ? parsed.history : []);
+                  setOpenPositions(Array.isArray(parsed.open_positions) ? parsed.open_positions : []);
+                  setHistoryError('Live data is unavailable, showing cached history data.');
+                  setUsingCachedData(true);
+                  cacheApplied = true;
+                }
+              }
+            } catch (cacheErr) {
+              console.warn('Failed to read cached history data:', cacheErr);
+            }
+          }
+
+          if (!cacheApplied) {
+            setHistoryError('Failed to fetch master history');
+            setHistory([]);
+            setOpenPositions([]);
+          }
         } finally {
           setHistoryLoading(false);
         }
