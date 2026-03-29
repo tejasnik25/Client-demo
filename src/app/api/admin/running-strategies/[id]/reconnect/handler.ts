@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getRunningStrategyById, updateRunningStrategyAdminStatus } from '@/db/dbService';
+import { getRunningStrategyById, updateRunningStrategyAdminStatus, startRunningPeriod } from '@/db/dbService';
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -12,10 +12,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
     const running = await getRunningStrategyById(params.id);
     if (!running) return NextResponse.json({ error: 'Run not found' }, { status: 404 });
-    // No slave credentials required for read-only display workflow.
-    // Simply bump the updated_at timestamp by reasserting 'running' status.
+    
+    // Reset to running status
     await updateRunningStrategyAdminStatus(params.id, 'running');
-    return NextResponse.json({ success: true, message: 'Activation timestamp refreshed' });
+    // Also start a new running period
+    await startRunningPeriod(params.id);
+    
+    return NextResponse.json({ success: true, message: 'Activation timestamp refreshed and running period started' });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Reconnect failed' }, { status: 500 });
   }

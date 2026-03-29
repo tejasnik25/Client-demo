@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const strategyId = new URL(req.url).searchParams.get('strategyId');
     if (strategyId) {
       const allStrategies = await getProfitSharingOverviewAdmin();
-      const strategy = allStrategies.find(s => s.strategyId === strategyId);
+      const strategy = allStrategies.find(s => (s.id === strategyId || s.strategyId === strategyId));
       if (!strategy) return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
       
       // Also get detailed users list for this strategy if needed

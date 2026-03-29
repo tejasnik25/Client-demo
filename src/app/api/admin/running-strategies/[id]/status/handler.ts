@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
-import { updateRunningStrategyAdminStatus, deleteRunningStrategyModification, countRunningStrategyModificationsForRun, getRunningStrategyModificationById, updateRunningStrategyMtDetails, getPendingModificationsForStrategy } from '@/db/dbService'
+import { 
+  updateRunningStrategyAdminStatus, 
+  getRunningStrategyModificationById, 
+  updateRunningStrategyMtDetails, 
+  getPendingModificationsForStrategy, 
+  startRunningPeriod, 
+  endRunningPeriod, 
+  approveRunningStrategyModification, 
+  getRunningStrategyById, 
+  getStrategyById 
+} from '@/db/dbService'
 import { mt5Service } from '@/lib/mt5-service'
-import { getRunningStrategyById, getStrategyById } from '@/db/dbService'
 
 export async function PATCH(
   req: NextRequest,
@@ -18,6 +27,9 @@ export async function PATCH(
   // Accept synonyms and map them to canonical values
   if (status && (status.toLowerCase() === 'completed' || status.toLowerCase() === 'connected')) {
     status = 'running'
+  }
+  if (status && (status.toLowerCase() === 'stopped' || status.toLowerCase() === 'disconnect')) {
+    status = 'disconnected'
   }
   const allowed = ['in-process','wrong-account-password','wrong-account-id','wrong-account-server-name','running','disconnected']
   if (!status || !allowed.includes(status)) {
@@ -34,8 +46,10 @@ export async function PATCH(
       if (typeof (mod.mt_account_password ?? nu.mt_account_password) !== 'undefined') updates.mt_account_password = (mod.mt_account_password ?? nu.mt_account_password) || undefined
       if (typeof (mod.mt_account_server ?? nu.mt_account_server) !== 'undefined') updates.mt_account_server = (mod.mt_account_server ?? nu.mt_account_server) || undefined
       await updateRunningStrategyMtDetails(params.id, updates)
+      
+      // Mark modification as approved
+      await approveRunningStrategyModification(modId, session.user.id)
     }
-    // We don't delete anymore, updateRunningStrategyAdminStatus handles the status update of the record
   } else if (!modId && (status === 'running' || status === 'disconnected')) {
     // Automatically process all pending modifications if status is being set to running/disconnected
     const pendingMods = await getPendingModificationsForStrategy(params.id)
@@ -48,17 +62,28 @@ export async function PATCH(
        if (typeof (mod.mt_account_server ?? nu.mt_account_server) !== 'undefined') updates.mt_account_server = (mod.mt_account_server ?? nu.mt_account_server) || undefined
        
        await updateRunningStrategyMtDetails(params.id, updates)
-       // We don't delete anymore
+       // Mark modification as approved
+       await approveRunningStrategyModification(mod.id, session.user.id)
     }
   }
   // We directly use the status provided by the admin. 
   // Previously we would set it back to 'in-process' if modifications were pending,
   // but that created a bug where status could never be finalized.
   const finalStatus = status;
+  console.log(`[StatusUpdate] Updating strategy ${params.id} to status: ${finalStatus}`);
   
   const result = await updateRunningStrategyAdminStatus(params.id, finalStatus as any)
-  if (!result.success) {
+  if (!result) {
+    console.error(`[StatusUpdate] Failed to update strategy ${params.id} in DB`);
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+  }
+  console.log(`[StatusUpdate] Successfully updated strategy ${params.id} to status: ${finalStatus}`);
+
+  // Handle periods
+  if (finalStatus === 'running') {
+    await startRunningPeriod(params.id)
+  } else if (finalStatus === 'disconnected') {
+    await endRunningPeriod(params.id)
   }
 
   // Enforce stop and close when disconnecting

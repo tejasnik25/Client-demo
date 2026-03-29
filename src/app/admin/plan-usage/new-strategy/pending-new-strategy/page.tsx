@@ -216,16 +216,23 @@ const PendingNewStrategyPage = () => {
 
   const updateStatus = async (id: string, status: string) => {
     try {
+      console.log(`[PendingNewStrategy] Updating status for ${id} to ${status}`);
       const res = await fetch(`/api/admin/running-strategies/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error('Failed to update status');
+      console.log(`[PendingNewStrategy] Response for ${id}: ${res.status} ${res.statusText}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error(`[PendingNewStrategy] Error updating status:`, errData);
+        throw new Error(errData.error || 'Failed to update status');
+      }
       await load();
-    } catch (e) {
+      console.log(`[PendingNewStrategy] Reloaded strategies after successful update`);
+    } catch (e: any) {
       console.error('Failed to update status:', e);
-      alert('Failed to update status');
+      alert(`Failed to update status: ${e.message}`);
     }
   };
 

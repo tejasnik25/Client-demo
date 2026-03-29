@@ -54,11 +54,18 @@ type Strategy = {
 };
 
 type Payment = {
-  userId: string;
-  strategyId: string;
-  payable: number;
-  status: string;
+  userId?: string;
+  strategyId?: string;
+  payable?: number;
+  status?: string;
   createdAt?: string;
+  strategy_id?: string;
+  user_id?: string;
+  amount?: number;
+  created_at?: string;
+  runningStrategyId?: string;
+  running_strategy_id?: string;
+  payable_amount?: number;
 };
 
 type Plan = "Pro" | "Expert" | "Premium";
@@ -83,9 +90,11 @@ export default function CopierHistoryPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [rsId, setRsId] = useState<string | null>(null);
+  const [runningPeriods, setRunningPeriods] = useState<any[]>([]);
   const [modifications, setModifications] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [settlements, setSettlements] = useState<any[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
 
   useEffect(() => {
@@ -173,11 +182,22 @@ export default function CopierHistoryPage() {
         
         setHistoryError(data.error || null);
         const runData = await runRes.json().catch(() => null);
-        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => (x.id === params.id || x.strategyId === params.id)) : null;
+        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => (x.id === params.id || x.rsId === params.id || x.strategyId === params.id)) : null;
         
         if (!me) {
           console.warn("No matching running strategy found for current user session.");
           return;
+        }
+
+        // If we found me, and strategy is still null, try to set it from the strategies we already loaded
+        if (!strategy && me.strategyId) {
+          fetch("/api/strategies", { cache: "no-store" })
+            .then(res => res.json())
+            .then(stratData => {
+              const s = (stratData.strategies || []).find((x: any) => x.id === me.strategyId);
+              if (s) setStrategy(s);
+            })
+            .catch(() => null);
         }
         
         const aStatus = String(me?.adminStatus || '').toLowerCase();
@@ -196,8 +216,22 @@ export default function CopierHistoryPage() {
         setConnectAt(connectedAt);
         setUpdatedAt(me?.updatedAt || null);
         setRsId(me?.rsId || null);
+        setRunningPeriods(me?.periods || []);
         setModifications(me?.modifications || []);
         setSnapshots(me?.snapshots || []);
+        
+        // Fetch settlements
+        if (me?.rsId) {
+          try {
+            const sRes = await fetch(`/api/strategies/running/${me.rsId}/settlements`);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              setSettlements(sData.settlements || []);
+            }
+          } catch (err) {
+            console.error('Error fetching settlements:', err);
+          }
+        }
       } catch (e: any) {
         console.error("Failed to load history data:", e);
         setHistoryError(e?.message || "Failed to load history data. Please check connection.");
@@ -308,11 +342,32 @@ export default function CopierHistoryPage() {
   };
 
   const filteredClosed = useMemo(() => {
-    const startTs = connectAt ? toMs(connectAt) : 0;
     return history
       .filter(h => {
         const openMs = toMs(h.server_time_open ?? h.time_open ?? h.open_time);
-        return openMs >= startTs;
+        if (!Number.isFinite(openMs)) return false;
+        
+        // If no running periods yet, fallback to connectedAt (original behavior)
+        if (runningPeriods.length === 0) {
+          const startTs = connectAt ? toMs(connectAt) : 0;
+          return openMs >= startTs;
+        }
+
+        // Check if openMs falls within ANY of the running periods
+        const inPeriod = runningPeriods.some(period => {
+          const start = toMs(period.start_time);
+          const end = period.end_time ? toMs(period.end_time) : Infinity;
+          return openMs >= start && openMs <= end;
+        });
+
+        // Also include trades that were opened BEFORE the first period but closed AFTER it started
+        // (Legacy trades or trades that were already open when the user first connected)
+        if (!inPeriod && connectAt) {
+          const startTs = toMs(connectAt);
+          return openMs >= startTs;
+        }
+
+        return inPeriod;
       })
       .map((h) => {
       return {
@@ -328,12 +383,37 @@ export default function CopierHistoryPage() {
         swap: Number(h.swap || 0),
       };
     });
-  }, [history, connectAt]);
+  }, [history, connectAt, runningPeriods]);
 
   const filteredOpen = useMemo(() => {
-    // For open positions, we show EVERYTHING currently open on the master.
-    // The copier script will attempt to sync these trades to the slave regardless of when they were opened.
+    // For open positions, we only show those that were opened while the user was 'running'.
     return openPositions
+      .filter(p => {
+        const openMs = toMs(p.server_time || p.server_time_open || p.time_open || p.open_time || p.time);
+        if (!Number.isFinite(openMs)) return false;
+
+        // Fallback to connectedAt if no periods
+        if (runningPeriods.length === 0) {
+          const startTs = connectAt ? toMs(connectAt) : 0;
+          return openMs >= startTs;
+        }
+
+        // Check if openMs falls within ANY of the running periods
+        const inPeriod = runningPeriods.some(period => {
+          const start = toMs(period.start_time);
+          const end = period.end_time ? toMs(period.end_time) : Infinity;
+          return openMs >= start && openMs <= end;
+        });
+
+        // Also include trades that were opened BEFORE the first period but closed AFTER it started
+        // (Legacy trades or trades that were already open when the user first connected)
+        if (!inPeriod && connectAt) {
+          const startTs = toMs(connectAt);
+          return openMs >= startTs;
+        }
+
+        return inPeriod;
+      })
       .map((p) => {
       return {
         isOpen: true as const,
@@ -348,7 +428,7 @@ export default function CopierHistoryPage() {
         swap: Number(p.swap || 0), // Real-time swap
       };
     });
-  }, [openPositions]);
+  }, [openPositions, connectAt, runningPeriods]);
 
   const stats = useMemo(() => {
     const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
@@ -393,32 +473,49 @@ export default function CopierHistoryPage() {
       "renewal_approved",
       "in-process",
     ]);
+    
+    // We check both the running_strategy ID and the actual strategy ID
     const strategyIdForFilter = strategy?.id || params.id;
-    const deposit = payments
+    const deposit = (payments as any[])
       .filter(
         (p) =>
-          (p.strategyId === strategyIdForFilter || p.strategyId === params.id) &&
-          (!userId || p.userId === userId) &&
-          successfulStatuses.has(String(p.status || "").toLowerCase())
+          // Only include deposit-like transactions
+          (String(p.transaction_type || p.type || 'deposit').toLowerCase() === 'deposit' || 
+           String(p.transaction_type || p.type || 'deposit').toLowerCase() === 'charge' ||
+           String(p.transaction_type || p.type || 'deposit').toLowerCase() === 'transfer') &&
+          (String(p.strategyId || p.strategy_id) === String(strategyIdForFilter) || 
+           String(p.strategyId || p.strategy_id) === String(params.id) || 
+           String(p.strategyId || p.strategy_id) === String(rsId) ||
+           String(p.strategyId || p.strategy_id) === String(strategy?.id) ||
+           String(p.runningStrategyId || p.running_strategy_id) === String(rsId)) &&
+          (!userId || String(p.userId || p.user_id) === String(userId)) &&
+          (successfulStatuses.has(String(p.status || "").toLowerCase()) || 
+           String(p.status || "").toLowerCase().includes('settled'))
       )
-      .reduce((sum, p) => sum + (Number(p.payable) || 0), 0);
+      .reduce((sum, p) => sum + (Number(p.capital || p.payable || p.amount || p.payable_amount || 0)), 0);
 
-    // 3) Calculate totals for all closed trades
-    let totalRealizedProfit = 0;
-    let totalSwap = 0;
+    // 3) Calculate totals for all closed trades from MT5
+    let currentRealizedProfit = 0;
+    let currentSwap = 0;
 
     filteredClosed.forEach((row: any) => {
-      totalRealizedProfit += (Number(row.profit) || 0) * mult;
-      totalSwap += (Number(row.swap) || 0) * mult;
+      currentRealizedProfit += (Number(row.profit) || 0) * mult;
+      currentSwap += (Number(row.swap) || 0) * mult;
     });
 
-    // 4) Calculate current Float P/L from open positions
+    // 4) Add settled values from database history
+    const settledProfit = settlements.reduce((sum, s) => sum + (Number(s.gross_profit || s.grossProfit || 0)), 0);
+    const settledWithdrawal = settlements.reduce((sum, s) => sum + (Number(s.withdrawal_amount || s.withdrawalAmount || 0)), 0);
+    const settledCommission = settlements.reduce((sum, s) => sum + (Number(s.commission_amount || s.commissionAmount || 0)), 0);
+    const settledSwap = settlements.reduce((sum, s) => sum + (Number(s.swap_amount || s.swapAmount || 0)), 0);
+
+    // 5) Calculate current Float P/L from open positions
     let currentFloatPL = 0;
     filteredOpen.forEach((row: any) => {
       currentFloatPL += (Number(row.profit) || 0) * mult + (Number(row.swap) || 0) * mult;
     });
 
-    // 5) Monthly settlement eligibility:
+    // 6) Monthly settlement eligibility:
     //    - At least 30 days since connection
     //    - No open trades at the moment
     //    - Profit MUST be positive for settlement to happen
@@ -429,62 +526,101 @@ export default function CopierHistoryPage() {
         eligibleForSettlement =
           now - connectedMs >= THIRTY_DAYS_MS && 
           filteredOpen.length === 0 &&
-          totalRealizedProfit > 0;
+          currentRealizedProfit > 0;
       }
     }
 
-    // 6) Commission & withdrawal rules:
-    //    - If settlement is not eligible yet → booked values are 0.
-    //    - Withdrawal = Profit - Commission (only if profit > 0).
+    // 7) Commission & withdrawal rules for the CURRENT cycle:
     let bookedCommission = 0;
     let bookedWithdrawal = 0;
     let swapBooked = 0;
 
     if (eligibleForSettlement) {
-      swapBooked = totalSwap;
-      const profit = totalRealizedProfit;
-      // Since eligibleForSettlement already checks profit > 0, we can calculate commission.
+      swapBooked = currentSwap;
+      const profit = currentRealizedProfit;
       const fullCommission = (profit * Math.max(commissionPercent, 0)) / 100;
       bookedCommission = fullCommission;
-      bookedWithdrawal = profit - fullCommission;
+      // Withdrawal can never be negative, ensure it is at least 0
+      bookedWithdrawal = Math.max(0, profit - fullCommission);
     }
 
-    // 7) Balance formula: Balance = Deposit + Withdrawal + Swap
-    //    Where Withdrawal = Profit - Commission
+    // 8) Final displayed stats (Totals)
+    const displayProfit = currentRealizedProfit + settledProfit;
+    const displaySwap = currentSwap + settledSwap;
     
-    let currentBalance = deposit + totalRealizedProfit + totalSwap;
-    if (eligibleForSettlement) {
-       // After settlement, balance is Deposit + (Profit - Commission) + Swap
-       currentBalance = deposit + bookedWithdrawal + swapBooked;
-    }
+    // User requested: Withdrawal and Commission should only change after settlement.
+    // So we show the settled totals in the summary cards.
+    const displayCommission = settledCommission;
+    const displayWithdrawal = settledWithdrawal;
 
-    // 8) Generate Balance Operations
+    // 9) Balance formula: Balance = Deposit + Profit + Swap - Commission
+    //    Which is also: Balance = Deposit + Withdrawal + Swap
+    //    But we include current profit/swap/commission even if not yet settled.
+    
+    // Calculate current pending commission even if not yet eligible for settlement
+    const currentPendingCommission = (currentRealizedProfit > 0) ? (currentRealizedProfit * Math.max(commissionPercent, 0)) / 100 : 0;
+    const totalCommission = settledCommission + currentPendingCommission;
+    
+    let currentBalance = deposit + displayProfit + displaySwap - totalCommission;
+
+    // 10) Generate Balance Operations
     const balanceOperations = (() => {
       const ops = [];
       
       // 1. Deposits (from payments)
-      payments
-        .filter(p => p.strategyId === params.id && (!sessionUserId || p.userId === sessionUserId) && successfulStatuses.has(String(p.status || "").toLowerCase()))
+      const strategyIdForFilter = strategy?.id || params.id;
+      (payments as any[])
+        .filter(p => 
+          (String(p.strategyId || p.strategy_id) === String(strategyIdForFilter) || 
+           String(p.strategyId || p.strategy_id) === String(params.id) || 
+           String(p.strategyId || p.strategy_id) === String(rsId) ||
+           String(p.runningStrategyId || p.running_strategy_id) === String(rsId)) && 
+          (!sessionUserId || String(p.userId || p.user_id) === String(sessionUserId)) && 
+          (successfulStatuses.has(String(p.status || "").toLowerCase()) || String(p.status || "").toLowerCase().includes('settled'))
+        )
         .forEach(p => {
           ops.push({
             type: 'DEPOSIT',
-            amount: Number(p.payable),
-            time: p.createdAt,
+            amount: Number(p.capital || p.payable || p.amount || p.payable_amount || 0),
+            time: p.createdAt || p.created_at,
             comment: 'Initial Investment'
           });
         });
 
-      // 2. Settlement Operations (only if eligible)
-      if (eligibleForSettlement) {
-        // Profit (Withdrawal)
+      // 2. Settlement Operations from history
+      settlements.forEach(s => {
         ops.push({
           type: 'WITHDRAWAL',
-          amount: totalRealizedProfit,
-          time: new Date().toISOString(), // Current settlement time
-          comment: 'Profit Settlement'
+          amount: Number(s.withdrawal_amount || s.withdrawalAmount || 0),
+          time: s.created_at || s.createdAt,
+          comment: `Historical Profit Settlement (${new Date(s.settlement_start || s.settlementStart).toLocaleDateString()} - ${new Date(s.settlement_end || s.settlementEnd).toLocaleDateString()})`
         });
+        if (Number(s.commission_amount || s.commissionAmount || 0) > 0) {
+          ops.push({
+            type: 'COMMISSION',
+            amount: Number(s.commission_amount || s.commissionAmount || 0),
+            time: s.created_at || s.createdAt,
+            comment: 'Historical Strategy Commission'
+          });
+        }
+        if (Number(s.swap_amount || s.swapAmount || 0) !== 0) {
+          ops.push({
+            type: 'SWAP',
+            amount: Number(s.swap_amount || s.swapAmount || 0),
+            time: s.created_at || s.createdAt,
+            comment: 'Historical Swap Adjustment'
+          });
+        }
+      });
 
-        // Commission
+      // 3. Current Settlement Operations (only if eligible)
+      if (eligibleForSettlement) {
+        ops.push({
+          type: 'WITHDRAWAL',
+          amount: bookedWithdrawal,
+          time: new Date().toISOString(),
+          comment: 'Pending Profit Settlement'
+        });
         if (bookedCommission > 0) {
           ops.push({
             type: 'COMMISSION',
@@ -493,14 +629,12 @@ export default function CopierHistoryPage() {
             comment: `Strategy Commission (${commissionPercent}%)`
           });
         }
-
-        // Swap
         if (swapBooked !== 0) {
           ops.push({
             type: 'SWAP',
             amount: swapBooked,
             time: new Date().toISOString(),
-            comment: 'Total Swap Deduction'
+            comment: 'Swap Adjustment'
           });
         }
       }
@@ -510,16 +644,16 @@ export default function CopierHistoryPage() {
 
     return {
       deposit: deposit.toFixed(2),
-      profitLastMonth: totalRealizedProfit.toFixed(2),
-      swapLastMonth: totalSwap.toFixed(2),
-      swapBooked: swapBooked.toFixed(2),
-      commissionPercent,
-      commissionBooked: bookedCommission.toFixed(2),
-      withdrawalBooked: bookedWithdrawal.toFixed(2),
+      profitLastMonth: displayProfit.toFixed(2),
+      swapLastMonth: displaySwap.toFixed(2),
+      commissionBooked: displayCommission.toFixed(2),
+      withdrawalBooked: displayWithdrawal.toFixed(2),
       balance: currentBalance.toFixed(2),
       settlementEligible: eligibleForSettlement,
       floatPL: currentFloatPL.toFixed(2),
-      balanceOperations
+      balanceOperations,
+      commissionPercent,
+      swapBooked
     };
   }, [
     filteredClosed,
@@ -531,6 +665,8 @@ export default function CopierHistoryPage() {
     strategy,
     connectAt,
     selectedPlan,
+    settlements,
+    rsId
   ]);
 
   const displayRows = useMemo(() => {
@@ -712,7 +848,7 @@ export default function CopierHistoryPage() {
                   ? "bg-[#00d09c] text-white" 
                   : "bg-red-500 text-white"
                 }`}>
-                  {(adminStatus === 'running' || adminStatus === 'active') ? "Copying" : "Stopped"}
+                  {(adminStatus === 'running' || adminStatus === 'active') ? "Running" : "Stopped"}
                 </span>
               </div>
 
@@ -871,9 +1007,9 @@ export default function CopierHistoryPage() {
                             {row.comment}
                           </td>
                           <td className={`px-6 py-5 text-xs font-black text-right ${
-                            row.type === 'DEPOSIT' || (row.type === 'WITHDRAWAL' && row.amount >= 0) ? 'text-[#00d09c]' : 'text-red-500'
+                            row.type === 'DEPOSIT' || (row.type === 'WITHDRAWAL' && (row.amount || 0) >= 0) ? 'text-[#00d09c]' : 'text-red-500'
                           }`}>
-                            {row.amount >= 0 ? '+' : ''}{row.amount.toFixed(2)}
+                            {(row.amount || 0) >= 0 ? '+' : ''}{(Number(row.amount) || 0).toFixed(2)}
                           </td>
                         </tr>
                       );

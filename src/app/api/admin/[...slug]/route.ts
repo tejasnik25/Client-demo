@@ -42,12 +42,21 @@ async function handleRequest(req: NextRequest, { params }: { params: Promise<{ s
 
     // 3. /running-strategies/...
     if (slug[0] === 'running-strategies') {
-      if (slug[1] === 'modifications') handler = await import('../running-strategies/modifications/handler');
+      if (slug[1] === 'modifications') {
+        if (slug.length === 4) {
+          const modId = slug[2];
+          const action = slug[3];
+          if (action === 'approve') handler = await import('@/app/api/admin/running-strategies/modifications/[id]/approve/handler');
+          else if (action === 'reject') handler = await import('@/app/api/admin/running-strategies/modifications/[id]/reject/handler');
+          if (handler && handler[method]) return (handler[method] as any)(req, { params: { id: modId } });
+        }
+        handler = await import('@/app/api/admin/running-strategies/modifications/handler');
+      }
       else if (slug.length === 3) {
         const sub = slug[2];
-        if (sub === 'details') handler = await import('../running-strategies/[id]/details/handler');
-        else if (sub === 'reconnect') handler = await import('../running-strategies/[id]/reconnect/handler');
-        else if (sub === 'status') handler = await import('../running-strategies/[id]/status/handler');
+        if (sub === 'details') handler = await import('@/app/api/admin/running-strategies/[id]/details/handler');
+        else if (sub === 'reconnect') handler = await import('@/app/api/admin/running-strategies/[id]/reconnect/handler');
+        else if (sub === 'status') handler = await import('@/app/api/admin/running-strategies/[id]/status/handler');
         if (handler && handler[method]) return (handler[method] as any)(req, { params: { id: slug[1] } });
       }
       if (handler && handler[method]) return (handler[method] as any)(req);

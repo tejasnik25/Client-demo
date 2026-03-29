@@ -381,7 +381,8 @@ def get_subscriptions_from_db():
                  WHERE user_id = rs.user_id AND strategy_id = rs.strategy_id 
                  ORDER BY created_at DESC LIMIT 1
             )
-            WHERE rs.status = 'active'
+            WHERE rs.status IN ('active', 'in-process')
+            AND (rs.admin_status IS NULL OR rs.admin_status IN ('running', 'active', 'in-process'))
             """
             cursor.execute(query)
             rows = cursor.fetchall()

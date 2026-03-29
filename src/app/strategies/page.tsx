@@ -201,9 +201,9 @@ const StrategiesPageInner: React.FC = () => {
   const renderAdminStatusBadge = (s: string, r?: any) => {
     const k = (s || '').toLowerCase();
     const content = (() => {
-      if (k === 'running') return <Badge variant="success">Running</Badge>;
+      if (k === 'running' || k === 'active' || k === 'connected') return <Badge variant="success">Running</Badge>;
       if (k === 'in-process') return <Badge variant="warning">In-Process</Badge>;
-      if (k === 'disconnected' || k === 'stopped') return <Badge variant="destructive">Disconnected</Badge>;
+      if (k === 'disconnected' || k === 'stopped') return <Badge variant="destructive">Stopped</Badge>;
       if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
       if (k === 'wrong-account-id') return <Badge variant="destructive">Wrong-Account Id</Badge>;
       if (k === 'wrong-account-server-name') return <Badge variant="destructive">Wrong-Account Server Name</Badge>;
@@ -628,7 +628,7 @@ const StrategiesPageInner: React.FC = () => {
                   const s = stratById.get(r.id) || strategies.find(ss => ss.name === r.name);
                   if (!s) return null;
                   
-                  const cur = ((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
+                  const cur = (r.adminStatus || r.admin_status || r.status || '').toLowerCase();
                   const isPending = pendingIds.includes((r as any)?.rsId || r.id);
                   // Ensure we use a valid number for investedAmount
                   const investedAmount = Number(r.capital) || 0;
@@ -657,11 +657,7 @@ const StrategiesPageInner: React.FC = () => {
                         <div className="flex flex-wrap items-center gap-4 md:gap-12 ml-auto">
                           <div className="flex flex-col items-center">
                             <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Status</span>
-                            {cur === 'running' || cur === 'active' ? (
-                              <span className="text-white font-bold bg-[#00d09c] px-3 py-1 rounded-full text-[11px]">Running</span>
-                            ) : (
-                              renderAdminStatusBadge(cur, r)
-                            )}
+                            {renderAdminStatusBadge(cur, r)}
                           </div>
 
                           <div className="flex flex-col items-center">

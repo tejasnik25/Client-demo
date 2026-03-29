@@ -7,7 +7,8 @@ import {
   getRunningStrategyById, 
   getStrategyById,
   getRunningStrategyModifications,
-  getDisconnectSnapshots
+  getDisconnectSnapshots,
+  getRunningPeriods
 } from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
@@ -44,9 +45,10 @@ export async function GET() {
         const name = s?.name || r.strategyName;
         if (!id) return null;
 
-        const [modifications, snapshots] = await Promise.all([
+        const [modifications, snapshots, periods] = await Promise.all([
           getRunningStrategyModifications(r.id),
-          getDisconnectSnapshots(r.id)
+          getDisconnectSnapshots(r.id),
+          getRunningPeriods(r.id)
         ]);
 
         const obj = {
@@ -56,18 +58,19 @@ export async function GET() {
           name,
           orders: [],
           profit: 0,
-          adminStatus: r.adminStatus,
+          adminStatus: r.adminStatus || r.admin_status || 'in-process',
           status: r.status,
-          updatedAt: r.updatedAt,
-          createdAt: r.createdAt,
+          updatedAt: r.updatedAt || r.updated_at,
+          createdAt: r.createdAt || r.created_at,
           plan: r.plan,
           capital: r.capital,
           platform: r.platform ?? null,
-          // Do NOT expose any account credentials in API responses
-          rejectionReason: r.rejectionReason ?? null,
+          rejectionReason: r.rejectionReason ?? r.rejection_reason ?? null,
           modifications,
-          snapshots
+          snapshots,
+          periods
         };
+        console.log(`[RunningStrategiesAPI] Strategy ${obj.strategyId} for user ${userId} has adminStatus: ${obj.adminStatus}`);
         return obj;
       }));
 

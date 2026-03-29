@@ -123,6 +123,49 @@ const PaymentNotifications: React.FC<PaymentNotificationsProps> = ({ className }
     } catch (e) {}
   };
 
+  // Handle modification approval
+  const handleApproveModification = async (modId: string) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/admin/running-strategies/modifications/${modId}/approve`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        setNotifications(prev => prev.filter(n => n.id !== modId));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Error approving modification:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle modification rejection
+  const handleRejectModification = async (modId: string) => {
+    try {
+      setLoading(true);
+      const reason = typeof window !== 'undefined' ? window.prompt('Enter rejection reason:') : '';
+      if (reason === null || !reason) {
+        setLoading(false);
+        return;
+      }
+      const response = await fetch(`/api/admin/running-strategies/modifications/${modId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rejectionReason: reason })
+      });
+      if (response.ok) {
+        setNotifications(prev => prev.filter(n => n.id !== modId));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Error rejecting modification:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Mark notification as read
   const markAsRead = (notificationId: string) => {
     setNotifications(prev => 
@@ -322,6 +365,10 @@ const PaymentNotifications: React.FC<PaymentNotificationsProps> = ({ className }
                               <p className="text-sm text-gray-500 mb-1">{(n as ModificationNotification).userEmail}</p>
                               <p className="text-sm text-gray-600 mb-1">{(n as ModificationNotification).summary}</p>
                               <p className="text-xs text-gray-500 mb-2">{formatDate((n as ModificationNotification).createdAt || new Date().toISOString())}</p>
+                              <div className="flex space-x-2">
+                                <Button size="sm" onClick={(e) => { e.stopPropagation(); handleApproveModification(n.id); }} disabled={loading} className="text-xs"> <Check className="h-3 w-3 mr-1" /> Approve </Button>
+                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleRejectModification(n.id); }} disabled={loading} className="text-xs"> <X className="h-3 w-3 mr-1" /> Reject </Button>
+                              </div>
                             </div>
                           </div>
                         )}

@@ -117,6 +117,7 @@ def get_subscriptions_from_db():
              ORDER BY created_at DESC LIMIT 1
         )
         WHERE rs.status IN ('in-process', 'active') 
+        AND (rs.admin_status IS NULL OR rs.admin_status IN ('running', 'active', 'in-process'))
         AND s.master_account_id IS NOT NULL
         """
         
@@ -146,11 +147,7 @@ def get_subscriptions_from_db():
                  print(f"⚠ Skipping Subscription with Invalid Non-Numeric Master ID: {master_id_str}")
                  continue
             
-            # HOTFIX: Correct Server for Slave 25285165 (Database has wrong 'Tickmill-Demo' value)
             slave_server = (row['slave_server'] or 'MetaQuotes-Demo').replace('\u200e', '').strip()
-            if str(row['slave_id']) == '25285165' and 'Tickmill' in slave_server:
-                print(f"🔧 HOTFIX: Overriding incorrect server '{slave_server}' for Slave 25285165 -> 'RoboForex-Pro'")
-                slave_server = 'RoboForex-Pro'
 
             sub = {
                 "id": f"sub_{row['user_id']}_{row['strategy_id']}_{row['slave_id']}",

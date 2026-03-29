@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkAdminAuth } from '../../../auth';
-import { 
+import {
   getTransactionById, 
   updateTransactionStatus,
   getStrategyById,
   createRunningStrategy,
-  updateRunningStrategyAdminStatus
+  updateRunningStrategyAdminStatus,
+  startRunningPeriod
 } from '@/db/dbService';
 
 type Params = { id: string };
@@ -68,6 +69,7 @@ export async function POST(
         // After admin approves payment, immediately mark as running (Connected)
         if (runResult.success && runResult.id) {
           await updateRunningStrategyAdminStatus(runResult.id, 'running');
+          await startRunningPeriod(runResult.id);
         }
       } catch (connError) {
         console.error('Error connecting strategy:', connError);
