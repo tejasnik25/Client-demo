@@ -42,8 +42,11 @@ type OpenItem = {
   volume: number;
   price_open: number;
   price_current: number;
+  price?: number;
   profit: number;
   swap?: number;
+  swap_amount?: number;
+  swapAmount?: number;
 };
 
 type Strategy = {
@@ -95,6 +98,7 @@ export default function CopierHistoryPage() {
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [settlements, setSettlements] = useState<any[]>([]);
+  const [runningCapital, setRunningCapital] = useState<number>(0);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
 
   useEffect(() => {
@@ -219,6 +223,7 @@ export default function CopierHistoryPage() {
         setRunningPeriods(me?.periods || []);
         setModifications(me?.modifications || []);
         setSnapshots(me?.snapshots || []);
+        setRunningCapital(Number(me?.capital || 0));
         
         // Fetch settlements
         if (me?.rsId) {
@@ -345,26 +350,28 @@ export default function CopierHistoryPage() {
     return history
       .filter(h => {
         const openMs = toMs(h.server_time_open ?? h.time_open ?? h.open_time);
-        if (!Number.isFinite(openMs)) return false;
-        
+        const closeMs = toMs(h.server_time_close ?? h.time_close ?? h.close_time);
+        if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return false;
+
         // If no running periods yet, fallback to connectedAt (original behavior)
         if (runningPeriods.length === 0) {
           const startTs = connectAt ? toMs(connectAt) : 0;
-          return openMs >= startTs;
+          // include if opened after connection OR closed after connection (was open at connection)
+          return (Number.isFinite(openMs) && openMs >= startTs) || (Number.isFinite(closeMs) && closeMs >= startTs);
         }
 
         // Check if openMs falls within ANY of the running periods
         const inPeriod = runningPeriods.some(period => {
           const start = toMs(period.start_time);
           const end = period.end_time ? toMs(period.end_time) : Infinity;
-          return openMs >= start && openMs <= end;
+          return Number.isFinite(openMs) && openMs >= start && openMs <= end;
         });
 
         // Also include trades that were opened BEFORE the first period but closed AFTER it started
         // (Legacy trades or trades that were already open when the user first connected)
         if (!inPeriod && connectAt) {
           const startTs = toMs(connectAt);
-          return openMs >= startTs;
+          return (Number.isFinite(openMs) && openMs >= startTs) || (Number.isFinite(closeMs) && closeMs >= startTs);
         }
 
         return inPeriod;
@@ -415,6 +422,8 @@ export default function CopierHistoryPage() {
         return inPeriod;
       })
       .map((p) => {
+      const currentPrice = p.price_current ?? p.price ?? p.price_open ?? 0;
+      const swapValue = p.swap ?? p.swap_amount ?? p.swapAmount ?? 0;
       return {
         isOpen: true as const,
         openTimeStr: p.server_time || p.server_time_open || (p.time_open ? String(p.time_open) : (p.open_time ? String(p.open_time) : (p.time ? String(p.time) : ""))),
@@ -423,9 +432,9 @@ export default function CopierHistoryPage() {
         type: p.type,
         volume: p.volume,
         openPrice: p.price_open,
-        closeOrCurrentPrice: p.price_current, // Real-time price
+        closeOrCurrentPrice: currentPrice, // Real-time price
         profit: Number(p.profit), // Real-time profit
-        swap: Number(p.swap || 0), // Real-time swap
+        swap: Number(swapValue || 0), // Real-time swap
       };
     });
   }, [openPositions, connectAt, runningPeriods]);
@@ -465,7 +474,7 @@ export default function CopierHistoryPage() {
       (planCommission != null && Number.isFinite(planCommission) ? planCommission : null) ??
       30;
 
-    // 2) Deposits = all successful payments for this strategy by this user.
+    // 2) Deposits = all successful payments + running strategy capital for this user.
     const userId = sessionUserId;
     const successfulStatuses = new Set([
       "approved",
@@ -473,26 +482,33 @@ export default function CopierHistoryPage() {
       "renewal_approved",
       "in-process",
     ]);
-    
+
     // We check both the running_strategy ID and the actual strategy ID
     const strategyIdForFilter = strategy?.id || params.id;
-    const deposit = (payments as any[])
-      .filter(
-        (p) =>
-          // Only include deposit-like transactions
-          (String(p.transaction_type || p.type || 'deposit').toLowerCase() === 'deposit' || 
-           String(p.transaction_type || p.type || 'deposit').toLowerCase() === 'charge' ||
-           String(p.transaction_type || p.type || 'deposit').toLowerCase() === 'transfer') &&
-          (String(p.strategyId || p.strategy_id) === String(strategyIdForFilter) || 
-           String(p.strategyId || p.strategy_id) === String(params.id) || 
-           String(p.strategyId || p.strategy_id) === String(rsId) ||
-           String(p.strategyId || p.strategy_id) === String(strategy?.id) ||
-           String(p.runningStrategyId || p.running_strategy_id) === String(rsId)) &&
-          (!userId || String(p.userId || p.user_id) === String(userId)) &&
-          (successfulStatuses.has(String(p.status || "").toLowerCase()) || 
-           String(p.status || "").toLowerCase().includes('settled'))
-      )
+    const paymentDeposit = (payments as any[])
+      .filter((p) => {
+        const txType = String(p.transaction_type || p.type || p.transactionType || 'deposit').toLowerCase();
+        if (!['deposit', 'charge', 'transfer'].includes(txType)) return false;
+
+        const paymentStrategyId = String(p.strategyId || p.strategy_id || p.runningStrategyId || p.running_strategy_id || '').trim();
+        const isStrategyMatch =
+          paymentStrategyId === String(strategyIdForFilter) ||
+          paymentStrategyId === String(params.id) ||
+          paymentStrategyId === String(rsId) ||
+          paymentStrategyId === String(strategy?.id);
+
+        if (!isStrategyMatch) return false;
+
+        if (userId && String(p.userId || p.user_id) !== String(userId)) return false;
+
+        const status = String(p.status || '').toLowerCase();
+        if (!successfulStatuses.has(status) && !status.includes('settled')) return false;
+
+        return true;
+      })
       .reduce((sum, p) => sum + (Number(p.capital || p.payable || p.amount || p.payable_amount || 0)), 0);
+
+    const deposit = Math.max(0, Number(runningCapital || 0) + paymentDeposit);
 
     // 3) Calculate totals for all closed trades from MT5
     let currentRealizedProfit = 0;
@@ -505,9 +521,11 @@ export default function CopierHistoryPage() {
 
     // 4) Add settled values from database history
     const settledProfit = settlements.reduce((sum, s) => sum + (Number(s.gross_profit || s.grossProfit || 0)), 0);
-    const settledWithdrawal = settlements.reduce((sum, s) => sum + (Number(s.withdrawal_amount || s.withdrawalAmount || 0)), 0);
-    const settledCommission = settlements.reduce((sum, s) => sum + (Number(s.commission_amount || s.commissionAmount || 0)), 0);
+    const settledWithdrawalRaw = settlements.reduce((sum, s) => sum + (Number(s.withdrawal_amount || s.withdrawalAmount || 0)), 0);
+    const settledCommissionRaw = settlements.reduce((sum, s) => sum + (Number(s.commission_amount || s.commissionAmount || 0)), 0);
     const settledSwap = settlements.reduce((sum, s) => sum + (Number(s.swap_amount || s.swapAmount || 0)), 0);
+    const settledWithdrawal = Math.max(0, settledWithdrawalRaw);
+    const settledCommission = Math.max(0, settledCommissionRaw);
 
     // 5) Calculate current Float P/L from open positions
     let currentFloatPL = 0;
@@ -547,19 +565,19 @@ export default function CopierHistoryPage() {
     // 8) Final displayed stats (Totals)
     const displayProfit = currentRealizedProfit + settledProfit;
     const displaySwap = currentSwap + settledSwap;
-    
-    // User requested: Withdrawal and Commission should only change after settlement.
-    // So we show the settled totals in the summary cards.
-    const displayCommission = settledCommission;
-    const displayWithdrawal = settledWithdrawal;
+
+    // Calculate current pending commission even if not yet eligible for settlement
+    const currentPendingCommission = (currentRealizedProfit > 0) ? (currentRealizedProfit * Math.max(commissionPercent, 0)) / 100 : 0;
+    const totalCommission = settledCommission + currentPendingCommission;
+
+    // User requested: Withdrawal can never be negative.
+    // Display both settled and present cycle values.
+    const displayWithdrawal = Math.max(0, settledWithdrawal + (eligibleForSettlement ? bookedWithdrawal : 0));
+    const displayCommission = Math.max(0, settledCommission + currentPendingCommission);
 
     // 9) Balance formula: Balance = Deposit + Profit + Swap - Commission
     //    Which is also: Balance = Deposit + Withdrawal + Swap
     //    But we include current profit/swap/commission even if not yet settled.
-    
-    // Calculate current pending commission even if not yet eligible for settlement
-    const currentPendingCommission = (currentRealizedProfit > 0) ? (currentRealizedProfit * Math.max(commissionPercent, 0)) / 100 : 0;
-    const totalCommission = settledCommission + currentPendingCommission;
     
     let currentBalance = deposit + displayProfit + displaySwap - totalCommission;
 
@@ -589,16 +607,21 @@ export default function CopierHistoryPage() {
 
       // 2. Settlement Operations from history
       settlements.forEach(s => {
-        ops.push({
-          type: 'WITHDRAWAL',
-          amount: Number(s.withdrawal_amount || s.withdrawalAmount || 0),
-          time: s.created_at || s.createdAt,
-          comment: `Historical Profit Settlement (${new Date(s.settlement_start || s.settlementStart).toLocaleDateString()} - ${new Date(s.settlement_end || s.settlementEnd).toLocaleDateString()})`
-        });
-        if (Number(s.commission_amount || s.commissionAmount || 0) > 0) {
+        const settlementWithdrawal = Math.max(0, Number(s.withdrawal_amount || s.withdrawalAmount || 0));
+        const settlementCommission = Math.max(0, Number(s.commission_amount || s.commissionAmount || 0));
+
+        if (settlementWithdrawal > 0) {
+          ops.push({
+            type: 'WITHDRAWAL',
+            amount: settlementWithdrawal,
+            time: s.created_at || s.createdAt,
+            comment: `Historical Profit Settlement (${new Date(s.settlement_start || s.settlementStart).toLocaleDateString()} - ${new Date(s.settlement_end || s.settlementEnd).toLocaleDateString()})`
+          });
+        }
+        if (settlementCommission > 0) {
           ops.push({
             type: 'COMMISSION',
-            amount: Number(s.commission_amount || s.commissionAmount || 0),
+            amount: settlementCommission,
             time: s.created_at || s.createdAt,
             comment: 'Historical Strategy Commission'
           });
@@ -644,10 +667,10 @@ export default function CopierHistoryPage() {
 
     return {
       deposit: deposit.toFixed(2),
+      withdrawal: displayWithdrawal.toFixed(2),
       profitLastMonth: displayProfit.toFixed(2),
-      swapLastMonth: displaySwap.toFixed(2),
-      commissionBooked: displayCommission.toFixed(2),
-      withdrawalBooked: displayWithdrawal.toFixed(2),
+      swap: displaySwap.toFixed(2),
+      commission: displayCommission.toFixed(2),
       balance: currentBalance.toFixed(2),
       settlementEligible: eligibleForSettlement,
       floatPL: currentFloatPL.toFixed(2),
@@ -666,7 +689,8 @@ export default function CopierHistoryPage() {
     connectAt,
     selectedPlan,
     settlements,
-    rsId
+    rsId,
+    runningCapital
   ]);
 
   const displayRows = useMemo(() => {
@@ -911,7 +935,7 @@ export default function CopierHistoryPage() {
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
                 <p className="text-2xl font-black text-gray-900">
-                  ${stats.withdrawalBooked}
+                  ${stats.withdrawal}
                 </p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Withdrawal</p>
               </div>
@@ -926,12 +950,12 @@ export default function CopierHistoryPage() {
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${stats.swapBooked}</p>
+                <p className="text-2xl font-black text-gray-900">${stats.swap}</p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
                 <p className="text-2xl font-black text-gray-900">
-                  ${stats.commissionBooked}
+                  ${stats.commission}
                 </p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
               </div>
@@ -979,6 +1003,7 @@ export default function CopierHistoryPage() {
                         <th className="px-6 py-4 text-center">Lots</th>
                         <th className="px-6 py-4 text-right">Opening price</th>
                         <th className="px-6 py-4 text-right">{filter === 'opened' ? 'Current price' : 'Closing price'}</th>
+                        <th className="px-6 py-4 text-right">Swap, USD</th>
                         <th className="px-6 py-4 text-right">Profit, USD</th>
                       </>
                     )}
@@ -1069,22 +1094,18 @@ export default function CopierHistoryPage() {
                         <td className="px-6 py-5 text-xs font-bold text-gray-500 text-right">
                           {pos.closeOrCurrentPrice ? Number(pos.closeOrCurrentPrice).toFixed(pos.symbol?.includes('JPY') ? 3 : 5) : "-"}
                         </td>
+                        <td className="px-6 py-5 text-xs font-bold text-right">
+                          {swapVal.toFixed(2)}
+                        </td>
                         <td className={`px-6 py-5 text-xs font-bold text-right ${profitVal >= 0 ? "text-green-500" : "text-red-500"}`}>
-                          <div className="flex flex-col">
-                            <span>{profitVal >= 0 ? "" : "-"}{Math.abs(profitVal).toFixed(2)}</span>
-                            {swapVal !== 0 && (
-                              <span className="text-[10px] text-gray-400 font-medium">
-                                Swap: {swapVal.toFixed(2)}
-                              </span>
-                            )}
-                          </div>
+                          {profitVal >= 0 ? "" : "-"}{Math.abs(profitVal).toFixed(2)}
                         </td>
                       </tr>
                     );
                   })
                 ) : (
                   <tr>
-                    <td colSpan={filter === 'closed' ? 8 : 7} className="px-6 py-20 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">
+                    <td colSpan={filter === 'closed' ? 9 : 8} className="px-6 py-20 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">
                       {historyLoading ? "Loading orders..." : "No orders found"}
                     </td>
                   </tr>
