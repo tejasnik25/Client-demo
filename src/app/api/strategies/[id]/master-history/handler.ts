@@ -45,11 +45,28 @@ export async function GET(
     return NextResponse.json({ error: 'Master ID not found for this strategy' }, { status: 404 });
   }
 
+  const normalizeCachedTrade = (trade: any) => ({
+    position_id: trade.position_id ?? trade.ticket ?? trade.id,
+    symbol: trade.symbol,
+    type: trade.type,
+    volume: Number(trade.volume || 0),
+    price_open: Number(trade.price_open || trade.price || 0),
+    price_close: Number(trade.price_close || 0),
+    price_current: Number((trade.price_current ?? trade.price_close ?? trade.price) || 0),
+    profit: Number(trade.profit || 0),
+    swap: Number(trade.swap || 0),
+    commission: Number(trade.commission || 0),
+    time_open: trade.time_open || trade.server_time_open || trade.time || null,
+    time_close: trade.time_close || trade.server_time_close || null,
+    server_time_open: trade.server_time_open || trade.time_open || trade.server_time || null,
+    server_time_close: trade.server_time_close || trade.time_close || null,
+  });
+
   const fallbackFromCache = async (reason?: string) => {
     try {
       const cached = await getCachedMasterTrades(masterId);
-      const hist = Array.isArray(cached.history) ? cached.history : [];
-      const open = Array.isArray(cached.open_positions) ? cached.open_positions : [];
+      const hist = Array.isArray(cached.history) ? cached.history.map(normalizeCachedTrade) : [];
+      const open = Array.isArray(cached.open_positions) ? cached.open_positions.map(normalizeCachedTrade) : [];
       if (hist.length === 0 && open.length === 0) {
         return NextResponse.json({
           history: [],

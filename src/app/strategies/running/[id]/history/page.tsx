@@ -338,7 +338,7 @@ export default function CopierHistoryPage() {
     return best.lot;
   }, [strategy?.parameters, payments, params.id, sessionUserId]);
 
-  const toMs = (v: string | number | undefined): number => {
+  const toMs = (v: string | number | null | undefined): number => {
     if (v == null || v === "") return NaN;
     if (typeof v === "string") {
       // 1. Try native parsing (e.g. ISO)
@@ -381,14 +381,16 @@ export default function CopierHistoryPage() {
         const closeRaw = h.server_time_close ?? h.time_close ?? h.close_time ?? h.time;
         const openMs = toMs(openRaw);
         const closeMs = toMs(closeRaw);
-        if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return false;
+        if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return true;
 
         const effectiveMs = Number.isFinite(openMs) ? openMs : closeMs;
 
         // If no running periods yet, fallback to connectedAt (original behavior)
         if (runningPeriods.length === 0) {
-          const startTs = connectAt ? toMs(connectAt) : 0;
+          const connectTs = connectAt ? toMs(connectAt) : NaN;
+          const startTs = Number.isFinite(connectTs) ? connectTs : 0;
           // include if opened after connection OR closed after connection (was open at connection)
+          if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return true;
           return (Number.isFinite(openMs) && openMs >= startTs) || (Number.isFinite(closeMs) && closeMs >= startTs);
         }
 
@@ -402,8 +404,9 @@ export default function CopierHistoryPage() {
         // Also include trades that were opened BEFORE the first period but closed AFTER it started
         // (Legacy trades or trades that were already open when the user first connected)
         if (!inPeriod && connectAt) {
-          const startTs = toMs(connectAt);
-          return (Number.isFinite(openMs) && openMs >= startTs) || (Number.isFinite(closeMs) && closeMs >= startTs);
+          const connectTs = connectAt ? toMs(connectAt) : NaN;
+          if (!Number.isFinite(connectTs)) return inPeriod;
+          return (Number.isFinite(openMs) && openMs >= connectTs) || (Number.isFinite(closeMs) && closeMs >= connectTs);
         }
 
         return inPeriod;
@@ -431,11 +434,12 @@ export default function CopierHistoryPage() {
     return openPositions
       .filter(p => {
         const openMs = toMs(p.server_time || p.server_time_open || p.time_open || p.open_time || p.time);
-        if (!Number.isFinite(openMs)) return false;
+        if (!Number.isFinite(openMs)) return true;
 
         // Fallback to connectedAt if no periods
         if (runningPeriods.length === 0) {
-          const startTs = connectAt ? toMs(connectAt) : 0;
+          const connectTs = connectAt ? toMs(connectAt) : NaN;
+          const startTs = Number.isFinite(connectTs) ? connectTs : 0;
           return openMs >= startTs;
         }
 
@@ -449,8 +453,9 @@ export default function CopierHistoryPage() {
         // Also include trades that were opened BEFORE the first period but closed AFTER it started
         // (Legacy trades or trades that were already open when the user first connected)
         if (!inPeriod && connectAt) {
-          const startTs = toMs(connectAt);
-          return openMs >= startTs;
+          const connectTs = connectAt ? toMs(connectAt) : NaN;
+          if (!Number.isFinite(connectTs)) return inPeriod;
+          return openMs >= connectTs;
         }
 
         return inPeriod;
@@ -572,14 +577,12 @@ export default function CopierHistoryPage() {
     //    - No open trades at the moment
     //    - Profit MUST be positive for settlement to happen
     let eligibleForSettlement = false;
-    if (connectAt) {
-      const connectedMs = toMs(connectAt);
-      if (Number.isFinite(connectedMs)) {
-        eligibleForSettlement =
-          now - connectedMs >= THIRTY_DAYS_MS && 
-          filteredOpen.length === 0 &&
-          currentRealizedProfit > 0;
-      }
+    const connectedMs = connectAt ? toMs(connectAt) : NaN;
+    if (Number.isFinite(connectedMs)) {
+      eligibleForSettlement =
+        now - connectedMs >= THIRTY_DAYS_MS && 
+        filteredOpen.length === 0 &&
+        currentRealizedProfit > 0;
     }
 
     // 7) Commission & withdrawal rules for the CURRENT cycle:
