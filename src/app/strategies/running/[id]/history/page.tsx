@@ -675,14 +675,6 @@ export default function CopierHistoryPage() {
             comment: 'Historical Strategy Commission'
           });
         }
-        if (Number(s.swap_amount || s.swapAmount || 0) !== 0) {
-          ops.push({
-            type: 'SWAP',
-            amount: Number(s.swap_amount || s.swapAmount || 0),
-            time: s.created_at || s.createdAt,
-            comment: 'Historical Swap Adjustment'
-          });
-        }
       });
 
       // 3. Current Settlement Operations (only if eligible)
@@ -699,14 +691,6 @@ export default function CopierHistoryPage() {
             amount: bookedCommission,
             time: new Date().toISOString(),
             comment: `Strategy Commission (${commissionPercent}%)`
-          });
-        }
-        if (swapBooked !== 0) {
-          ops.push({
-            type: 'SWAP',
-            amount: swapBooked,
-            time: new Date().toISOString(),
-            comment: 'Swap Adjustment'
           });
         }
       }
