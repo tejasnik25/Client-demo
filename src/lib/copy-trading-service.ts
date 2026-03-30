@@ -126,19 +126,34 @@ export class HttpCopyTradingProvider implements ICopyTradingProvider {
     const localUrl = 'http://127.0.0.1:8000';
     const isDev = process.env.NODE_ENV !== 'production';
     const isVercel = typeof process.env.VERCEL === 'string';
+    const allowFallback = process.env.COPY_TRADING_FALLBACK === 'true';
 
-    // On Vercel (serverless), 127.0.0.1 is the Vercel server itself, not the Python service.
-    // Only use the single configured URL (or AWS) in production to avoid ECONNREFUSED.
     const urls: string[] = [];
+
     if (this.baseUrl && !this.baseUrl.includes('mock')) {
       urls.push(this.baseUrl);
-    } else if (!isDev && !this.baseUrl) {
-      console.log('[CopyTrading] Using default AWS Provider (No custom URL configured).');
+      if (allowFallback) {
+        // In explicitly untrusted networks or debugging env, allow fallback paths.
+        if (!isVercel && !urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
+          urls.push(localUrl);
+        }
+        if (!urls.some(u => u.includes('15.206.157.59'))) {
+          urls.push(awsUrl);
+        }
+      }
+    } else if (!isDev) {
+      // production without explicit base URL -> AWS only
+      console.log('[CopyTrading] No provider URL configured, using AWS Provider.');
+      urls.push(awsUrl);
+    } else {
+      // dev without explicit base URL -> try local first, then AWS
+      if (!isVercel) urls.push(localUrl);
+      urls.push(awsUrl);
+      console.log('[CopyTrading] No provider URL, trying local then AWS.');
     }
-    if (!isVercel && !urls.some(u => u.includes('127.0.0.1') || u.includes('localhost'))) {
-      urls.push(localUrl);
-    }
-    if (!urls.some(u => u.includes('15.206.157.59'))) {
+
+    if (urls.length === 0) {
+      if (!isVercel) urls.push(localUrl);
       urls.push(awsUrl);
     }
 

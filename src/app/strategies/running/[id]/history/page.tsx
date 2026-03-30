@@ -86,6 +86,7 @@ export default function CopierHistoryPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyInfo, setHistoryInfo] = useState<string | null>(null);
   const [usingCachedData, setUsingCachedData] = useState(false);
+  const [realtimeFetchFailed, setRealtimeFetchFailed] = useState(false);
   const [historyUpdatedAt, setHistoryUpdatedAt] = useState<string | null>(null);
   const [connectAt, setConnectAt] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -142,7 +143,8 @@ export default function CopierHistoryPage() {
     }
   }, [pathname]);
 
-  // Hydrate instantly from localStorage cache (best-effort) to avoid initial delay.
+  // Hydrate instantly from localStorage cache (best-effort) to reduce UI flash.
+  // For open positions we prefer real-time only; cache fallback is only for closed history.
   useEffect(() => {
     if (!params.id) return;
     if (typeof window === "undefined") return;
@@ -152,7 +154,8 @@ export default function CopierHistoryPage() {
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed?.history) && parsed.history.length > 0) setHistory(parsed.history);
-      if (Array.isArray(parsed?.open_positions) && parsed.open_positions.length > 0) setOpenPositions(parsed.open_positions);
+      // don't use cached open positions; we require realtime open data
+      setOpenPositions([]);
     } catch {
       // ignore
     }
@@ -166,12 +169,20 @@ export default function CopierHistoryPage() {
           fetch(`/api/strategies/running`, { cache: "no-store" })
         ]);
         const data = await hRes.json();
-        
+
+        // Real-time data must be used if available;
+        // if we are forced to cache, only use close-history fallback, not open positions.
+        if (!data.cached) {
+          setRealtimeFetchFailed(false);
+          setOpenPositions(data.open_positions || []);
+        } else {
+          setRealtimeFetchFailed(true);
+          setOpenPositions([]); // do not show stale open data when realtime unavailable
+        }
+
         setHistory(data.history || []);
-        setOpenPositions(data.open_positions || []);
         setHistoryInfo(data.info || null);
         setHistoryUpdatedAt(data.last_updated || null);
-
         // Persist latest known-good data for instant display on next visit.
         if (typeof window !== "undefined") {
           try {
@@ -190,7 +201,7 @@ export default function CopierHistoryPage() {
         }
 
         setHistoryError(data.error || null);
-        setUsingCachedData(Boolean(data.info && String(data.info).toLowerCase().includes('cached')));
+        setUsingCachedData(Boolean(data.cached));
         const runData = await runRes.json().catch(() => null);
         const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => (x.id === params.id || x.rsId === params.id || x.strategyId === params.id)) : null;
         
@@ -255,9 +266,10 @@ export default function CopierHistoryPage() {
               const parsed = JSON.parse(raw);
               if (Array.isArray(parsed?.history) || Array.isArray(parsed?.open_positions)) {
                 setHistory(Array.isArray(parsed.history) ? parsed.history : []);
-                setOpenPositions(Array.isArray(parsed.open_positions) ? parsed.open_positions : []);
-                setHistoryError("Live data is unavailable, showing cached history data.");
+                setOpenPositions([]); // only close history fallback, no old open data
+                setHistoryError("Live data is unavailable, showing cached close history.");
                 setUsingCachedData(true);
+                setRealtimeFetchFailed(true);
                 setHistoryLoading(false);
                 return;
               }
@@ -935,7 +947,7 @@ export default function CopierHistoryPage() {
           {/* History Container */}
           <div className="bg-white rounded-[2rem] p-8 shadow-sm">
             <h2 className="text-xl font-bold text-gray-900 mb-6">History</h2>
-            {(historyError || historyInfo || usingCachedData) && (
+            {(historyError || historyInfo || usingCachedData || realtimeFetchFailed) && (
               <div className="mb-4 rounded-lg border p-3 text-xs"
                    style={{
                      borderColor: historyError ? '#f59e0b' : '#93c5fd',
@@ -943,7 +955,13 @@ export default function CopierHistoryPage() {
                      backgroundColor: historyError ? '#fef3c7' : '#bfdbfe',
                    }}
               >
-                {historyError ? historyError : usingCachedData ? 'Using cached history data while live data is unavailable.' : historyInfo}
+                {historyError
+                  ? historyError
+                  : realtimeFetchFailed
+                  ? 'Real-time data is unavailable. Showing cached closed history; open positions are paused until live connection restores.'
+                  : usingCachedData
+                  ? 'Using cached history data while live data is unavailable.'
+                  : historyInfo}
               </div>
             )}
             

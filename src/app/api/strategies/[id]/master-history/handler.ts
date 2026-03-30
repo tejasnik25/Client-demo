@@ -6,18 +6,35 @@ export const revalidate = 0;
 export const maxDuration = 25;
 
 const PYTHON_SERVICE_TIMEOUT_MS = 20000;
+const DEFAULT_COPY_TRADING_API_KEY = '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
 
-function getTradingServiceBaseUrl(): string {
+function getTradingServiceBaseUrls(): string[] {
   const envUrl =
     process.env.COPY_TRADING_API_URL ||
     process.env.COPY_TRADING_URL ||
     process.env.NEXT_PUBLIC_COPY_TRADING_API_URL ||
     process.env.NEXT_PUBLIC_COPY_TRADING_URL;
-  if (envUrl && !envUrl.includes('mock')) return envUrl.replace(/\/$/, '');
-  return process.env.NODE_ENV === 'production'
-    ? 'http://15.206.157.59:8000'
-    : 'http://127.0.0.1:8000';
+
+  if (envUrl && !envUrl.includes('mock')) {
+    const final = envUrl.replace(/\/$/, '');
+    console.log(`[MasterHistory] Using configured provider URL: ${final}`);
+    return [final];
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[MasterHistory] COPY_TRADING_API_URL/COPY_TRADING_URL missing in production; defaulting to AWS IP 15.206.157.59:8000');
+    return ['http://15.206.157.59:8000'];
+  }
+
+  console.warn('[MasterHistory] COPY_TRADING_API_URL/COPY_TRADING_URL missing in development; trying localhost then AWS fallback');
+  return ['http://127.0.0.1:8000', 'http://15.206.157.59:8000'];
 }
+
+function getTradingServiceBaseUrl(): string {
+  const urls = getTradingServiceBaseUrls();
+  return urls[0];
+}
+
 
 /**
  * Master trade history: prefer live MT5 via Python service, but fall back to cached
@@ -79,7 +96,7 @@ export async function GET(
       return NextResponse.json({
         history: hist,
         open_positions: open,
-        // Do not show connection errors to end users if we have old data.
+        cached: true,
         error: undefined,
         last_updated: cached.last_updated,
         info: 'Served cached data (live fetch failed)',
@@ -95,98 +112,76 @@ export async function GET(
     }
   };
 
-  const apiKey = (process.env.COPY_TRADING_API_KEY || '').trim();
-  if (!apiKey) {
-    // If the server is missing the key, serve cached data instead of erroring.
-    console.warn('[MasterHistory] COPY_TRADING_API_KEY missing/empty; serving cached data');
-    return fallbackFromCache();
+  const apiKey = (process.env.COPY_TRADING_API_KEY || DEFAULT_COPY_TRADING_API_KEY).trim();
+  if (!process.env.COPY_TRADING_API_KEY) {
+    console.warn('[MasterHistory] COPY_TRADING_API_KEY missing/empty; using default fallback key and attempting live fetch');
   }
 
   const cached = await getCachedMasterTrades(masterId);
   const cachedHist = Array.isArray(cached.history) ? cached.history.map(normalizeCachedTrade) : [];
   const cachedOpen = Array.isArray(cached.open_positions) ? cached.open_positions.map(normalizeCachedTrade) : [];
 
-  if (cachedHist.length > 0 || cachedOpen.length > 0) {
-    // Return cached immediately on prod to avoid 30s function timeout while trying to reach an unstable remote.
-    void (async () => {
-      try {
-        const baseUrl = getTradingServiceBaseUrl();
-        const liveUrl = `${baseUrl}/master/${encodeURIComponent(masterId)}/history`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), Math.min(PYTHON_SERVICE_TIMEOUT_MS, 9000));
+  const candidateUrls = getTradingServiceBaseUrls();
+  let liveResponse: Response | null = null;
+  let liveErrorMessage = '';
 
-        const res = await fetch(liveUrl, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) return;
-
-        const data = await res.json();
-        const history = Array.isArray(data.history) ? data.history : [];
-        const open_positions = (Array.isArray(data.open_positions) ? data.open_positions : []).map((p: any) => ({
-          ...p,
-          server_time_open: p.server_time_open ?? p.server_time ?? null,
-          price_current: p.price_current ?? p.price ?? p.price_open ?? null,
-        }));
-
-        // Do local cache refresh in background if we have new data
-        const finalHistory = history;
-        const finalOpenPositions = open_positions;
-        if (finalHistory.length > 0) {
-          await upsertMasterTrades(masterId, finalHistory, false);
-        }
-        await reconcileMasterOpenPositions(masterId, finalOpenPositions);
-      } catch (err) {
-        console.warn('[MasterHistory] Background refresh failed:', err);
-      }
-    })();
-
-    return NextResponse.json({
-      history: cachedHist,
-      open_positions: cachedOpen,
-      error: undefined,
-      last_updated: cached.last_updated,
-      info: 'Serving cached data while live refresh is in progress',
-    });
-  }
-
-  const baseUrl = getTradingServiceBaseUrl();
-  const liveUrl = `${baseUrl}/master/${encodeURIComponent(masterId)}/history`;
-
-  try {
+  for (const baseUrl of candidateUrls) {
+    const liveUrl = `${baseUrl}/master/${encodeURIComponent(masterId)}/history`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), PYTHON_SERVICE_TIMEOUT_MS);
 
-    const res = await fetch(liveUrl, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+    try {
+      const r = await fetch(liveUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText);
-      console.warn(`[MasterHistory] Live fetch failed ${res.status} for master ${masterId}: ${text}`);
-      return fallbackFromCache();
+      if (!r.ok) {
+        const text = await r.text().catch(() => r.statusText);
+        console.warn(`[MasterHistory] Live fetch failed ${r.status} for master ${masterId} at ${liveUrl}: ${text}`);
+        liveErrorMessage = `HTTP ${r.status}: ${text}`;
+        continue;
+      }
+
+      liveResponse = r;
+      console.log(`[MasterHistory] Live fetch succeeded for master ${masterId} at ${liveUrl}`);
+      break;
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      const message = (fetchError as any)?.message || fetchError;
+      console.warn(`[MasterHistory] Live fetch error for master ${masterId} at ${liveUrl}: ${message}`);
+      liveErrorMessage = String(message);
+    }
+  }
+
+  if (!liveResponse) {
+    if (cachedHist.length > 0 || cachedOpen.length > 0) {
+      return NextResponse.json({
+        history: cachedHist,
+        open_positions: cachedOpen,
+        cached: true,
+        error: liveErrorMessage || 'Live fetch failed; serving cached data.',
+        last_updated: cached.last_updated,
+        info: 'Serving cached data while live fetch is unavailable',
+      });
     }
 
-    const data = (await res.json()) as {
-      master_id?: string;
-      history?: any[];
-      open_positions?: any[];
-      error?: string;
-    };
+    return fallbackFromCache(liveErrorMessage || 'Live fetch failed.');
+  }
+
+
+  const data = (await liveResponse.json()) as {
+    master_id?: string;
+    history?: any[];
+    open_positions?: any[];
+    error?: string;
+  };
 
     const history = Array.isArray(data.history) ? data.history : [];
     const open_positions = (Array.isArray(data.open_positions) ? data.open_positions : []).map(
@@ -271,15 +266,10 @@ export async function GET(
     return NextResponse.json({
       history: finalHistory,
       open_positions: finalOpenPositions,
+      cached: false,
       error: errorStr,
       last_updated: new Date().toISOString(),
       info: 'Live data from MT5 terminal (real-time)',
     });
-  } catch (e: any) {
-    const isAbort = e?.name === 'AbortError';
-    console.warn(
-      `[MasterHistory] Live fetch error for master ${masterId}: ${isAbort ? 'timeout' : e?.message || e}`
-    );
-    return fallbackFromCache();
-  }
 }
+
