@@ -144,7 +144,7 @@ export default function UserDetailsPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center py-2 border-b border-gray-50">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Account Created</span>
-                  <span className="text-xs font-black text-gray-900">{new Date(user?.created_at).toLocaleDateString()}</span>
+                  <span className="text-xs font-black text-gray-900">{new Date(user?.createdAt || user?.created_at || user?.createdAt || Date.now()).toLocaleDateString()}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-50">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Wallet Balance</span>
@@ -251,7 +251,7 @@ export default function UserDetailsPage() {
                         <div className="mt-6 pt-6 border-t border-gray-50">
                           <div className="flex flex-col">
                             <span className="text-[9px] font-bold text-gray-400 uppercase">Started At</span>
-                            <span className="text-[11px] font-black text-gray-900">{new Date(rs.createdAt).toLocaleDateString()}</span>
+                            <span className="text-[11px] font-black text-gray-900">{new Date(rs.createdAt || rs.created_at || Date.now()).toLocaleDateString()}</span>
                           </div>
                         </div>
                       </div>

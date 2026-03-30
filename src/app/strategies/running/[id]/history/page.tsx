@@ -525,7 +525,7 @@ export default function CopierHistoryPage() {
       (planCommission != null && Number.isFinite(planCommission) ? planCommission : null) ??
       30;
 
-    // 2) Deposits = all successful payments + running strategy capital for this user.
+    // 2) Deposits = user payments or running strategy capital (avoid double-counting where they match).
     const userId = sessionUserId;
     const successfulStatuses = new Set([
       "approved",
@@ -559,7 +559,8 @@ export default function CopierHistoryPage() {
       })
       .reduce((sum, p) => sum + (Number(p.capital || p.payable || p.amount || p.payable_amount || 0)), 0);
 
-    const deposit = Math.max(0, Number(runningCapital || 0) + paymentDeposit);
+    // Prefer the non-zero value to prevent double-counting a single funding source.
+    const deposit = Math.max(0, Number(runningCapital || 0), paymentDeposit);
 
     // 3) Calculate totals for all closed trades from MT5
     let currentRealizedProfit = 0;

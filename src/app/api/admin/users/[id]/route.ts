@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getUserById, getRunningStrategiesForUser, getStrategyById, getCachedMasterTrades } from '@/db/dbService';
+import { getUserById, getRunningStrategiesForUser, getStrategyById, getCachedMasterTrades, getRunningStrategyTotalCapital } from '@/db/dbService';
 
 // Helper function to check admin authorization
 async function checkAdminAuth() {
@@ -50,27 +50,49 @@ export async function GET(
         if (strategy?.masterAccountId) {
           const trades = await getCachedMasterTrades(strategy.masterAccountId);
           
-          // Calculate Realized Profit from history
-          const realizedProfit = trades.history.reduce((sum, t) => sum + (Number(t.profit) || 0), 0);
-          
-          // Calculate Floating Profit from open positions
-          const floatingProfit = trades.open_positions.reduce((sum, t) => sum + (Number(t.profit) || 0), 0);
-          
+          // Calculate Master PnL from history and live open trades
+          const masterRealizedProfit = trades.history.reduce((sum, t) => sum + (Number(t.profit) || 0), 0);
+          const masterFloatingProfit = trades.open_positions.reduce((sum, t) => sum + (Number(t.profit) || 0), 0);
+
+          const totalStrategyCapital = await getRunningStrategyTotalCapital(rs.strategyId);
+          const userCapital = Number(rs.capital || 0);
+          const share = totalStrategyCapital > 0 ? userCapital / totalStrategyCapital : 1;
+
+          const realizedProfit = masterRealizedProfit * share;
+          const floatingProfit = masterFloatingProfit * share;
+
           metrics = {
             floatingProfit,
             realizedProfit,
             totalTrades: trades.history.length + trades.open_positions.length,
-            openTrades: trades.open_positions.length,
-            balance: Number(rs.capital) + realizedProfit,
-            equity: Number(rs.capital) + realizedProfit + floatingProfit,
+            openTrades: rs.open_trades !== undefined ? Number(rs.open_trades || 0) : trades.open_positions.length,
+            balance: userCapital + realizedProfit,
+            equity: userCapital + realizedProfit + floatingProfit,
           };
         }
+
+        const normalizedCreatedAt = rs.created_at || rs.createdAt || rs.start_date || null;
+        const normalizedUpdatedAt = rs.updated_at || rs.updatedAt || null;
+        const normalizedCapital = Number(rs.capital || 0);
 
         return {
           ...rs,
           strategyName: strategy?.name || 'Unknown Strategy',
           strategyImage: strategy?.parameters?.image || strategy?.imageUrl,
-          metrics,
+          capital: normalizedCapital,
+          plan: rs.plan || rs.planName || strategy?.parameters?.plan || 'N/A',
+          adminStatus: rs.admin_status || rs.adminStatus || 'unknown',
+          status: rs.status || rs.status || 'unknown',
+          createdAt: normalizedCreatedAt,
+          updatedAt: normalizedUpdatedAt,
+          metrics: {
+            floatingProfit: Number(metrics.floatingProfit || 0),
+            realizedProfit: Number(metrics.realizedProfit || 0),
+            totalTrades: Number(metrics.totalTrades || 0),
+            openTrades: Number(metrics.openTrades || 0),
+            balance: Number(metrics.balance || normalizedCapital),
+            equity: Number(metrics.equity || normalizedCapital),
+          },
         };
       })
     );

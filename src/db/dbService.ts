@@ -335,6 +335,19 @@ export const getRunningStrategiesForUser = async (userId: string) => {
   }
 };
 
+export const getRunningStrategyTotalCapital = async (strategyId: string) => {
+  try {
+    const [rows]: any = await pool.execute(
+      'SELECT SUM(capital) as total_capital FROM running_strategies WHERE strategy_id = ? AND (status = "active" OR admin_status = "running")',
+      [strategyId]
+    );
+    return Number(rows[0]?.total_capital || 0);
+  } catch (error) {
+    console.error('Error getting running strategy total capital:', error);
+    return 0;
+  }
+};
+
 export const updateRunningStrategyAdminStatus = async (id: string, status: string): Promise<boolean> => {
   try {
     let userStatus = 'in-process';
@@ -1017,16 +1030,30 @@ export const getProfitSharingOverviewAdmin = async (): Promise<any[]> => {
         [s.id]
       );
 
+      const [openTradesCountResult]: any = await pool.execute(
+        'SELECT COUNT(*) as count FROM master_trades_cache WHERE master_id = ? AND is_open = 1',
+        [s.master_account_id]
+      );
+
+      const [depositRows]: any = await pool.execute(
+        'SELECT SUM(capital) as total_deposit FROM running_strategies WHERE strategy_id = ? AND (status = "active" OR admin_status = "running")',
+        [s.id]
+      );
+
+      const totalDeposit = Number(depositRows[0]?.total_deposit || 0);
+
       overview.push({
         id: s.id,
         strategyId: s.id,
-        name: s.name,
-        masterAccountId: s.master_account_id,
+        strategyName: s.name || 'Unknown',
+        strategyCreatedAt: s.created_at || null,
+        copiersCount: activeUsers[0]?.count || 0,
+        totalDeposit: totalDeposit,
         totalProfit: Number(closedTrades[0]?.total_profit || 0),
         totalSwap: Number(closedTrades[0]?.total_swap || 0),
-        lastSettledAt: lastSettlement[0]?.settlement_end || null,
-        activeCopiers: activeUsers[0]?.count || 0,
-        commissionPercent: s.parameters?.commission || 30
+        openTrades: Number(openTradesCountResult[0]?.count || 0),
+        commissionPercent: parseCommissionPercent(s),
+        lastSettlementAt: lastSettlement[0]?.settlement_end || null,
       });
     }
     return overview;
