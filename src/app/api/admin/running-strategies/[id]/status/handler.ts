@@ -10,7 +10,9 @@ import {
   endRunningPeriod, 
   approveRunningStrategyModification, 
   getRunningStrategyById, 
-  getStrategyById 
+  getStrategyById,
+  runProfitSharingSettlementAdmin,
+  createWalletTransaction
 } from '@/db/dbService'
 import { mt5Service } from '@/lib/mt5-service'
 
@@ -86,10 +88,45 @@ export async function PATCH(
     await endRunningPeriod(params.id)
   }
 
-  // Enforce stop and close when disconnecting
+  // Enforce stop and close when disconnecting + run settlement + update wallet
   if (finalStatus === 'disconnected') {
-    try { await mt5Service.stopCopyTrading(params.id) } catch {}
-    try { await mt5Service.closeAllPositions(params.id) } catch {}
+    try {
+      const openPositions = await mt5Service.getOpenPositions(params.id);
+      if (Array.isArray(openPositions?.positions) && openPositions.positions.length > 0) {
+        await mt5Service.closeAllPositions(params.id);
+      }
+    } catch (err) {
+      console.error('Failed to close open positions during disconnect:', err);
+    }
+
+    try {
+      await mt5Service.stopCopyTrading(params.id);
+    } catch (err) {
+      console.error('Failed to stop copy trading during disconnect:', err);
+    }
+
+    try {
+      const running = await getRunningStrategyById(params.id);
+      if (running?.strategyId) {
+        const settlementResult = await runProfitSharingSettlementAdmin(running.strategyId, (session.user as any).id);
+        if (settlementResult?.success && Array.isArray(settlementResult.items)) {
+          for (const item of settlementResult.items) {
+            // Add final settled balance as a deposit in billing for user central wallet
+            await createWalletTransaction({
+              user_id: item.user_id,
+              strategy_id: running.strategyId,
+              amount: Number(item.settled_balance || 0),
+              capital: Number(item.settled_balance || 0),
+              transaction_type: 'deposit',
+              status: 'settled',
+              admin_message: `Stop-copy settlement deposit for strategy ${running.strategyId}`
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Settlement/central wallet update failed on disconnect:', err);
+    }
   }
   // Auto-start copy trading when moving to running (if credentials exist)
   if (finalStatus === 'running') {

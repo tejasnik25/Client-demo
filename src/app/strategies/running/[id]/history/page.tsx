@@ -103,7 +103,23 @@ export default function CopierHistoryPage() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [settlements, setSettlements] = useState<any[]>([]);
   const [runningCapital, setRunningCapital] = useState<number>(0);
+  const [isStopRequesting, setIsStopRequesting] = useState<boolean>(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+
+  const strategyStatus = useMemo(() => {
+    const raw = `${adminStatus || ""} ${mtStatus || ""}`.toLowerCase();
+    if (raw.includes("in-process") || raw.includes("in process")) {
+      return { label: "In-Process", isActive: false };
+    }
+    if (raw.includes("running") || raw.includes("copying") || raw.includes("active")) {
+      return { label: "Running/Copying", isActive: true };
+    }
+    if (raw.includes("stopped") || raw.includes("idle") || raw.includes("offline") || raw.includes("disconnected")) {
+      return { label: "Stopped", isActive: false };
+    }
+    // Fallback until proper status is fetched
+    return { label: "Stopped", isActive: false };
+  }, [adminStatus, mtStatus]);
 
   useEffect(() => {
     const load = async () => {
@@ -143,6 +159,33 @@ export default function CopierHistoryPage() {
     }
   }, [pathname]);
 
+  const requestStopCopying = async () => {
+    if (!rsId) {
+      alert("Running strategy session not found.");
+      return;
+    }
+    if (!confirm("Are you sure you want to stop copying? This will request admin approval.")) return;
+    setIsStopRequesting(true);
+    try {
+      const res = await fetch(`/api/running-strategies/${rsId}/modification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Stop-copy request failed');
+      alert("Stop request submitted. Admin will review and process.");
+      setAdminStatus('in-process');
+      setMtStatus('running');
+      // keep current copy behavior until admin approves
+    } catch (e: any) {
+      console.error('Stop-copying request failed:', e);
+      alert(`Failed to submit request: ${e.message || 'Unknown error'}`);
+    } finally {
+      setIsStopRequesting(false);
+    }
+  };
+
   // Hydrate instantly from localStorage cache (best-effort) to reduce UI flash.
   // For open positions we prefer real-time only; cache fallback is only for closed history.
   useEffect(() => {
@@ -153,7 +196,10 @@ export default function CopierHistoryPage() {
       const raw = window.localStorage.getItem(key);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed?.history) && parsed.history.length > 0) setHistory(parsed.history);
+      if (Array.isArray(parsed?.history) && parsed.history.length > 0) {
+        setHistory(parsed.history);
+        setHistoryLoading(false);
+      }
       // don't use cached open positions; we require realtime open data
       setOpenPositions([]);
     } catch {
@@ -285,8 +331,8 @@ export default function CopierHistoryPage() {
       }
     };
     
-    // Only show loading if nothing is available yet.
-    setHistoryLoading(history.length === 0 && openPositions.length === 0);
+    // Don't force loading overlay if we have cached data; let history and open positions render directly.
+    setHistoryLoading(false);
     loadHistory();
 
     const timer = setInterval(loadHistory, 5000);
@@ -520,33 +566,44 @@ export default function CopierHistoryPage() {
         ? Number((strategy?.planDetails as any)[selectedPlan]?.percent)
         : null;
 
+    // Commission percent is set by admin in strategy parameters (or plan details) and displayed on user side.
     const commissionPercent =
-      parametersCommission ??
-      (planCommission != null && Number.isFinite(planCommission) ? planCommission : null) ??
-      30;
+      parametersCommission != null
+        ? parametersCommission
+        : planCommission != null
+        ? planCommission
+        : 0;
 
     // 2) Deposits = user payments or running strategy capital (avoid double-counting where they match).
     const userId = sessionUserId;
     const successfulStatuses = new Set([
-      "approved",
-      "completed",
-      "renewal_approved",
-      "in-process",
+      'approved',
+      'completed',
+      'renewal_approved',
+      'in-process',
+      'paid',
+      'settled',
     ]);
 
-    // We check both the running_strategy ID and the actual strategy ID
-    const strategyIdForFilter = strategy?.id || params.id;
+    // We check both the running_strategy ID and the actual strategy ID.
+    const strategyIdForFilter = String(strategy?.id || params.id || '');
+    const runningStrategyIdForFilter = String(rsId || params.id || '');
+
     const paymentDeposit = (payments as any[])
       .filter((p) => {
         const txType = String(p.transaction_type || p.type || p.transactionType || 'deposit').toLowerCase();
-        if (!['deposit', 'charge', 'transfer'].includes(txType)) return false;
+        if (!['deposit', 'charge', 'transfer', 'payment', 'topup', 'settled'].includes(txType)) return false;
 
-        const paymentStrategyId = String(p.strategyId || p.strategy_id || p.runningStrategyId || p.running_strategy_id || '').trim();
+        const paymentStrategyId = String(
+          p.strategyId || p.strategy_id || p.runningStrategyId || p.running_strategy_id || p.strategy_id || p.runningStrategyId || ''
+        ).trim();
+
         const isStrategyMatch =
-          paymentStrategyId === String(strategyIdForFilter) ||
+          paymentStrategyId === strategyIdForFilter ||
+          paymentStrategyId === runningStrategyIdForFilter ||
           paymentStrategyId === String(params.id) ||
-          paymentStrategyId === String(rsId) ||
-          paymentStrategyId === String(strategy?.id);
+          paymentStrategyId === String(strategy?.id) ||
+          paymentStrategyId === String(rsId);
 
         if (!isStrategyMatch) return false;
 
@@ -562,30 +619,56 @@ export default function CopierHistoryPage() {
     // Prefer the non-zero value to prevent double-counting a single funding source.
     const deposit = Math.max(0, Number(runningCapital || 0), paymentDeposit);
 
-    // 3) Calculate totals for all closed trades from MT5
-    let currentRealizedProfit = 0;
-    let currentSwap = 0;
+    // 3) Calculate totals for all closed trades from MT5 (close history tab)
+    let currentCloseProfit = 0;
+    let currentCloseSwap = 0;
 
     filteredClosed.forEach((row: any) => {
-      currentRealizedProfit += (Number(row.profit) || 0) * mult;
-      currentSwap += (Number(row.swap) || 0) * mult;
+      currentCloseProfit += (Number(row.profit) || 0) * mult;
+      currentCloseSwap += (Number(row.swap) || 0) * mult;
     });
 
-    // 4) Add settled values from database history
-    const settledProfit = settlements.reduce((sum, s) => sum + (Number(s.gross_profit || s.grossProfit || 0)), 0);
-    const settledWithdrawalRaw = settlements.reduce((sum, s) => sum + (Number(s.withdrawal_amount || s.withdrawalAmount || 0)), 0);
-    const settledCommissionRaw = settlements.reduce((sum, s) => sum + (Number(s.commission_amount || s.commissionAmount || 0)), 0);
-    const settledSwap = settlements.reduce((sum, s) => sum + (Number(s.swap_amount || s.swapAmount || 0)), 0);
-    const settledWithdrawal = Math.max(0, settledWithdrawalRaw);
-    const settledCommission = Math.max(0, settledCommissionRaw);
+    // 4) Calculate settlement totals (if any) for closed profit, swap, commission and withdrawal.
+    const settlementTotals = settlements.reduce(
+      (acc: { profit: number; swap: number; commission: number; withdrawal: number }, row: any) => {
+        const grossProfit = Number(row.gross_profit ?? row.profit ?? 0);
+        const swapAmount = Number(row.swap_amount ?? row.swap ?? 0);
+        const commissionAmount = Number(row.commission_amount ?? row.commission ?? 0);
+        const withdrawalAmount = Number(row.withdrawal_amount ?? row.withdrawal ?? 0);
+        return {
+          profit: acc.profit + (Number.isFinite(grossProfit) ? grossProfit : 0),
+          swap: acc.swap + (Number.isFinite(swapAmount) ? swapAmount : 0),
+          commission: acc.commission + (Number.isFinite(commissionAmount) ? commissionAmount : 0),
+          withdrawal: acc.withdrawal + (Number.isFinite(withdrawalAmount) ? withdrawalAmount : 0),
+        };
+      },
+      { profit: 0, swap: 0, commission: 0, withdrawal: 0 }
+    );
 
-    // 5) Calculate current Float P/L from open positions
-    let currentFloatPL = 0;
+    const hasSettlement =
+      settlementTotals.profit !== 0 ||
+      settlementTotals.swap !== 0 ||
+      settlementTotals.commission !== 0 ||
+      settlementTotals.withdrawal !== 0;
+
+    // 5) Calculate current totals from open positions
+    let currentOpenProfit = 0;
+    let currentOpenSwap = 0;
+
     filteredOpen.forEach((row: any) => {
-      currentFloatPL += (Number(row.profit) || 0) * mult + (Number(row.swap) || 0) * mult;
+      currentOpenProfit += (Number(row.profit) || 0) * mult;
+      currentOpenSwap += (Number(row.swap) || 0) * mult;
     });
 
-    // 6) Monthly settlement eligibility:
+    // 6) Current floating values
+    const currentOpenProfitWithSwap = currentOpenProfit + currentOpenSwap;
+    const currentFloatPL = currentOpenProfitWithSwap;
+
+    // Standard forex equity (approx): unrealized P/L plus swap (or minus if negative)
+    // In this context, we can report it as (Total FP/L - Total swap) if needed.
+    const currentOpenEquity = currentOpenProfit - currentOpenSwap;
+
+    // 7) Monthly settlement eligibility:
     //    - At least 30 days since connection
     //    - No open trades at the moment
     //    - Profit MUST be positive for settlement to happen
@@ -595,57 +678,43 @@ export default function CopierHistoryPage() {
       eligibleForSettlement =
         now - connectedMs >= THIRTY_DAYS_MS && 
         filteredOpen.length === 0 &&
-        currentRealizedProfit > 0;
+        currentCloseProfit > 0;
     }
 
     // 7) Commission & withdrawal rules for the CURRENT cycle:
-    let bookedCommission = 0;
-    let bookedWithdrawal = 0;
-    let swapBooked = 0;
-
-    if (eligibleForSettlement) {
-      swapBooked = currentSwap;
-      const profit = currentRealizedProfit;
-      const fullCommission = (profit * Math.max(commissionPercent, 0)) / 100;
-      bookedCommission = fullCommission;
-      // Withdrawal can never be negative, ensure it is at least 0
-      bookedWithdrawal = Math.max(0, profit - fullCommission);
-    }
-
-    // 8) Final displayed stats (Totals)
-    const displayProfit = currentRealizedProfit + settledProfit;
-    const displaySwap = currentSwap + settledSwap;
-
-    // Calculate current pending commission even if not yet eligible for settlement
-    const currentPendingCommission = (currentRealizedProfit > 0) ? (currentRealizedProfit * Math.max(commissionPercent, 0)) / 100 : 0;
-    const totalCommission = settledCommission + currentPendingCommission;
-
-    // User requested: Withdrawal can never be negative.
-    // Display both settled and present cycle values.
-    const displayWithdrawal = Math.max(0, settledWithdrawal + (eligibleForSettlement ? bookedWithdrawal : 0));
-    const displayCommission = Math.max(0, settledCommission + currentPendingCommission);
-
-    // 9) Balance formula: Balance = Deposit + Profit + Swap - Commission
-    //    Which is also: Balance = Deposit + Withdrawal + Swap
-    //    But we include current profit/swap/commission even if not yet settled.
+    // - Before any settlement, balance = Deposit + Profit + Swap.
+    // - Withdrawal card shows only SETTLED withdrawals (as requested).
+    // - Profit card shows total profit (Settled + Unsettled).
     
-    let currentBalance = deposit + displayProfit + displaySwap - totalCommission;
+    const displayProfit = settlementTotals.profit + currentCloseProfit;
+    const displaySwap = settlementTotals.swap + currentCloseSwap;
+    const displayCommission = settlementTotals.commission;
+    // Withdrawal can never be negative, and it should only show positive withdrawals as payouts.
+    const displayWithdrawal = Math.max(0, settlementTotals.withdrawal); 
+    const displayClosedProfitWithSwap = displayProfit + displaySwap;
+
+    // Balance formula: Deposit + Profit + Swap - Commission
+    // If profit is negative, commission is 0. If profit is positive, commission is deducted.
+    const currentBalance = Number(deposit || 0) + displayProfit + displaySwap - displayCommission;
+    const currentEquity = currentBalance + currentFloatPL;
 
     // 10) Generate Balance Operations
     const balanceOperations = (() => {
-      const ops = [];
+      const ops: Array<{ type: 'DEPOSIT' | 'WITHDRAWAL' | 'COMMISSION'; amount: number; time?: string; comment: string }> = [];
       
       // 1. Deposits (from payments)
-      const strategyIdForFilter = strategy?.id || params.id;
+      const strategyIdForFilter = String(strategy?.id || params.id || '');
       (payments as any[])
-        .filter(p => 
-          (String(p.strategyId || p.strategy_id) === String(strategyIdForFilter) || 
-           String(p.strategyId || p.strategy_id) === String(params.id) || 
-           String(p.strategyId || p.strategy_id) === String(rsId) ||
-           String(p.runningStrategyId || p.running_strategy_id) === String(rsId)) && 
-          (!sessionUserId || String(p.userId || p.user_id) === String(sessionUserId)) && 
-          (successfulStatuses.has(String(p.status || "").toLowerCase()) || String(p.status || "").toLowerCase().includes('settled'))
-        )
+        .filter(p => {
+          const paymentStrategyId = String(p.strategyId || p.strategy_id || p.runningStrategyId || p.running_strategy_id || '').trim();
+          return (
+            (paymentStrategyId === strategyIdForFilter ||
+             paymentStrategyId === String(params.id) ||
+             paymentStrategyId === String(rsId)) &&
+            (!sessionUserId || String(p.userId || p.user_id) === String(sessionUserId)) &&
+            (successfulStatuses.has(String(p.status || '').toLowerCase()) || String(p.status || '').toLowerCase().includes('settled'))
+          );
+        })
         .forEach(p => {
           ops.push({
             type: 'DEPOSIT',
@@ -655,45 +724,41 @@ export default function CopierHistoryPage() {
           });
         });
 
-      // 2. Settlement Operations from history
-      settlements.forEach(s => {
-        const settlementWithdrawal = Math.max(0, Number(s.withdrawal_amount || s.withdrawalAmount || 0));
-        const settlementCommission = Math.max(0, Number(s.commission_amount || s.commissionAmount || 0));
+      // Append settlement operations if settlements exist.
+      if (hasSettlement) {
+        settlements.forEach(s => {
+          const wAmt = Number(s.withdrawal_amount ?? s.withdrawalAmount ?? 0);
+          const cAmt = Number(s.commission_amount ?? s.commissionAmount ?? 0);
+          
+          if (cAmt !== 0) {
+            ops.push({
+              type: 'COMMISSION',
+              amount: cAmt,
+              time: s.createdAt || s.updated_at || s.created_at || new Date().toISOString(),
+              comment: 'Settled commission amount'
+            });
+          }
 
-        if (settlementWithdrawal > 0) {
-          ops.push({
-            type: 'WITHDRAWAL',
-            amount: settlementWithdrawal,
-            time: s.created_at || s.createdAt,
-            comment: `Historical Profit Settlement (${new Date(s.settlement_start || s.settlementStart).toLocaleDateString()} - ${new Date(s.settlement_end || s.settlementEnd).toLocaleDateString()})`
-          });
-        }
-        if (settlementCommission > 0) {
-          ops.push({
-            type: 'COMMISSION',
-            amount: settlementCommission,
-            time: s.created_at || s.createdAt,
-            comment: 'Historical Strategy Commission'
-          });
-        }
-      });
-
-      // 3. Current Settlement Operations (only if eligible)
-      if (eligibleForSettlement) {
-        ops.push({
-          type: 'WITHDRAWAL',
-          amount: bookedWithdrawal,
-          time: new Date().toISOString(),
-          comment: 'Pending Profit Settlement'
+          if (wAmt !== 0) {
+            ops.push({
+              type: 'WITHDRAWAL',
+              amount: Math.max(0, wAmt), // Ensure withdrawal in list is also positive
+              time: s.createdAt || s.updated_at || s.created_at || new Date().toISOString(),
+              comment: 'Settled withdrawal amount'
+            });
+          }
         });
-        if (bookedCommission > 0) {
-          ops.push({
-            type: 'COMMISSION',
-            amount: bookedCommission,
-            time: new Date().toISOString(),
-            comment: `Strategy Commission (${commissionPercent}%)`
-          });
-        }
+      }
+
+      // Ensure deposit is always shown if there is an investment amount
+      const hasDepositOp = ops.some((o) => o.type === 'DEPOSIT');
+      if (!hasDepositOp && Number(deposit) > 0) {
+        ops.push({
+          type: 'DEPOSIT',
+          amount: Number(deposit),
+          time: settlements[0]?.createdAt || new Date().toISOString(),
+          comment: 'Initial deposit (fallback)'
+        });
       }
 
       return ops.sort((a, b) => toMs(b.time) - toMs(a.time));
@@ -703,14 +768,20 @@ export default function CopierHistoryPage() {
       deposit: deposit.toFixed(2),
       withdrawal: displayWithdrawal.toFixed(2),
       profitLastMonth: displayProfit.toFixed(2),
+      closedProfitWithSwap: displayClosedProfitWithSwap.toFixed(2),
+      openProfitWithSwap: currentOpenProfitWithSwap.toFixed(2),
       swap: displaySwap.toFixed(2),
+      openSwap: currentOpenSwap.toFixed(2),
       commission: displayCommission.toFixed(2),
       balance: currentBalance.toFixed(2),
+      equity: currentEquity.toFixed(2),
       settlementEligible: eligibleForSettlement,
       floatPL: currentFloatPL.toFixed(2),
+      openProfit: currentOpenProfit.toFixed(2),
+      openEquity: currentOpenEquity.toFixed(2),
       balanceOperations,
       commissionPercent,
-      swapBooked
+      swapBooked: currentOpenSwap
     };
   }, [
     filteredClosed,
@@ -856,9 +927,13 @@ export default function CopierHistoryPage() {
                 <FiMinusCircle className="w-4 h-4" />
                 Reduce Investment
               </button>
-              <button className="flex items-center gap-2 text-gray-900 text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity">
+              <button
+                onClick={requestStopCopying}
+                disabled={isStopRequesting || strategyStatus.label === 'In-Process'}
+                className={`flex items-center gap-2 text-xs font-bold uppercase tracking-tight transition-opacity ${isStopRequesting || strategyStatus.label === 'In-Process' ? 'text-gray-400 cursor-not-allowed' : 'text-red-600 hover:opacity-80'}`}
+              >
                 <FiXCircle className="w-4 h-4" />
-                Stop Copying
+                {isStopRequesting ? 'Submitting…' : strategyStatus.label === 'In-Process' ? 'In-Process' : 'Stop Copying'}
               </button>
               <button 
                 onClick={() => router.push(`/strategies/${params.id}/info`)}
@@ -902,11 +977,11 @@ export default function CopierHistoryPage() {
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Status</p>
                 <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  (adminStatus === 'running' || adminStatus === 'active') 
-                  ? "bg-[#00d09c] text-white" 
-                  : "bg-red-500 text-white"
+                  strategyStatus.isActive
+                    ? "bg-[#00d09c] text-white"
+                    : "bg-red-500 text-white"
                 }`}>
-                  {(adminStatus === 'running' || adminStatus === 'active') ? "Running" : "Stopped"}
+                  {strategyStatus.label}
                 </span>
               </div>
 
@@ -993,22 +1068,29 @@ export default function CopierHistoryPage() {
               <div className="px-4 border-r border-gray-100 last:border-0">
                 <p
                   className={`text-2xl font-black ${
-                    Number(stats.profitLastMonth) >= 0 ? 'text-gray-900' : 'text-red-500'
+                    Number(stats.closedProfitWithSwap) >= 0 ? 'text-gray-900' : 'text-red-500'
                   }`}
                 >
-                  ${stats.profitLastMonth}
+                  ${stats.closedProfitWithSwap}
                 </p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${stats.swap}</p>
+                <p className="text-2xl font-black text-gray-900">${filter === 'closed' ? stats.swap : stats.openSwap}</p>
                 <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">
-                  ${stats.commission}
-                </p>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
+                {filter === 'opened' ? (
+                  <>
+                    <p className="text-2xl font-black text-gray-900">${stats.equity}</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase mt-1">Equity</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-2xl font-black text-gray-900">${stats.commission}</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
+                  </>
+                )}
               </div>
               <div className="px-4 border-r border-gray-100 last:border-0">
                 <p className="text-2xl font-black text-gray-900">
@@ -1157,7 +1239,7 @@ export default function CopierHistoryPage() {
                 ) : (
                   <tr>
                     <td colSpan={filter === 'closed' ? 9 : 8} className="px-6 py-20 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">
-                      {historyLoading ? "Loading orders..." : "No orders found"}
+                      No orders found
                     </td>
                   </tr>
                 )}

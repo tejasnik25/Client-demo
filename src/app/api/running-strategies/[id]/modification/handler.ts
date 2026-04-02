@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         new_update_json: { action: 'disconnect' },
     };
     await createRunningStrategyModification(modPayload);
-    // Snapshot open positions at the moment of disconnect for accurate P&L
+    // Snapshot open positions at the moment of disconnect for accurate P&L (admin will decide final stop)
     try {
       const snapshot = await mt5Service.getOpenPositions(params.id);
       await createDisconnectSnapshot({
@@ -46,14 +46,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         user_id: userId,
         positions: snapshot?.positions || []
       });
-    } catch {}
-    // Immediately stop copying and close all open positions
-    try {
-      await mt5Service.stopCopyTrading(params.id);
-    } catch {}
-    try {
-      await mt5Service.closeAllPositions(params.id);
-    } catch {}
+    } catch (error) {
+      console.error('Snapshot collection failed for disconnect request:', error);
+    }
+
+    // Do NOT auto-stop or close positions here; allow admin to approve the stop request first.
     return NextResponse.json({ success: true, status: 'in-process' });
   }
   

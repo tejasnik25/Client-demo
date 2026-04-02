@@ -320,13 +320,13 @@ export default function UserDetailsPage() {
                       <Label className="text-xs font-bold text-gray-400 text-right uppercase tracking-wider">Current Password</Label>
                       <div className="col-span-2 flex items-center gap-3">
                         <div className="flex-1 px-3 py-2 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-xs font-mono text-gray-600 break-all">
-                          {showCurrentPassword ? (user?.password || 'No password hash') : '••••••••••••••••'}
+                          {showCurrentPassword ? 'Stored Password is kept securely hashed and is not displayable' : '••••••••••••••••'}
                         </div>
                         <button
                           type="button"
                           onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                           className="p-2 hover:bg-gray-100 rounded-md transition-colors text-gray-400 hover:text-gray-600"
-                          title={showCurrentPassword ? "Hide password hash" : "Show password hash"}
+                          title={showCurrentPassword ? "Hide password info" : "Show password info"}
                         >
                           {showCurrentPassword ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
                         </button>

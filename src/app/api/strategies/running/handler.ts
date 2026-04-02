@@ -8,7 +8,11 @@ import {
   getStrategyById,
   getRunningStrategyModifications,
   getDisconnectSnapshots,
-  getRunningPeriods
+  getRunningPeriods,
+  getRunningStrategyTotalCapital,
+  getCachedMasterTrades,
+  getUserStrategyDeposit,
+  getSettlementsByUserAndStrategy
 } from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
@@ -68,30 +72,98 @@ export async function GET() {
         console.error('[RunningStrategiesAPI] Error reading running periods for', r.id, err);
       }
 
+      let deposit = Number(r.capital || 0);
+      try {
+        const d = await getUserStrategyDeposit(userId, id);
+        if (d > 0) deposit = d;
+      } catch (err) {
+        console.warn('[RunningStrategiesAPI] Could not read deposit for', id, err);
+      }
+
+      let metrics = {
+        floatingProfit: 0,
+        realizedProfit: 0,
+        totalTrades: 0,
+        openTrades: 0,
+        balance: deposit,
+        equity: deposit,
+      };
+
+      if (s?.masterAccountId) {
+        try {
+          const trades = await getCachedMasterTrades(s.masterAccountId);
+          const masterRealizedProfit = trades.history.reduce((sum: number, t: any) => sum + (Number(t.profit) || 0), 0);
+          const masterFloatingProfit = trades.open_positions.reduce((sum: number, t: any) => sum + (Number(t.profit) || 0), 0);
+          const totalStrategyCapital = await getRunningStrategyTotalCapital(id);
+          const userCapital = Number(r.capital || deposit || 0);
+          const share = totalStrategyCapital > 0 ? userCapital / totalStrategyCapital : 1;
+
+          const realizedProfit = masterRealizedProfit * share;
+          const floatingProfit = masterFloatingProfit * share;
+
+          const hasSettlements = (await getSettlementsByUserAndStrategy(userId, id)) || [];
+          if (hasSettlements.length > 0) {
+            const settlementTotals = hasSettlements.reduce((acc: any, sItem: any) => {
+              return {
+                withdrawal: acc.withdrawal + Math.max(0, Number(sItem.withdrawal_amount || 0)),
+                profit: acc.profit + Number(sItem.gross_profit || 0),
+                swap: acc.swap + Number(sItem.swap_amount || 0),
+                commission: acc.commission + Number(sItem.commission_amount || 0),
+              };
+            }, { withdrawal: 0, profit: 0, swap: 0, commission: 0 });
+
+            metrics.balance = deposit + settlementTotals.profit + settlementTotals.swap - settlementTotals.commission;
+            metrics.equity = metrics.balance + floatingProfit;
+            metrics.realizedProfit = settlementTotals.profit;
+            metrics.floatingProfit = floatingProfit;
+          } else {
+            metrics = {
+              floatingProfit,
+              realizedProfit,
+              totalTrades: trades.history.length + trades.open_positions.length,
+              openTrades: trades.open_positions.length,
+              balance: userCapital + realizedProfit,
+              equity: userCapital + realizedProfit + floatingProfit,
+            };
+          }
+        } catch (err) {
+          console.warn('[RunningStrategiesAPI] Error computing metrics for', id, err);
+        }
+      }
+
       const obj = {
         id,
         rsId: r.id,
         strategyId: id,
         name,
         orders: [],
-        profit: 0,
+        profit: metrics.realizedProfit,
         adminStatus: r.adminStatus || r.admin_status || 'in-process',
         status: r.status,
         updatedAt: r.updatedAt || r.updated_at,
         createdAt: r.createdAt || r.created_at,
         plan: r.plan,
-        capital: r.capital,
+        capital: Number(deposit),
+        deposit: Number(deposit),
         platform: r.platform ?? null,
         rejectionReason: r.rejectionReason ?? r.rejection_reason ?? null,
         modifications,
         snapshots,
-        periods
+        periods,
+        metrics,
       };
       console.log(`[RunningStrategiesAPI] Strategy ${obj.strategyId} for user ${userId} has adminStatus: ${obj.adminStatus}`);
       running.push(obj);
     }
 
-    const filteredRunning = running.filter(Boolean);
+    const filteredRunning = running
+      .filter(Boolean)
+      .filter((item: any) => {
+        const aStatus = String(item.adminStatus || item.admin_status || '').toLowerCase();
+        const uStatus = String(item.status || '').toLowerCase();
+        // Once admin accepts stop-copy request, make user side hide it
+        return aStatus !== 'disconnected' && aStatus !== 'stopped' && uStatus !== 'stopped';
+      });
 
     // Auto-recover missing subscriptions for running sessions in the background
     try {

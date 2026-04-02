@@ -88,7 +88,15 @@ const PlanUsagePage = () => {
     
     const modificationPending = modifications.filter(m => m.status === 'pending' || m.status === 'in-process').length;
     const modificationApproved = modifications.filter(m => m.status === 'approved' || m.status === 'running').length;
-    
+    const stopCopyingInProcess = modifications.filter((m: any) => {
+      try {
+        const req = typeof m.new_update_json === 'string' ? JSON.parse(m.new_update_json || '{}') : m.new_update_json;
+        return req?.action === 'disconnect' && String(m.status).toLowerCase() === 'in-process';
+      } catch {
+        return false;
+      }
+    }).length;
+
     return {
       running,
       disconnected,
@@ -99,7 +107,8 @@ const PlanUsagePage = () => {
       renewalApproved,
       renewalRejected,
       modificationPending,
-      modificationApproved
+      modificationApproved,
+      stopCopyingInProcess
     };
   }, [strategies, payments, modifications]);
 
@@ -146,7 +155,7 @@ const PlanUsagePage = () => {
       <h1 className="text-3xl font-bold">Plan Usage Analytics</h1>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
         <Link href="/admin/plan-usage/total-running-strategy" className="block p-4 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-shadow">
           <h3 className="text-sm text-gray-500 mb-1">Total Running Strategy</h3>
           <p className="text-2xl font-bold text-green-600">{stats.running}</p>
@@ -166,6 +175,14 @@ const PlanUsagePage = () => {
         <Link href="/admin/plan-usage/modification-strategy" className="block p-4 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-shadow">
           <h3 className="text-sm text-gray-500 mb-1">Modification Strategy</h3>
           <p className="text-2xl font-bold text-orange-600">{stats.modificationPending + stats.modificationApproved}</p>
+        </Link>
+        <Link href="/admin/plan-usage/stop-copying" className="block p-4 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-shadow">
+          <h3 className="text-sm text-gray-500 mb-1">Stop Copying Requests</h3>
+          <p className="text-2xl font-bold text-red-600">{stats.stopCopyingInProcess || 0}</p>
+        </Link>
+        <Link href="/admin/plan-usage/all-settlements" className="block p-4 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-shadow">
+          <h3 className="text-sm text-gray-500 mb-1">All Settlements</h3>
+          <p className="text-2xl font-bold text-indigo-600">View</p>
         </Link>
       </div>
 

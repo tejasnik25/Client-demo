@@ -319,7 +319,10 @@ export const getRunningStrategyById = async (id: string) => {
 
 export const getRunningStrategiesForUser = async (userId: string) => {
   try {
-    const [rows]: any = await pool.execute('SELECT * FROM running_strategies WHERE user_id = ?', [userId]);
+    const [rows]: any = await pool.execute(
+      'SELECT * FROM running_strategies WHERE user_id = ? AND admin_status NOT IN ("disconnected","stopped") AND status NOT IN ("stopped","error")',
+      [userId]
+    );
     return rows.map((r: any) => ({
       ...r,
       strategyId: r.strategy_id,
@@ -331,7 +334,7 @@ export const getRunningStrategiesForUser = async (userId: string) => {
   } catch (error) {
     console.error('Error getting running strategies for user:', error);
     const db = readDatabase();
-    return db.running_strategies.filter((r: any) => r.user_id === userId);
+    return db.running_strategies.filter((r: any) => r.user_id === userId && r.admin_status !== 'disconnected' && r.admin_status !== 'stopped');
   }
 };
 
@@ -344,6 +347,24 @@ export const getRunningStrategyTotalCapital = async (strategyId: string) => {
     return Number(rows[0]?.total_capital || 0);
   } catch (error) {
     console.error('Error getting running strategy total capital:', error);
+    return 0;
+  }
+};
+
+export const getUserStrategyDeposit = async (userId: string, strategyId: string) => {
+  try {
+    const [rows]: any = await pool.execute(
+      `SELECT COALESCE(SUM(amount), 0) AS total_deposit
+       FROM wallet_transactions
+       WHERE user_id = ?
+         AND strategy_id = ?
+         AND transaction_type IN ('deposit', 'charge', 'transfer', 'payment', 'topup', 'settled')
+         AND status IN ('completed', 'settled', 'approved', 'in-process')`,
+      [userId, strategyId]
+    );
+    return Number(rows[0]?.total_deposit || 0);
+  } catch (error) {
+    console.error('Error getting user strategy deposit:', error);
     return 0;
   }
 };
@@ -615,11 +636,32 @@ export const getSettlementsByUserAndStrategy = async (userId: string, strategyId
     return rows.map((r: any) => ({
       ...r,
       settlementStart: r.settlement_start ? r.settlement_start.toISOString() : null,
-      settlementEnd: r.settlement_end.toISOString(),
-      createdAt: r.created_at.toISOString()
+      settlementEnd: r.settlement_end ? r.settlement_end.toISOString() : null,
+      createdAt: r.created_at ? r.created_at.toISOString() : null
     }));
   } catch (error) {
     console.error('getSettlementsByUserAndStrategy failed:', error);
+    return [];
+  }
+};
+
+export const getAllSettlements = async (): Promise<any[]> => {
+  try {
+    const [rows]: any = await pool.execute(`
+      SELECT psi.*, ps.settlement_start, ps.settlement_end
+      FROM profit_settlement_items psi
+      JOIN profit_settlements ps ON psi.settlement_id = ps.id
+      ORDER BY ps.settlement_end DESC
+    `);
+
+    return rows.map((r: any) => ({
+      ...r,
+      settlementStart: r.settlement_start ? r.settlement_start.toISOString() : null,
+      settlementEnd: r.settlement_end ? r.settlement_end.toISOString() : null,
+      createdAt: r.created_at ? r.created_at.toISOString() : null
+    }));
+  } catch (error) {
+    console.error('getAllSettlements failed:', error);
     return [];
   }
 };
@@ -706,7 +748,7 @@ export const getPendingOrInProcessTransactions = async () => {
 export const getRunningStrategyModificationsAdmin = async () => {
   try {
     const [rows]: any = await pool.execute(`
-      SELECT rsm.*, u.name as user_name, s.name as strategy_name 
+      SELECT rsm.*, u.name as user_name, s.name as strategy_name, rs.capital as current_balance, rs.admin_status as current_admin_status
       FROM running_strategy_modifications rsm
       JOIN users u ON rsm.user_id = u.id
       JOIN running_strategies rs ON rsm.running_strategy_id = rs.id

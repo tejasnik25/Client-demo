@@ -23,11 +23,15 @@ export async function GET(
     }
 
     const userId = params.id;
-    const user = await getUserById(userId);
+    let user = await getUserById(userId);
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
+
+    // Hide hashed password from admin response for security
+    const { password, ...userSafe } = user;
+    user = userSafe as any;
 
     // Fetch running strategies for the user
     const runningStrategies = await getRunningStrategiesForUser(userId);

@@ -630,8 +630,10 @@ const StrategiesPageInner: React.FC = () => {
                   
                   const cur = (r.adminStatus || r.admin_status || r.status || '').toLowerCase();
                   const isPending = pendingIds.includes((r as any)?.rsId || r.id);
-                  // Ensure we use a valid number for investedAmount
-                  const investedAmount = Number(r.capital) || 0;
+                  const investedAmount = Number(r.deposit || r.capital || 0);
+                  const displayBalance = Number(r.metrics?.balance ?? investedAmount);
+                  const displayFloatProfit = Number(r.metrics?.floatingProfit ?? (r.floatProfit || 0));
+                  const displayEquity = Number(r.metrics?.equity ?? (displayBalance + displayFloatProfit));
                   
                   return (
                     <div key={r.rsId || `${r.id}-${index}`} className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
@@ -662,18 +664,18 @@ const StrategiesPageInner: React.FC = () => {
 
                           <div className="flex flex-col items-center">
                             <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Balance</span>
-                            <span className="text-sm font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
+                            <span className="text-sm font-bold text-gray-900">{formatCurrency(displayBalance)}</span>
                           </div>
 
                           <div className="flex flex-col items-center">
                             <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Equity</span>
-                            <span className="text-sm font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
+                            <span className="text-sm font-bold text-gray-900">{formatCurrency(displayEquity)}</span>
                           </div>
 
                           <div className="flex flex-col items-center">
                             <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Float Profit</span>
-                            <span className={`text-sm font-bold ${(r.floatProfit || 0) > 0 ? 'text-green-500' : (r.floatProfit || 0) < 0 ? 'text-red-500' : 'text-gray-900'}`}>
-                              {formatCurrency(r.floatProfit || 0.00)}
+                            <span className={`text-sm font-bold ${displayFloatProfit > 0 ? 'text-green-500' : displayFloatProfit < 0 ? 'text-red-500' : 'text-gray-900'}`}>
+                              {formatCurrency(displayFloatProfit)}
                             </span>
                           </div>
 

@@ -33,7 +33,7 @@ export async function GET(_req: NextRequest) {
     const runningStrategies = await getRunningStrategiesAdmin();
     
     // Map strategy info to users
-    const usersWithStrategy = users.map(user => {
+    const usersWithStrategy = users.map((user: any) => {
       const userStrategies = runningStrategies.filter(rs => rs.userId === user.id);
       return {
         ...user,
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     if (!name || !email || !password) {
       return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 });
     }
-    const result = await createUserAdmin({ name, email, password, role, enabled });
+    const result: any = await createUserAdmin({ name, email, password, role, enabled });
     if (!result.success) {
       return NextResponse.json({ error: result.error || 'Failed to add user' }, { status: 400 });
     }
@@ -108,7 +108,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const result = await deleteUserAdmin(userId);
+    const result: any = await deleteUserAdmin(userId);
     if (!result.success) {
       return NextResponse.json({ error: result.error || 'Failed to delete user' }, { status: 400 });
     }
@@ -153,7 +153,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const result = await updateUserAdmin(id, {
+    const result: any = await updateUserAdmin(id, {
       name: updateData.name,
       email: updateData.email,
       password: updateData.password, // Added password to updateData
