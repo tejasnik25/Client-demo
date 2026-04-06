@@ -166,7 +166,7 @@ const RenewalPendingPage = () => {
                   <td>-</td>
                   <td>{p.strategyId}</td>
                   <td>{p.plan}</td>
-                  <td>${p.payable.toFixed(2)}</td>
+                  <td>${(Number(p.payable) || 0).toFixed(2)}</td>
                   <td>{p.proofUrl ? <a href={p.proofUrl} target="_blank" rel="noreferrer" className="underline">View</a> : "-"}</td>
                   <td>{p.createdAt ? new Date(p.createdAt).toLocaleString() : "-"}</td>
                   <td><span className={`status-badge badge-pending`}>{p.status === "in_process" ? "In-process" : "Pending"}</span></td>

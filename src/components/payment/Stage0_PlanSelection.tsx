@@ -56,7 +56,13 @@ const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }:
     } as PaymentData));
   };
 
+  const hasInsufficientBalance = (paymentData?.payable || 0) > walletBalance;
+
   const handleContinue = () => {
+    if (hasInsufficientBalance) {
+      alert("You don't have enough balance to buy the strategy, please refill your wallet");
+      return;
+    }
     if (paymentData?.payable != null) onNext();
   };
 
@@ -64,6 +70,19 @@ const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }:
 
   return (
     <div className="flex flex-col gap-6 text-gray-900">
+      {/* Insufficient Balance Error */}
+      {hasInsufficientBalance && (paymentData?.payable || 0) > 0 && (
+        <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-red-600 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="p-1.5 rounded-full bg-red-100">
+            <FiHelpCircle className="w-4 h-4" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-black uppercase tracking-wider">Insufficient Balance</p>
+            <p className="text-sm font-medium">You don't have enough balance to buy the strategy, please refill your wallet</p>
+          </div>
+        </div>
+      )}
+
       {/* Strategy Header */}
       <div className="flex items-center gap-3">
         <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100 border border-gray-200">

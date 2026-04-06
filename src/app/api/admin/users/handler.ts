@@ -34,7 +34,12 @@ export async function GET(_req: NextRequest) {
     
     // Map strategy info to users
     const usersWithStrategy = users.map((user: any) => {
-      const userStrategies = runningStrategies.filter(rs => rs.userId === user.id);
+      // Only include active/running strategies in the "copying strategy" field
+      const userStrategies = runningStrategies.filter(rs => 
+        rs.userId === user.id && 
+        (String(rs.adminStatus || rs.status || '').toLowerCase() === 'active' || 
+         String(rs.adminStatus || rs.status || '').toLowerCase() === 'running')
+      );
       return {
         ...user,
         strategies: userStrategies.map(rs => ({

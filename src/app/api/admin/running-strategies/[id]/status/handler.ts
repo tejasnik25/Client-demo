@@ -12,7 +12,9 @@ import {
   getRunningStrategyById, 
   getStrategyById,
   runProfitSharingSettlementAdmin,
-  createWalletTransaction
+  createWalletTransaction,
+  deleteRunningStrategy,
+  clearStrategyCache
 } from '@/db/dbService'
 import { mt5Service } from '@/lib/mt5-service'
 
@@ -110,22 +112,30 @@ export async function PATCH(
       if (running?.strategyId) {
         const settlementResult = await runProfitSharingSettlementAdmin(running.strategyId, (session.user as any).id);
         if (settlementResult?.success && Array.isArray(settlementResult.items)) {
-          for (const item of settlementResult.items) {
-            // Add final settled balance as a deposit in billing for user central wallet
-            await createWalletTransaction({
-              user_id: item.user_id,
-              strategy_id: running.strategyId,
-              amount: Number(item.settled_balance || 0),
-              capital: Number(item.settled_balance || 0),
-              transaction_type: 'deposit',
-              status: 'settled',
-              admin_message: `Stop-copy settlement deposit for strategy ${running.strategyId}`
-            });
-          }
+          // runProfitSharingSettlementAdmin already creates deposit transactions for settled strategy funds.
+          // Avoid duplicating deposits here to keep balance correct.
+          console.log(`[StatusUpdate] Strategy ${running.strategyId} profit settlement completed for ${settlementResult.items.length} users`);
         }
       }
     } catch (err) {
       console.error('Settlement/central wallet update failed on disconnect:', err);
+    }
+
+    // DELETE the running strategy completely after settlement
+    try {
+      console.log(`[StrategyCleanup] Deleting running strategy ${params.id} after disconnect`);
+      const deleteResult = await deleteRunningStrategy(params.id);
+      if (deleteResult) {
+        console.log(`[StrategyCleanup] Successfully deleted running strategy ${params.id}`);
+        
+        // Clear cached data for this strategy
+        await clearStrategyCache(params.id);
+        console.log(`[StrategyCleanup] Cache cleanup initiated for strategy ${params.id}`);
+      } else {
+        console.error(`[StrategyCleanup] Failed to delete running strategy ${params.id}`);
+      }
+    } catch (err) {
+      console.error('Strategy deletion failed on disconnect:', err);
     }
   }
   // Auto-start copy trading when moving to running (if credentials exist)

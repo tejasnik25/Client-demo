@@ -65,7 +65,10 @@ const ModificationStrategyPage = () => {
         runMap[r.id] = r; 
       });
 
-      const list: Modification[] = (modsData.modifications || []).map((m: any) => {
+      const list: Modification[] = (modsData.modifications || []).filter((m: any) => {
+        const req = m.new_update_json ? (typeof m.new_update_json === 'string' ? JSON.parse(m.new_update_json) : m.new_update_json) : {};
+        return req?.action !== 'disconnect'; // Exclude disconnect actions, handled in stop-copying page
+      }).map((m: any) => {
         const runStrat = runMap[m.running_strategy_id];
         return {
           id: m.id,

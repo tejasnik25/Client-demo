@@ -285,7 +285,7 @@ const ApprovedPaymentsPage = () => {
                                         <td>{p.userId}</td>
                                         <td>{p.txId}</td>
                                         <td>{p.email}</td>
-                                        <td>${p.payable.toFixed(2)}</td>
+                                        <td>${(Number(p.payable) || 0).toFixed(2)}</td>
                                         <td>{p.method}</td>
                                         <td>{(p as any).lotLabel || '-'}</td>
                                         <td>

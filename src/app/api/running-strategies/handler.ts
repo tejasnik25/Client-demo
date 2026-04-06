@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getRunningStrategiesForUser, createRunningStrategy, getStrategyById, updateRunningStrategyAdminStatus, updateWalletTransactionStatus } from '@/db/dbService';
+import { getRunningStrategiesForUser, createRunningStrategy, getStrategyById, updateRunningStrategyAdminStatus, updateWalletTransactionStatus, createWalletTransaction } from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
 export async function GET() {
@@ -87,6 +87,24 @@ export async function POST(req: Request) {
       // Update status based on validation
       await updateRunningStrategyAdminStatus(result.id, finalStatus);
       
+      // Reserve capital in wallet for this running strategy
+      try {
+        if (Number(capital) > 0) {
+          await createWalletTransaction({
+            user_id: session.user.id,
+            amount: Number(capital),
+            capital: Number(capital),
+            transaction_type: 'charge',
+            status: 'completed',
+            strategy_id: strategyId,
+            plan_level: plan,
+            admin_message: `Reserved capital for running strategy ${strategyId} (${result.id})`
+          });
+        }
+      } catch (reserveError) {
+        console.error('[RunningStrategiesAPI] Failed to create strategy reservation transaction:', reserveError);
+      }
+
       // Update wallet transaction with rejection reason if any
       if (!validation.success) {
           await updateWalletTransactionStatus(

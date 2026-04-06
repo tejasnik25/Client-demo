@@ -132,7 +132,7 @@ const RenewalRejectedPage = () => {
                   <td>-</td>
                   <td>{p.strategyId}</td>
                   <td>{p.plan}</td>
-                  <td>${p.payable.toFixed(2)}</td>
+                  <td>${(Number(p.payable) || 0).toFixed(2)}</td>
                   <td>{p.method}</td>
                   <td>{p.updatedAt ? new Date(p.updatedAt).toLocaleString() : "-"}</td>
                   <td>-</td>

@@ -25,10 +25,12 @@ type Tx = {
 const BillingPageInner: React.FC = () => {
   const { user } = useAuth();
   const [txs, setTxs] = useState<Tx[]>([]);
+  const [balance, setBalance] = useState<number>(0);
   const [strategies, setStrategies] = useState<{ id: string; name: string; enabled?: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'successful' | 'rejected' | 'pending'>('all');
   const formatINR = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatUSD = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   useEffect(() => {
     const load = async () => {
@@ -42,11 +44,13 @@ const BillingPageInner: React.FC = () => {
         const stratData = await stratRes.json();
         const list: Tx[] = txData?.transactions || [];
         setTxs(list);
+        setBalance(txData?.balance || 0);
         const fetched = (stratData?.strategies || []).map((s: { id?: string | number; name?: string; enabled?: boolean }) => ({ id: String(s.id ?? ''), name: String(s.name ?? ''), enabled: s.enabled !== false }));
         setStrategies(fetched.filter((s: { enabled?: boolean }) => s.enabled !== false));
       } catch {
         setTxs([]);
         setStrategies([]);
+        setBalance(0);
       } finally {
         setLoading(false);
       }
@@ -164,10 +168,21 @@ const BillingPageInner: React.FC = () => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-gradient-to-br from-[#00d09c] to-[#7c3aed] rounded-2xl p-6 shadow-lg text-white">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2 rounded-lg bg-white/20">
+                <FiDollarSign className="h-5 w-5 text-white" />
+              </div>
+              <span className="text-xs text-white/80 uppercase tracking-wider">Funds in wallet</span>
+            </div>
+            <div className="text-3xl font-black">{formatUSD(balance)}</div>
+            <div className="text-sm text-white/70 mt-1">Available central balance</div>
+          </div>
+
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div className="p-2 rounded-lg bg-green-100">
-                <FiDollarSign className="h-5 w-5 text-[#00d09c]" />
+                <FiTrendingUp className="h-5 w-5 text-[#00d09c]" />
               </div>
               <span className="text-xs text-gray-600 uppercase tracking-wider">Total Spent</span>
             </div>

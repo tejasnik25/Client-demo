@@ -37,11 +37,12 @@ export async function GET(req: NextRequest) {
     
     const { password, ...safeUser } = user as any;
     try {
-      const { readDatabase } = await import('@/db/dbService');
+      const { readDatabase, getWalletBalance } = await import('@/db/dbService');
       const db = readDatabase();
       const jsonUser = db.users.find((u: any) => u.id === session.user.id);
       (safeUser as any).enabled =
         typeof jsonUser?.enabled !== 'undefined' ? !!jsonUser.enabled : (safeUser as any).enabled ?? true;
+      (safeUser as any).walletBalance = await getWalletBalance(session.user.id);
     } catch {
       (safeUser as any).enabled = (safeUser as any).enabled ?? true;
     }

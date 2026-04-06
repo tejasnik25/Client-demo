@@ -147,17 +147,22 @@ export default function CopierHistoryPage() {
     load();
   }, [params.id]);
 
-  // Remember last trades page for bottom nav
+  // Clear cache when strategy is deleted/disconnected
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      if (pathname?.includes("/strategies/running") && pathname?.includes("/history")) {
-        window.localStorage.setItem("last_trades_path", pathname);
+    if (!params.id || !rsId) return;
+    
+    // If we have rsId but no running strategy found, strategy was likely deleted
+    if (rsId && !adminStatus && !mtStatus) {
+      console.log(`[StrategyCleanup] Strategy ${params.id} appears to be deleted, clearing cache`);
+      try {
+        const cacheKey = `copier_history_cache_${params.id}`;
+        window.localStorage.removeItem(cacheKey);
+        console.log(`[StrategyCleanup] Cleared cache for deleted strategy: ${cacheKey}`);
+      } catch (error) {
+        console.error('Error clearing cache for deleted strategy:', error);
       }
-    } catch {
-      // ignore
     }
-  }, [pathname]);
+  }, [params.id, rsId, adminStatus, mtStatus]);
 
   const requestStopCopying = async () => {
     if (!rsId) {
@@ -279,7 +284,7 @@ export default function CopierHistoryPage() {
         
         // Effective connection time for filtering: Always use the original creation time
         // of the running strategy record (when the strategy was first approved/purchased).
-        const connectedAt = me?.createdAt || null;
+        const connectedAt = me?.createdAt || me?.created_at || null;
         setConnectAt(connectedAt);
         setUpdatedAt(me?.updatedAt || null);
         setRsId(me?.rsId || null);
@@ -443,29 +448,41 @@ export default function CopierHistoryPage() {
 
         const effectiveMs = Number.isFinite(openMs) ? openMs : closeMs;
 
-        // If no running periods yet, fallback to connectedAt (original behavior)
+        // If no running periods yet, fallback to connectedAt and require trade opened after connect time
         if (runningPeriods.length === 0) {
           const connectTs = connectAt ? toMs(connectAt) : NaN;
-          const startTs = Number.isFinite(connectTs) ? connectTs : 0;
-          // include if opened after connection OR closed after connection (was open at connection)
-          if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return true;
-          return (Number.isFinite(openMs) && openMs >= startTs) || (Number.isFinite(closeMs) && closeMs >= startTs);
+          if (!Number.isFinite(connectTs)) return true;
+
+          if (Number.isFinite(openMs)) {
+            return openMs >= connectTs;
+          }
+          if (Number.isFinite(closeMs)) {
+            return closeMs >= connectTs;
+          }
+          return true;
         }
 
-        // Check if time falls within ANY of the running periods
+        // Check if trade open time is within ANY of the running periods
         const inPeriod = runningPeriods.some(period => {
           const start = toMs(period.start_time);
           const end = period.end_time ? toMs(period.end_time) : Infinity;
-          return Number.isFinite(effectiveMs) && effectiveMs >= start && effectiveMs <= end;
-        });
 
-        // Also include trades that were opened BEFORE the first period but closed AFTER it started
-        // (Legacy trades or trades that were already open when the user first connected)
-        if (!inPeriod && connectAt) {
-          const connectTs = connectAt ? toMs(connectAt) : NaN;
-          if (!Number.isFinite(connectTs)) return inPeriod;
-          return (Number.isFinite(openMs) && openMs >= connectTs) || (Number.isFinite(closeMs) && closeMs >= connectTs);
-        }
+          if (Number.isFinite(openMs) && Number.isFinite(closeMs)) {
+            // Include trades that were active during the running period,
+            // even if the position opened before the period started and closed afterward.
+            return openMs <= end && closeMs >= start;
+          }
+
+          if (Number.isFinite(openMs)) {
+            return openMs >= start && openMs <= end;
+          }
+
+          if (Number.isFinite(closeMs)) {
+            return closeMs >= start && closeMs <= end;
+          }
+
+          return false;
+        });
 
         return inPeriod;
       })
@@ -686,11 +703,16 @@ export default function CopierHistoryPage() {
     // - Withdrawal card shows only SETTLED withdrawals (as requested).
     // - Profit card shows total profit (Settled + Unsettled).
     
-    const displayProfit = settlementTotals.profit + currentCloseProfit;
-    const displaySwap = settlementTotals.swap + currentCloseSwap;
-    const displayCommission = settlementTotals.commission;
+    // 7) Commission & withdrawal rules for the CURRENT cycle:
+    // - Before any settlement, balance = Deposit + Profit + Swap.
+    // - Withdrawal card shows only SETTLED withdrawals (as requested).
+    // - Profit card shows total profit (Settled + Unsettled).
+    
+    const displayProfit = Number(settlementTotals.profit || 0) + Number(currentCloseProfit || 0);
+    const displaySwap = Number(settlementTotals.swap || 0) + Number(currentCloseSwap || 0);
+    const displayCommission = Number(settlementTotals.commission || 0);
     // Withdrawal can never be negative, and it should only show positive withdrawals as payouts.
-    const displayWithdrawal = Math.max(0, settlementTotals.withdrawal); 
+    const displayWithdrawal = Math.max(0, Number(settlementTotals.withdrawal || 0)); 
     const displayClosedProfitWithSwap = displayProfit + displaySwap;
 
     // Balance formula: Deposit + Profit + Swap - Commission
@@ -700,18 +722,26 @@ export default function CopierHistoryPage() {
 
     // 10) Generate Balance Operations
     const balanceOperations = (() => {
-      const ops: Array<{ type: 'DEPOSIT' | 'WITHDRAWAL' | 'COMMISSION'; amount: number; time?: string; comment: string }> = [];
+      const ops: Array<{ type: 'DEPOSIT' | 'WITHDRAWAL' | 'COMMISSION' | 'SWAP'; amount: number; time?: string; comment: string }> = [];
       
-      // 1. Deposits (from payments)
-      const strategyIdForFilter = String(strategy?.id || params.id || '');
+      // 1. Deposits (from payments linked to THIS running_strategy only)
       (payments as any[])
         .filter(p => {
-          const paymentStrategyId = String(p.strategyId || p.strategy_id || p.runningStrategyId || p.running_strategy_id || '').trim();
+          // CRITICAL: STRICT filtering - Only include payments explicitly linked to CURRENT running_strategy_id
+          // This prevents old payments from before a stop+repurchase from appearing
+          const paymentRunningStrategyId = String(p.runningStrategyId || p.running_strategy_id || '').trim();
+          const thisRunningStrategyId = String(rsId || '').trim();
+          
+          // MUST match the current running_strategy_id - no fallback for legacy data
+          // This ensures old transactions from stop+repurchase cycles don't leak through
+          const matchesRunningStrategy = (
+            paymentRunningStrategyId && 
+            thisRunningStrategyId && 
+            paymentRunningStrategyId === thisRunningStrategyId
+          );
+          
           return (
-            (paymentStrategyId === strategyIdForFilter ||
-             paymentStrategyId === String(params.id) ||
-             paymentStrategyId === String(rsId)) &&
-            (!sessionUserId || String(p.userId || p.user_id) === String(sessionUserId)) &&
+            matchesRunningStrategy &&
             (successfulStatuses.has(String(p.status || '').toLowerCase()) || String(p.status || '').toLowerCase().includes('settled'))
           );
         })
@@ -729,12 +759,14 @@ export default function CopierHistoryPage() {
         settlements.forEach(s => {
           const wAmt = Number(s.withdrawal_amount ?? s.withdrawalAmount ?? 0);
           const cAmt = Number(s.commission_amount ?? s.commissionAmount ?? 0);
+          const sAmt = Number(s.swap_amount ?? s.swapAmount ?? 0);
+          const time = s.createdAt || s.updated_at || s.created_at || s.settlement_end || s.settlementEnd || new Date().toISOString();
           
           if (cAmt !== 0) {
             ops.push({
               type: 'COMMISSION',
               amount: cAmt,
-              time: s.createdAt || s.updated_at || s.created_at || new Date().toISOString(),
+              time,
               comment: 'Settled commission amount'
             });
           }
@@ -743,8 +775,17 @@ export default function CopierHistoryPage() {
             ops.push({
               type: 'WITHDRAWAL',
               amount: Math.max(0, wAmt), // Ensure withdrawal in list is also positive
-              time: s.createdAt || s.updated_at || s.created_at || new Date().toISOString(),
+              time,
               comment: 'Settled withdrawal amount'
+            });
+          }
+
+          if (sAmt !== 0) {
+            ops.push({
+              type: 'SWAP',
+              amount: sAmt,
+              time,
+              comment: 'Settled swap adjustment'
             });
           }
         });
@@ -765,7 +806,7 @@ export default function CopierHistoryPage() {
     })();
 
     return {
-      deposit: deposit.toFixed(2),
+      deposit: Number(deposit).toFixed(2),
       withdrawal: displayWithdrawal.toFixed(2),
       profitLastMonth: displayProfit.toFixed(2),
       closedProfitWithSwap: displayClosedProfitWithSwap.toFixed(2),

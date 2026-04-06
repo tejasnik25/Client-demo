@@ -202,7 +202,7 @@ const StrategiesPageInner: React.FC = () => {
     const k = (s || '').toLowerCase();
     const content = (() => {
       if (k === 'running' || k === 'active' || k === 'connected') return <Badge variant="success">Running</Badge>;
-      if (k === 'in-process') return <Badge variant="warning">In-Process</Badge>;
+      if (k === 'in-process' || k === 'in process') return <Badge variant="warning">Disconnecting...</Badge>;
       if (k === 'disconnected' || k === 'stopped') return <Badge variant="destructive">Stopped</Badge>;
       if (k === 'wrong-account-password') return <Badge variant="destructive">Wrong-Account Password</Badge>;
       if (k === 'wrong-account-id') return <Badge variant="destructive">Wrong-Account Id</Badge>;
@@ -629,11 +629,13 @@ const StrategiesPageInner: React.FC = () => {
                   if (!s) return null;
                   
                   const cur = (r.adminStatus || r.admin_status || r.status || '').toLowerCase();
+                  const isActive = cur === 'active' || cur === 'running' || cur === 'in-process' || cur === 'in process' || cur === 'connected';
                   const isPending = pendingIds.includes((r as any)?.rsId || r.id);
                   const investedAmount = Number(r.deposit || r.capital || 0);
-                  const displayBalance = Number(r.metrics?.balance ?? investedAmount);
-                  const displayFloatProfit = Number(r.metrics?.floatingProfit ?? (r.floatProfit || 0));
-                  const displayEquity = Number(r.metrics?.equity ?? (displayBalance + displayFloatProfit));
+                  const metrics = r.metrics || {};
+                  const displayBalance = Number(metrics.balance ?? investedAmount);
+                  const displayFloatProfit = Number(metrics.floatingProfit ?? 0);
+                  const displayEquity = Number(metrics.equity ?? (displayBalance + displayFloatProfit));
                   
                   return (
                     <div key={r.rsId || `${r.id}-${index}`} className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group">
@@ -652,6 +654,11 @@ const StrategiesPageInner: React.FC = () => {
                           <div>
                             <span className="text-[10px] font-black text-white bg-blue-600 px-2 py-0.5 rounded-md uppercase tracking-tighter mb-1 inline-block">Master</span>
                             <h4 className="text-base font-bold text-gray-900 group-hover:text-blue-600 transition-colors leading-tight">{s.name}</h4>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                              isActive ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {isActive ? (cur.includes('process') ? 'Disconnecting...' : 'Connected') : 'Stopped'}
+                            </span>
                           </div>
                         </div>
 

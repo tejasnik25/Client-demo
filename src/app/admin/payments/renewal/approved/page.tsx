@@ -198,7 +198,7 @@ const RenewalApprovedPage = () => {
                     <td>-</td>
                     <td>{p.strategyId}</td>
                     <td>Yearly</td>
-                    <td>${p.payable.toFixed(2)}</td>
+                    <td>${(Number(p.payable) || 0).toFixed(2)}</td>
                     <td>{p.method}</td>
                     <td>{approval ? approval.toLocaleString() : "-"}</td>
                     <td className="flex items-center gap-2">

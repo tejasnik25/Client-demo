@@ -2843,6 +2843,75 @@ async def get_master_history(master_id: str):
         "open_positions": open_positions
     }
 
+@app.get("/subscriptions/{external_id}/history")
+async def get_master_history_by_external_id(external_id: str):
+    """
+    Fetch history filtered by the subscription's start time.
+    Only returns trades opened AFTER the subscription was created.
+    """
+    try:
+        with lock:
+            sub = next((s for s in active_subscriptions if s.get('externalId') == external_id), None)
+        
+        if not sub:
+            return {"error": "Subscription not found"}
+            
+        master_id = sub['master']['id']
+        start_time_str = sub.get('createdAt', '')
+        
+        # Parse subscription start time
+        start_time = None
+        if start_time_str:
+            try:
+                # Assuming MySQL format: YYYY-MM-DD HH:MM:SS
+                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
+            except:
+                try:
+                    # ISO format fallback
+                    start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                except: pass
+
+        # Fetch full history for master
+        full_data = await get_master_history(master_id)
+        
+        if not start_time:
+            return full_data
+
+        # Filter history: only trades that OPENED after start_time
+        filtered_history = []
+        for pos in full_data.get('history', []):
+            open_time_str = pos.get('time_open') or pos.get('open_time')
+            if open_time_str:
+                try:
+                    # Positions from aggregate_deals_to_positions use '%Y.%m.%d %H:%M:%S'
+                    open_time = datetime.strptime(open_time_str, '%Y.%m.%d %H:%M:%S')
+                    if open_time >= start_time:
+                        filtered_history.append(pos)
+                except:
+                    filtered_history.append(pos) # Keep if can't parse
+            else:
+                filtered_history.append(pos)
+
+        # Filter open positions: only trades that OPENED after start_time
+        filtered_open = []
+        for pos in full_data.get('open_positions', []):
+            open_time_raw = pos.get('time') # Unix timestamp in seconds
+            if open_time_raw:
+                open_time = datetime.fromtimestamp(open_time_raw)
+                if open_time >= start_time:
+                    filtered_open.append(pos)
+            else:
+                filtered_open.append(pos)
+
+        return {
+            "master_id": master_id,
+            "history": filtered_history,
+            "open_positions": filtered_open,
+            "subscription_start": start_time_str
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/system/debug-files")
 async def debug_files_system():
     """

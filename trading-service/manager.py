@@ -96,6 +96,7 @@ def get_subscriptions_from_db():
             rs.strategy_id,
             rs.plan,
             rs.status,
+            rs.created_at AS rs_created_at,
             s.master_account_id,
             s.master_account_password,
             s.master_account_server,
@@ -152,6 +153,9 @@ def get_subscriptions_from_db():
             sub = {
                 "id": f"sub_{row['user_id']}_{row['strategy_id']}_{row['slave_id']}",
                 "externalId": row['rs_id'],
+                "userId": row['user_id'],
+                "strategyId": row['strategy_id'],
+                "createdAt": str(row.get('rs_created_at', '')),
                 "master": {
                     "id": str(row['master_account_id']),
                     "password": row['master_account_password'],

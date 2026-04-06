@@ -149,8 +149,9 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { getTransactionsByUser } = await import('@/db/dbService');
+    const { getTransactionsByUser, getWalletBalance } = await import('@/db/dbService');
     const rows = await getTransactionsByUser(session.user.id);
+    const balance = await getWalletBalance(session.user.id);
     const transactions = rows.map((t: any) => ({
       id: t.id,
       user_id: t.user_id,
@@ -176,7 +177,7 @@ export async function GET() {
       created_at: t.created_at,
       updated_at: t.updated_at,
     }));
-    return NextResponse.json({ success: true, transactions }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ success: true, transactions, balance }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Error fetching wallet transactions:', error);
     return NextResponse.json({ success: false, error: 'Server error' }, { status: 500 });

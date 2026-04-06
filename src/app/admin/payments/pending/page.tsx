@@ -39,6 +39,16 @@ type Payment = {
   admin_message_status?: 'pending' | 'sent' | 'resolved';
 };
 
+type SectionCardProps = {
+  title: string;
+  icon: React.ReactNode;
+  payments: Payment[];
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  onMessage: (id: string) => void;
+  busyId: string | null;
+};
+
 export default function PaymentsPendingPage() {
   const router = useRouter();
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -123,12 +133,19 @@ export default function PaymentsPendingPage() {
       
       if (!res.ok) throw new Error('Failed to update payment');
       
+      const result = await res.json();
+      console.log('[Admin Payments] Approval result:', result);
+      
       toast({
         title: 'Success',
         description: `Payment ${status} successfully`,
       });
+      
+      // Wait a moment for DB to settle, then reload
+      await new Promise(resolve => setTimeout(resolve, 500));
       await loadData();
     } catch (e: any) {
+      console.error('[Admin Payments] Error:', e);
       toast({
         title: 'Error',
         description: e.message || 'Update failed',
@@ -196,9 +213,9 @@ export default function PaymentsPendingPage() {
         title="Deposit Requests" 
         icon={<FiDollarSign className="text-green-500" />}
         payments={pendingDeposits}
-        onApprove={(id) => updateStatus(id, 'approved')}
-        onReject={(id) => updateStatus(id, 'rejected')}
-        onMessage={(id) => setMessageFor(id)}
+        onApprove={(id: string) => updateStatus(id, 'approved')}
+        onReject={(id: string) => updateStatus(id, 'rejected')}
+        onMessage={(id: string) => setMessageFor(id)}
         busyId={busyPaymentId}
       />
 
@@ -207,9 +224,9 @@ export default function PaymentsPendingPage() {
         title="Withdrawal Requests" 
         icon={<FiActivity className="text-blue-500" />}
         payments={pendingWithdrawals}
-        onApprove={(id) => updateStatus(id, 'approved')}
-        onReject={(id) => updateStatus(id, 'rejected')}
-        onMessage={(id) => setMessageFor(id)}
+        onApprove={(id: string) => updateStatus(id, 'approved')}
+        onReject={(id: string) => updateStatus(id, 'rejected')}
+        onMessage={(id: string) => setMessageFor(id)}
         busyId={busyPaymentId}
       />
 
@@ -255,7 +272,7 @@ export default function PaymentsPendingPage() {
   );
 }
 
-function SectionCard({ title, icon, payments, onApprove, onReject, onMessage, busyId }: any) {
+function SectionCard({ title, icon, payments, onApprove, onReject, onMessage, busyId }: SectionCardProps) {
   return (
     <Card className="bg-white border-gray-100 shadow-sm rounded-[2rem] overflow-hidden">
       <CardHeader className="p-8 border-b border-gray-50 flex flex-row items-center gap-4">
@@ -367,7 +384,7 @@ function SectionCard({ title, icon, payments, onApprove, onReject, onMessage, bu
                         <FiXCircle className="w-4 h-4" />
                       </button>
                       <button 
-                        onClick={() => onMessage(id)} 
+                        onClick={() => onMessage(p.id)} 
                         disabled={busyId === p.id}
                         className="p-2.5 bg-blue-50 text-blue-600 rounded-xl border border-blue-100 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
                         title="Send Message"

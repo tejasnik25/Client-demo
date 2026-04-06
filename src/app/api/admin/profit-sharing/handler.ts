@@ -47,11 +47,13 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const strategyId = String(body?.strategyId || '').trim();
+    const userId = body?.userId ? String(body?.userId).trim() : undefined;
+
     if (!strategyId) {
       return NextResponse.json({ error: 'strategyId is required' }, { status: 400 });
     }
 
-    const result = await runProfitSharingSettlementAdmin(strategyId, session.user.id);
+    const result = await runProfitSharingSettlementAdmin(strategyId, session.user.id, userId);
     if (!result.success) {
       return NextResponse.json({ error: result.error || 'Settlement failed' }, { status: 400 });
     }
@@ -60,6 +62,7 @@ export async function POST(req: NextRequest) {
       success: true,
       settlement: result.settlement,
       items: result.items || [],
+      message: result.message,
     });
   } catch (error) {
     console.error('Profit-sharing POST failed:', error);

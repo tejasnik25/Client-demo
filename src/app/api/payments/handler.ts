@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       mt_account_server: undefined,
       terms_accepted: true,
       strategy_id: strategyId,
-      plan_level: undefined,
+      plan_level: body.plan || 'Pro',  // Use the selected plan from request, fallback to 'Pro'
       inr_amount,
       inr_to_usd_rate,
       crypto_network,
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 });
     }
 
-    return NextResponse.json({ transactionId: tx.id });
+    return NextResponse.json({ transactionId: tx.id, transaction_id: tx.transaction_id });
   } catch (error) {
     console.error('Error creating payment:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
@@ -105,6 +105,7 @@ export async function GET(req: Request) {
         userId: t.user_id,
         txId: t.transaction_id,
         strategyId: t.strategy_id,
+        runningStrategyId: t.running_strategy_id,
         plan: t.plan_level,
         capital: Number(t.capital ?? t.amount ?? 0),
         payable: Number(t.amount ?? 0),
@@ -121,6 +122,7 @@ export async function GET(req: Request) {
         id: t.id,
         userId: t.user_id,
         strategyId: t.strategy_id,
+        runningStrategyId: t.running_strategy_id,
         transaction_type: t.transaction_type,
         payable: Number(t.amount ?? 0),
         capital: Number(t.capital ?? t.amount ?? 0),

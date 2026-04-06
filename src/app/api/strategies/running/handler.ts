@@ -12,7 +12,8 @@ import {
   getRunningStrategyTotalCapital,
   getCachedMasterTrades,
   getUserStrategyDeposit,
-  getSettlementsByUserAndStrategy
+  getSettlementsByUserAndStrategy,
+  createWalletTransaction
 } from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
@@ -34,6 +35,11 @@ export async function GET() {
 
     const strategies = await getAllStrategies();
     const runningRows = await getRunningStrategiesForUser(userId);
+    
+    console.log(`[RunningStrategiesAPI] User ${userId} has ${runningRows.length} running strategy rows from DB`);
+    runningRows.forEach((r: any) => {
+      console.log(`[RunningStrategiesAPI] Row: id=${r.id}, strategy_id=${r.strategy_id}, status=${r.status}, admin_status=${r.admin_status}`);
+    });
 
     // Only consider enabled strategies
     const enabledMap = new Map<string, any>();
@@ -73,11 +79,11 @@ export async function GET() {
       }
 
       let deposit = Number(r.capital || 0);
-      try {
-        const d = await getUserStrategyDeposit(userId, id);
-        if (d > 0) deposit = d;
-      } catch (err) {
-        console.warn('[RunningStrategiesAPI] Could not read deposit for', id, err);
+      // IMPORTANT: Do NOT fallback to getUserStrategyDeposit() because it sums ALL wallet_transactions
+      // for the user+strategy, including old payments from when strategy was previously stopped.
+      // The deposit should always come from the current running_strategy.capital field ONLY.
+      if (deposit <= 0) {
+        console.warn(`[RunningStrategiesAPI] Strategy ${id} has no capital set in running_strategies, using 0`);
       }
 
       let metrics = {
@@ -165,10 +171,27 @@ export async function GET() {
         return aStatus !== 'disconnected' && aStatus !== 'stopped' && uStatus !== 'stopped';
       });
 
+    // DEDUPLICATE: If multiple running_strategies exist for same strategy, keep only latest
+    const latestByStrategy = new Map<string, any>();
+    for (const item of filteredRunning) {
+      const strategyId = String(item.strategyId || item.id || '');
+      const existing = latestByStrategy.get(strategyId);
+      // Keep the one with latest createdAt
+      if (!existing || new Date(item.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+        latestByStrategy.set(strategyId, item);
+        if (existing) {
+          console.warn(`[RunningStrategiesAPI] DUPLICATE: Multiple running_strategies for strategy ${strategyId}. Keeping: ${item.rsId}, removing: ${existing.rsId}`);
+        }
+      }
+    }
+    const deduplicatedRunning = Array.from(latestByStrategy.values());
+
+    console.log(`[RunningStrategiesAPI] After deduplication: ${deduplicatedRunning.length} active strategies (was ${filteredRunning.length})`);
+
     // Auto-recover missing subscriptions for running sessions in the background
     try {
       await Promise.all(
-        (filteredRunning as any[]).map(async (item) => {
+        (deduplicatedRunning as any[]).map(async (item) => {
           const st = String(item.adminStatus || item.status || '').toLowerCase();
           if (st !== 'running' && st !== 'active') return;
           try {
@@ -213,7 +236,7 @@ export async function GET() {
       // ignore batch failures
     }
 
-    return NextResponse.json({ strategies: filteredRunning });
+    return NextResponse.json({ strategies: deduplicatedRunning });
   } catch (error) {
     console.error('Error computing running strategies:', error);
     return NextResponse.json({ strategies: [] }, { status: 200 });

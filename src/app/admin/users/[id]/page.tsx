@@ -19,6 +19,7 @@ export default function UserDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [strategies, setStrategies] = useState<any[]>([]);
+  const [settlementBusyId, setSettlementBusyId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -81,6 +82,35 @@ export default function UserDetailsPage() {
         description: err instanceof Error ? err.message : 'Failed to update user',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleSettleProfitForUser = async (strategyId: string) => {
+    if (!id || !strategyId) return;
+
+    try {
+      setSettlementBusyId(strategyId);
+      const res = await fetch('/api/admin/profit-sharing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategyId, userId: id }),
+      });
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result?.error || 'Profit settlement failed');
+      }
+
+      toast({ title: 'Success', description: result?.message || 'Profit settlement completed for user strategy' });
+      fetchUserDetails();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to settle profit for user',
+        variant: 'destructive',
+      });
+    } finally {
+      setSettlementBusyId(null);
     }
   };
 
@@ -253,6 +283,13 @@ export default function UserDetailsPage() {
                             <span className="text-[9px] font-bold text-gray-400 uppercase">Started At</span>
                             <span className="text-[11px] font-black text-gray-900">{new Date(rs.createdAt || rs.created_at || Date.now()).toLocaleDateString()}</span>
                           </div>
+                          <button
+                            disabled={settlementBusyId === rs.strategyId}
+                            onClick={() => handleSettleProfitForUser(rs.strategyId)}
+                            className={`mt-4 w-full h-10 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${settlementBusyId === rs.strategyId ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-[#00d09c] hover:bg-[#00b085] text-white'}`}
+                          >
+                            {settlementBusyId === rs.strategyId ? 'Settling...' : 'Settle Profit for User'}
+                          </button>
                         </div>
                       </div>
                     </Card>
