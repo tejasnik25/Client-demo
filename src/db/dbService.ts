@@ -551,7 +551,8 @@ export const getRunningStrategiesForUser = async (userId: string) => {
       console.warn('[dbService] deleted_at column might not exist yet, skipping filter');
     }
 
-    query += ' AND admin_status NOT IN ("disconnected","stopped") AND status NOT IN ("stopped","error")';
+    // Include all statuses for the dashboard to manage visibility on the frontend
+    // query += ' AND admin_status NOT IN ("disconnected","stopped") AND status NOT IN ("stopped","error")';
     
     const [rows]: any = await pool.execute(query, params);
     return rows.map((r: any) => ({
@@ -1458,8 +1459,15 @@ export const getProfitSharingOverviewAdmin = async (): Promise<any[]> => {
     const overview = [];
 
     for (const s of strategies) {
-      const [closedTrades]: any = await pool.execute(
+      // Cumulative totals for the header info
+      const [cumulativeRows]: any = await pool.execute(
         'SELECT SUM(profit) as total_profit, SUM(swap) as total_swap FROM master_trades_cache WHERE master_id = ? AND is_open = 0',
+        [s.master_account_id]
+      );
+
+      // UNSETTLED totals for the "Settlement Ready" card
+      const [unsettledRows]: any = await pool.execute(
+        'SELECT SUM(profit) as total_profit, SUM(swap) as total_swap FROM master_trades_cache WHERE master_id = ? AND is_open = 0 AND settlement_id IS NULL',
         [s.master_account_id]
       );
       
@@ -1492,8 +1500,10 @@ export const getProfitSharingOverviewAdmin = async (): Promise<any[]> => {
         strategyCreatedAt: s.created_at || null,
         copiersCount: activeUsers[0]?.count || 0,
         totalDeposit: totalDeposit,
-        totalProfit: Number(closedTrades[0]?.total_profit || 0),
-        totalSwap: Number(closedTrades[0]?.total_swap || 0),
+        totalProfit: Number(cumulativeRows[0]?.total_profit || 0),
+        totalSwap: Number(cumulativeRows[0]?.total_swap || 0),
+        unsettledProfit: Number(unsettledRows[0]?.total_profit || 0),
+        unsettledSwap: Number(unsettledRows[0]?.total_swap || 0),
         openTrades: Number(openTradesCountResult[0]?.count || 0),
         commissionPercent: parseCommissionPercent(s),
         lastSettlementAt: lastSettlement[0]?.settlement_end || null,
@@ -1609,7 +1619,7 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
     }
 
     // 2. Identify all users associated with this strategy
-    const allUsersQuery = `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital, rs.status, rs.admin_status, rs.created_at
+    const allUsersQuery = `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital, rs.lot_size, rs.status, rs.admin_status, rs.created_at
          FROM running_strategies rs
          JOIN users u ON rs.user_id = u.id
          WHERE rs.strategy_id = ?`;
@@ -1661,13 +1671,17 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
       }
       
       const share = totalDeposit > 0 ? currentCapital / totalDeposit : 0;
+      const userLotMultiplier = Number(u.lot_size || 1);
       
       // Calculate profit for THIS specific user based on trades that happened AFTER they joined
       const userTrades = unsettledTrades.filter((t: any) => new Date(t.time_close) >= new Date(u.created_at));
-      const userProfit = userTrades.reduce((acc: number, t: any) => acc + Number(t.profit || 0), 0) * share;
-      const userSwap = userTrades.reduce((acc: number, t: any) => acc + Number(t.swap || 0), 0) * share;
+      
+      // FIX: Use userLotMultiplier instead of pool share for profit calculation if multiplier > 0
+      // This aligns the settlement with the history page display.
+      const userProfit = userTrades.reduce((acc: number, t: any) => acc + (Number(t.profit || 0) * userLotMultiplier), 0);
+      const userSwap = userTrades.reduce((acc: number, t: any) => acc + (Number(t.swap || 0) * userLotMultiplier), 0);
 
-      // Commission is ONLY on positive profit
+      // Commission is ONLY calculated if user's profit is positive
       const commission = userProfit > 0 ? (userProfit * commissionPercent / 100) : 0;
       const settledBalance = currentCapital + userProfit + userSwap - commission;
 

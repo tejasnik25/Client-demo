@@ -550,24 +550,17 @@ export default function CopierHistoryPage() {
     const totalRealizedProfit = filteredClosed.reduce((sum, r) => sum + r.profit, 0);
     const totalRealizedSwap = filteredClosed.reduce((sum, r) => sum + r.swap, 0);
 
-    // 3. Commission: System displays last calculated commission only
-    const latestSettlement = [...settlements].sort((a, b) => {
-      const aEnd = toMs(a.settlementEnd || a.settlement_end || 0);
-      const bEnd = toMs(b.settlementEnd || b.settlement_end || 0);
-      if (aEnd !== bEnd) return bEnd - aEnd;
-      const aCreated = toMs(a.createdAt || a.created_at || 0);
-      const bCreated = toMs(b.createdAt || b.created_at || 0);
-      return bCreated - aCreated;
-    })[0];
-    const displayCommission = Number(latestSettlement?.commission_amount || latestSettlement?.commission || 0);
+    // 3. Commission: Calculate real-time commission based on strategy parameters
+    const commissionPercent = Number(strategy?.parameters?.commission || strategy?.parameters?.commissionPercent || 30);
+    const totalCommission = totalRealizedProfit > 0 ? (totalRealizedProfit * commissionPercent / 100) : 0;
 
-    // 4. Settled Withdrawals (Sum of all previous withdrawals)
-    const totalSettledWithdrawal = settlements.reduce((acc, row) => 
-      acc + Math.max(0, Number(row.withdrawal_amount || row.withdrawal || 0)), 0);
+    // 4. Withdrawal: Sum of profit - commission for all historical settlements
+    const totalWithdrawal = totalRealizedProfit > 0 ? (totalRealizedProfit - totalCommission) : 0;
 
     // 5. Balance = Deposit + Profit + Swap – Commission
-    // Following user formula: Balance = Deposit + Profit + Swap - Commission
-    const realizedBalance = totalDeposit + totalRealizedProfit + totalRealizedSwap - displayCommission;
+    // The "Locked Balance" should represent the total account value after accounting for accrued profit and commission,
+    // but before the actual withdrawal of the net profit is finalized or if it's meant to show the running equity.
+    const calculatedLockedBalance = totalDeposit + totalRealizedProfit + totalRealizedSwap - totalCommission;
 
     // 6. FP/L: Sum of all open trade profits
     const currentFloatProfitOnly = filteredOpen.reduce((sum, r) => sum + r.profit, 0);
@@ -575,7 +568,7 @@ export default function CopierHistoryPage() {
     const currentFloatPL = currentFloatProfitOnly + currentOpenSwap;
 
     // 7. Equity = Balance + FP/L
-    const currentEquity = realizedBalance + currentFloatPL;
+    const currentEquity = calculatedLockedBalance + currentFloatPL;
 
     // Build real-time balance operations list
     // All relevant payments for this strategy/user
@@ -618,31 +611,32 @@ export default function CopierHistoryPage() {
       comment: 'Initial Investment'
     }] : finalPaymentOps;
 
-    // Commission/Withdrawal ops are ONLY from settlements
-    const settlementCommissionOps: BalanceOp[] = settlements.filter(s => Number(s.commission_amount || 0) > 0).map(s => ({
+    // Commission/Withdrawal ops: Show ONE consolidated entry if we have settlements
+    // instead of multiple partial entries to avoid "double entry" confusion.
+    const settlementCommissionOps: BalanceOp[] = totalCommission > 0 ? [{
       type: 'COMMISSION',
-      amount: Number(s.commission_amount || 0),
-      time: String(s.created_at || s.settlement_end || ""),
-      comment: `Settled Commission`
-    }));
+      amount: totalCommission,
+      time: String(settlements[0]?.created_at || settlements[0]?.settlement_end || ""),
+      comment: `Total Commission`
+    }] : [];
 
-    const withdrawalOps: BalanceOp[] = settlements.filter(s => Number(s.withdrawal_amount || 0) > 0).map(s => ({
+    const withdrawalOps: BalanceOp[] = totalWithdrawal > 0 ? [{
       type: 'WITHDRAWAL',
-      amount: Number(s.withdrawal_amount || 0),
-      time: String(s.created_at || s.settlement_end || ""),
-      comment: 'Settled Withdrawal'
-    }));
+      amount: totalWithdrawal,
+      time: String(settlements[0]?.created_at || settlements[0]?.settlement_end || ""),
+      comment: 'Total Withdrawal'
+    }] : [];
 
     const balanceOperations = [...depositOps, ...settlementCommissionOps, ...withdrawalOps]
       .sort((a, b) => toMs(b.time) - toMs(a.time));
 
     return {
       deposit: totalDeposit.toFixed(2),
-      withdrawal: totalSettledWithdrawal.toFixed(2),
+      withdrawal: totalWithdrawal.toFixed(2),
       profit: totalRealizedProfit.toFixed(2), 
       swap: (totalRealizedSwap + currentOpenSwap).toFixed(2), // Real-time Swap = sum of all swaps (realized + open)
-      commission: displayCommission.toFixed(2),
-      balance: realizedBalance.toFixed(2), 
+      commission: totalCommission.toFixed(2),
+      balance: calculatedLockedBalance.toFixed(2), 
       equity: currentEquity.toFixed(2),
       floatPL: currentFloatPL.toFixed(2),
       balanceOperations,
@@ -775,7 +769,7 @@ export default function CopierHistoryPage() {
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Commission</p>
                 <p className="text-lg font-black text-gray-900">
-                  {Number(strategy?.parameters?.commission ?? strategy?.parameters?.commissionPercent ?? 0).toFixed(2)}%
+                  {Number(strategy?.parameters?.commission || strategy?.parameters?.commissionPercent || 30).toFixed(2)}%
                 </p>
               </div>
             </div>
@@ -842,7 +836,7 @@ export default function CopierHistoryPage() {
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
                     <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.balance}</p>
-                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">BALANCE</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">LOCKED BALANCE</p>
                   </div>
                 </>
               ) : filter === 'opened' ? (

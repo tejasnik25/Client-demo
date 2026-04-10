@@ -252,11 +252,15 @@ export default function StrategySettlementDetailPage() {
               </div>
               <div className="flex justify-between items-center pt-2">
                 <span className="text-xs font-bold opacity-80">Admin Commission ({strategy.commissionPercent}%)</span>
-                <span className="text-sm font-black">-${(strategy.totalProfit * (strategy.commissionPercent / 100)).toLocaleString()}</span>
+                <span className="text-sm font-black">
+                  -${(strategy.totalProfit > 0 ? (strategy.totalProfit * (strategy.commissionPercent / 100)) : 0).toLocaleString()}
+                </span>
               </div>
               <div className="flex justify-between items-center pt-1">
                 <span className="text-xs font-bold opacity-80">Payable Withdrawal</span>
-                <span className="text-sm font-black">${(strategy.totalProfit * (1 - strategy.commissionPercent / 100)).toLocaleString()}</span>
+                <span className="text-sm font-black">
+                  ${(strategy.totalProfit > 0 ? (strategy.totalProfit * (1 - strategy.commissionPercent / 100)) : strategy.totalProfit).toLocaleString()}
+                </span>
               </div>
               <div className="flex justify-between items-center pt-1">
                 <span className="text-xs font-bold opacity-80">Total Swap Share</span>

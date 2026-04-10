@@ -10,6 +10,7 @@ import {
   getRunningStrategyTotalCapital,
   getSettlementsByUserAndStrategy,
   getUserStrategyDeposit,
+  getLatestLotSizeForUserStrategy,
 } from '@/db/dbService';
 
 async function getMasterTrades(strategyId: string, masterId: string) {
@@ -96,13 +97,63 @@ export async function GET(
           const masterRealizedProfit = trades.history.reduce((sum: number, t: any): number => sum + (Number(t.profit) || 0), 0);
           const masterFloatingProfit = trades.open_positions.reduce((sum: number, t: any): number => sum + (Number(t.profit) || 0), 0);
 
-          const totalStrategyCapital = await getRunningStrategyTotalCapital(rs.strategyId);
-          const userCapital = Number(rs.capital || 0);
-          const share = totalStrategyCapital > 0 ? userCapital / totalStrategyCapital : 1;
+          // FIX: Use user's lot size multiplier for profit calculation instead of pool share
+          const resolvedLotSize = await getLatestLotSizeForUserStrategy(userId, rs.strategyId, rs.id);
+          const deriveLotSizeFromCapital = (): number => {
+            try {
+              const raw = (strategy as any)?.parameters?.lotPricing;
+              if (!raw) return 1;
+              const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              if (!Array.isArray(parsed) || parsed.length === 0) return 1;
+
+              const rows = parsed
+                .map((x: any) => ({ lot: Number(x?.lot), amountUSD: Number(x?.amountUSD) }))
+                .filter((x: any) => Number.isFinite(x.lot) && x.lot > 0 && Number.isFinite(x.amountUSD) && x.amountUSD > 0);
+              if (rows.length === 0) return 1;
+
+              const oneLot = rows.find((x: any) => Number(x.lot) === 1);
+              const unitPrice = oneLot ? Number(oneLot.amountUSD) : Number(rows[0].amountUSD / rows[0].lot);
+              if (!Number.isFinite(unitPrice) || unitPrice <= 0) return 1;
+
+              const cap = Number(rs.capital || 0);
+              if (!Number.isFinite(cap) || cap <= 0) return 1;
+
+              const derived = cap / unitPrice;
+              if (!Number.isFinite(derived) || derived <= 0) return 1;
+
+              // Prefer clean display values (1,2,3,...) when close enough.
+              const rounded = Math.round(derived);
+              if (Math.abs(derived - rounded) < 0.12 && rounded > 0) return rounded;
+              return Number(derived.toFixed(2));
+            } catch {
+              return 1;
+            }
+          };
+
+          const rowLot = Number(rs.lot_size ?? rs.lotSize ?? 0);
+          const txnLot = Number(resolvedLotSize || 0);
+          const derivedLot = Number(deriveLotSizeFromCapital() || 0);
+
+          let userLotMultiplier = 1;
+          if (Number.isFinite(rowLot) && rowLot > 1) {
+            userLotMultiplier = rowLot;
+          } else if (Number.isFinite(txnLot) && txnLot > 1) {
+            userLotMultiplier = txnLot;
+          } else if (Number.isFinite(derivedLot) && derivedLot > 1) {
+            userLotMultiplier = derivedLot;
+          } else if (Number.isFinite(rowLot) && rowLot > 0) {
+            userLotMultiplier = rowLot;
+          } else if (Number.isFinite(txnLot) && txnLot > 0) {
+            userLotMultiplier = txnLot;
+          } else if (Number.isFinite(derivedLot) && derivedLot > 0) {
+            userLotMultiplier = derivedLot;
+          }
 
           // Check if profit settlement has been run
           const hasSettlements = (await getSettlementsByUserAndStrategy(userId, rs.strategyId)) || [];
           
+          const commissionPercent = Number(strategy?.parameters?.commission || strategy?.parameters?.commissionPercent || 30);
+
           // Get invested amount from wallet_transactions as the baseline
           const investedAmount = await getUserStrategyDeposit(userId, rs.strategyId);
 
@@ -118,27 +169,31 @@ export async function GET(
               };
             }, { withdrawal: 0, profit: 0, swap: 0, commission: 0 });
 
+            const currentRealizedProfit = masterRealizedProfit * userLotMultiplier;
+            const realTimeCommission = currentRealizedProfit > 0 ? (currentRealizedProfit * commissionPercent / 100) : 0;
+
             metrics = {
-              floatingProfit: masterFloatingProfit * share,
-              realizedProfit: settlementTotals.profit,
+              floatingProfit: masterFloatingProfit * userLotMultiplier,
+              realizedProfit: currentRealizedProfit,
               totalTrades: trades.history.length + trades.open_positions.length,
               openTrades: trades.open_positions.length,
-              balance: Number(rs.capital || 0),
-              equity: Number(rs.capital || 0) + (masterFloatingProfit * share),
+              balance: Number(rs.capital || 0) + currentRealizedProfit - realTimeCommission,
+              equity: Number(rs.capital || 0) + currentRealizedProfit - realTimeCommission + (masterFloatingProfit * userLotMultiplier),
               invested: investedAmount,
             };
           } else {
             // Use raw master profit calculation (before settlement)
-            const realizedProfit = masterRealizedProfit * share;
-            const floatingProfit = masterFloatingProfit * share;
+            const realizedProfit = masterRealizedProfit * userLotMultiplier;
+            const floatingProfit = masterFloatingProfit * userLotMultiplier;
+            const realTimeCommission = realizedProfit > 0 ? (realizedProfit * commissionPercent / 100) : 0;
 
             metrics = {
               floatingProfit,
               realizedProfit,
               totalTrades: trades.history.length + trades.open_positions.length,
               openTrades: trades.open_positions.length,
-              balance: userCapital + realizedProfit,
-              equity: userCapital + realizedProfit + floatingProfit,
+              balance: Number(rs.capital || 0) + realizedProfit - realTimeCommission,
+              equity: Number(rs.capital || 0) + realizedProfit + floatingProfit - realTimeCommission,
               invested: investedAmount,
             };
           }
