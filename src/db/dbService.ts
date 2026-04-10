@@ -731,8 +731,8 @@ export const getRunningPeriods = async (runningStrategyId: string): Promise<any[
     );
     return (rows as any[]).map(r => ({
       ...r,
-      start_time: r.start_time.toISOString(),
-      end_time: r.end_time ? r.end_time.toISOString() : null
+      start_time: safeISODate(r.start_time),
+      end_time: safeISODate(r.end_time)
     }));
   } catch (error) {
     console.error('Error getting running periods:', error);
@@ -916,6 +916,13 @@ export const reconcileMasterOpenPositions = async (masterId: string, liveOpenPos
   }
 };
 
+const safeISODate = (date: any): string | null => {
+  if (!date) return null;
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+};
+
 export const getSettlementsByUserAndStrategy = async (userId: string, strategyId: string): Promise<any[]> => {
   try {
     const [rows]: any = await pool.execute(`
@@ -928,9 +935,9 @@ export const getSettlementsByUserAndStrategy = async (userId: string, strategyId
     
     return rows.map((r: any) => ({
       ...r,
-      settlementStart: r.settlement_start ? r.settlement_start.toISOString() : null,
-      settlementEnd: r.settlement_end ? r.settlement_end.toISOString() : null,
-      createdAt: r.created_at ? r.created_at.toISOString() : null
+      settlementStart: safeISODate(r.settlement_start),
+      settlementEnd: safeISODate(r.settlement_end),
+      createdAt: safeISODate(r.created_at)
     }));
   } catch (error) {
     console.error('getSettlementsByUserAndStrategy failed:', error);
@@ -949,9 +956,9 @@ export const getAllSettlements = async (): Promise<any[]> => {
 
     return rows.map((r: any) => ({
       ...r,
-      settlementStart: r.settlement_start ? r.settlement_start.toISOString() : null,
-      settlementEnd: r.settlement_end ? r.settlement_end.toISOString() : null,
-      createdAt: r.created_at ? r.created_at.toISOString() : null
+      settlementStart: safeISODate(r.settlement_start),
+      settlementEnd: safeISODate(r.settlement_end),
+      createdAt: safeISODate(r.created_at)
     }));
   } catch (error) {
     console.error('getAllSettlements failed:', error);
@@ -1716,8 +1723,13 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
     );
 
     // 5. Create the master settlement record
-    const minClose = unsettledTrades.reduce((acc: any, t: any) => (!acc || new Date(t.time_close) < new Date(acc)) ? t.time_close : acc, null);
-    const maxClose = unsettledTrades.reduce((acc: any, t: any) => (!acc || new Date(t.time_close) > new Date(acc)) ? t.time_close : acc, null);
+    // We compute the actual start/end based on the trade times being settled
+    const tradeTimes = unsettledTrades
+      .map((t: any) => t.time_close ? new Date(t.time_close) : null)
+      .filter((d: any) => d && !isNaN(d.getTime()));
+
+    const minClose = tradeTimes.length > 0 ? new Date(Math.min(...tradeTimes.map((d: any) => d.getTime()))) : null;
+    const maxClose = tradeTimes.length > 0 ? new Date(Math.max(...tradeTimes.map((d: any) => d.getTime()))) : null;
 
     await connection.execute(
       `INSERT INTO profit_settlements (
