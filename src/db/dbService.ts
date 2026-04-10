@@ -1699,10 +1699,10 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
       if (commission > 0) {
         await connection.execute(
           `INSERT INTO wallet_transactions (
-            id, user_id, strategy_id, running_strategy_id, amount, transaction_type, status, admin_message, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            id, user_id, strategy_id, amount, transaction_type, status, admin_message, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
-            `txn_comm_${uuidv4()}`, u.user_id, strategyId, u.rs_id, commission, 'commission', 'completed', `Settled Commission for strategy ${strategy.name}`
+            `txn_comm_${uuidv4()}`, u.user_id, strategyId, commission, 'commission', 'completed', `Settled Commission for strategy ${strategy.name}`
           ]
         );
       }
@@ -1727,8 +1727,12 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
     );
 
     // 5. Create the master settlement record
-    const minClose = unsettledTrades.reduce((acc: any, t: any) => (!acc || new Date(t.time_close) < new Date(acc)) ? t.time_close : acc, null);
-    const maxClose = unsettledTrades.reduce((acc: any, t: any) => (!acc || new Date(t.time_close) > new Date(acc)) ? t.time_close : acc, null);
+    const tradeTimes = unsettledTrades
+      .map((t: any) => t.time_close ? new Date(t.time_close) : null)
+      .filter((d: any) => d && !isNaN(d.getTime()));
+
+    const minClose = tradeTimes.length > 0 ? new Date(Math.min(...tradeTimes.map((d: any) => d.getTime()))) : new Date();
+    const maxClose = tradeTimes.length > 0 ? new Date(Math.max(...tradeTimes.map((d: any) => d.getTime()))) : new Date();
 
     await connection.execute(
       `INSERT INTO profit_settlements (

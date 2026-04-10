@@ -41,12 +41,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       settlementRows = fallbackSettlements;
     }
 
-    const mapped = settlementRows.map((s: any) => ({
-      ...s,
-      settlementStart: s.settlement_start ? s.settlement_start.toISOString() : null,
-      settlementEnd: s.settlement_end ? s.settlement_end.toISOString() : null,
-      createdAt: s.created_at ? s.created_at.toISOString() : null
-    }));
+    const mapped = settlementRows.map((s: any) => {
+      const safeISO = (date: any) => {
+        if (!date) return null;
+        const d = new Date(date);
+        return isNaN(d.getTime()) ? null : d.toISOString();
+      };
+      
+      return {
+        ...s,
+        settlementStart: safeISO(s.settlement_start),
+        settlementEnd: safeISO(s.settlement_end),
+        createdAt: safeISO(s.created_at)
+      };
+    });
 
     console.log(`[SettlementsAPI] Running strategy ${rsId} created at ${rs.created_at}, found ${mapped.length} settlements`);
     
