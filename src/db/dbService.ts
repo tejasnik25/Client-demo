@@ -731,8 +731,8 @@ export const getRunningPeriods = async (runningStrategyId: string): Promise<any[
     );
     return (rows as any[]).map(r => ({
       ...r,
-      start_time: r.start_time.toISOString(),
-      end_time: r.end_time ? r.end_time.toISOString() : null
+      start_time: safeISODate(r.start_time),
+      end_time: safeISODate(r.end_time)
     }));
   } catch (error) {
     console.error('Error getting running periods:', error);
@@ -916,6 +916,17 @@ export const reconcileMasterOpenPositions = async (masterId: string, liveOpenPos
   }
 };
 
+const safeISODate = (date: any): string | null => {
+  if (!date) return null;
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString();
+  } catch (e) {
+    return null;
+  }
+};
+
 export const getSettlementsByUserAndStrategy = async (userId: string, strategyId: string): Promise<any[]> => {
   try {
     const [rows]: any = await pool.execute(`
@@ -928,9 +939,9 @@ export const getSettlementsByUserAndStrategy = async (userId: string, strategyId
     
     return rows.map((r: any) => ({
       ...r,
-      settlementStart: r.settlement_start ? r.settlement_start.toISOString() : null,
-      settlementEnd: r.settlement_end ? r.settlement_end.toISOString() : null,
-      createdAt: r.created_at ? r.created_at.toISOString() : null
+      settlementStart: safeISODate(r.settlement_start),
+      settlementEnd: safeISODate(r.settlement_end),
+      createdAt: safeISODate(r.created_at)
     }));
   } catch (error) {
     console.error('getSettlementsByUserAndStrategy failed:', error);
@@ -949,9 +960,9 @@ export const getAllSettlements = async (): Promise<any[]> => {
 
     return rows.map((r: any) => ({
       ...r,
-      settlementStart: r.settlement_start ? r.settlement_start.toISOString() : null,
-      settlementEnd: r.settlement_end ? r.settlement_end.toISOString() : null,
-      createdAt: r.created_at ? r.created_at.toISOString() : null
+      settlementStart: safeISODate(r.settlement_start),
+      settlementEnd: safeISODate(r.settlement_end),
+      createdAt: safeISODate(r.created_at)
     }));
   } catch (error) {
     console.error('getAllSettlements failed:', error);
