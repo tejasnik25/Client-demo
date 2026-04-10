@@ -62,6 +62,13 @@ async function handleRequest(req: NextRequest, { params }: { params: Promise<{ s
       if (handler && handler[method]) return (handler[method] as any)(req);
     }
 
+    // 3.5 /strategies/:id/backfill-trades
+    if (slug[0] === 'strategies' && slug.length === 3 && slug[2] === 'backfill-trades') {
+      const id = slug[1];
+      handler = await import('../strategies/[id]/backfill-trades/handler');
+      if (handler && handler[method]) return (handler[method] as any)(req, { params: { id } });
+    }
+
     // 4. /server-definitions/...
     if (slug[0] === 'server-definitions') {
       if (slug[1] === 'list') handler = await import('../server-definitions/list/handler');
