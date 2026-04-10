@@ -263,7 +263,11 @@ export default function UserDetailsPage() {
 
                         <div className="grid grid-cols-2 gap-4">
                           <div className="bg-gray-50/50 rounded-2xl p-4 border border-gray-50">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Capital</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Invested</p>
+                            <p className="text-sm font-black text-gray-900">${Number(rs.invested || rs.capital).toFixed(2)}</p>
+                          </div>
+                          <div className="bg-gray-50/50 rounded-2xl p-4 border border-gray-50">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Current Capital</p>
                             <p className="text-sm font-black text-gray-900">${Number(rs.capital).toFixed(2)}</p>
                           </div>
                           <div className="bg-gray-50/50 rounded-2xl p-4 border border-gray-50">
@@ -277,10 +281,6 @@ export default function UserDetailsPage() {
                             <p className={`text-sm font-black ${rs.metrics?.floatingProfit >= 0 ? 'text-[#00d09c]' : 'text-red-500'}`}>
                               ${rs.metrics?.floatingProfit.toFixed(2)}
                             </p>
-                          </div>
-                          <div className="bg-gray-50/50 rounded-2xl p-4 border border-gray-50">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Equity</p>
-                            <p className="text-sm font-black text-gray-900">${rs.metrics?.equity.toFixed(2)}</p>
                           </div>
                         </div>
 

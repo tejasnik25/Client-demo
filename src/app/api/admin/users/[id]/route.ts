@@ -9,6 +9,7 @@ import {
   getCachedMasterTrades,
   getRunningStrategyTotalCapital,
   getSettlementsByUserAndStrategy,
+  getUserStrategyDeposit,
 } from '@/db/dbService';
 
 async function getMasterTrades(strategyId: string, masterId: string) {
@@ -102,6 +103,9 @@ export async function GET(
           // Check if profit settlement has been run
           const hasSettlements = (await getSettlementsByUserAndStrategy(userId, rs.strategyId)) || [];
           
+          // Get invested amount from wallet_transactions as the baseline
+          const investedAmount = await getUserStrategyDeposit(userId, rs.strategyId);
+
           if (hasSettlements.length > 0) {
             // Use settlement data if available (more accurate after settlement is run)
             // The user's current running capital already includes prior settled profit/swap and commission.
@@ -121,6 +125,7 @@ export async function GET(
               openTrades: trades.open_positions.length,
               balance: Number(rs.capital || 0),
               equity: Number(rs.capital || 0) + (masterFloatingProfit * share),
+              invested: investedAmount,
             };
           } else {
             // Use raw master profit calculation (before settlement)
@@ -134,19 +139,21 @@ export async function GET(
               openTrades: trades.open_positions.length,
               balance: userCapital + realizedProfit,
               equity: userCapital + realizedProfit + floatingProfit,
+              invested: investedAmount,
             };
           }
         }
 
         const normalizedCreatedAt = rs.created_at || rs.createdAt || rs.start_date || null;
         const normalizedUpdatedAt = rs.updated_at || rs.updatedAt || null;
-        const normalizedCapital = Number(rs.capital || 0);
+        const normalizedCapital = Number(metrics?.invested || rs.capital || 0);
 
         return {
           ...rs,
           strategyName: strategy?.name || 'Unknown Strategy',
           strategyImage: strategy?.parameters?.image || strategy?.imageUrl,
-          capital: normalizedCapital,
+          capital: Number(rs.capital || 0), // Current running capital
+          invested: normalizedCapital, // Original invested capital
           plan: rs.plan || rs.planName || strategy?.parameters?.plan || 'N/A',
           adminStatus: rs.admin_status || rs.adminStatus || 'unknown',
           status: rs.status || rs.status || 'unknown',
@@ -155,12 +162,12 @@ export async function GET(
           closedAt: rs.closed_at || null,
           deletedAt: rs.deleted_at || null,
           metrics: {
-            floatingProfit: Number(metrics.floatingProfit || 0),
-            realizedProfit: Number(metrics.realizedProfit || 0),
-            totalTrades: Number(metrics.totalTrades || 0),
-            openTrades: Number(metrics.openTrades || 0),
-            balance: Number(metrics.balance || normalizedCapital),
-            equity: Number(metrics.equity || normalizedCapital),
+            floatingProfit: Number(metrics?.floatingProfit || 0),
+            realizedProfit: Number(metrics?.realizedProfit || 0),
+            totalTrades: Number(metrics?.totalTrades || 0),
+            openTrades: Number(metrics?.openTrades || 0),
+            balance: Number(metrics?.balance || Number(rs.capital || 0)),
+            equity: Number(metrics?.equity || Number(rs.capital || 0)),
           },
         };
     };

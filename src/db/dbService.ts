@@ -831,7 +831,11 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
   try {
     const rows = trades.map((trade) => {
       const positionId = String(trade.position_id || trade.ticket || trade.id || '');
+      // Create a deterministic ID to avoid duplicates
+      const id = `${masterId}_${positionId}`;
+      
       return [
+        id,
         masterId,
         positionId,
         trade.symbol || null,
@@ -848,12 +852,12 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
       ];
     });
 
-    const placeholders = rows.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const placeholders = rows.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
     const params = rows.reduce((acc, row) => acc.concat(row), []);
 
     await pool.execute(
       `REPLACE INTO master_trades_cache (
-        master_id, position_id, symbol, type, volume, price_open, price_close,
+        id, master_id, position_id, symbol, type, volume, price_open, price_close,
         profit, commission, swap, time_open, time_close, is_open
       ) VALUES ${placeholders}`,
       params
@@ -864,12 +868,15 @@ export const upsertMasterTrades = async (masterId: string, trades: any[], isOpen
     try {
       for (const trade of trades) {
         const positionId = String(trade.position_id || trade.ticket || trade.id || '');
+        const id = `${masterId}_${positionId}`;
+        
         await pool.execute(
           `REPLACE INTO master_trades_cache (
-            master_id, position_id, symbol, type, volume, price_open, price_close,
+            id, master_id, position_id, symbol, type, volume, price_open, price_close,
             profit, commission, swap, time_open, time_close, is_open
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
+            id,
             masterId,
             positionId,
             trade.symbol || null,
@@ -1527,17 +1534,72 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
       userLastSettlementEnd = userLastItem[0]?.settlement_end;
     }
 
+    // IMPORTANT: Even if settling for one user, we need to know the total capital of ALL active users 
+    // to correctly calculate the profit share for that user.
+    const allUsersQuery = `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital, rs.status, rs.admin_status, rs.created_at
+         FROM running_strategies rs
+         JOIN users u ON rs.user_id = u.id
+         WHERE rs.strategy_id = ?`;
+    
+    const [allUsersRows]: any = await connection.execute(allUsersQuery, [strategyId]);
+
+    if (!Array.isArray(allUsersRows) || allUsersRows.length === 0) {
+      throw new Error('No users found for this strategy.');
+    }
+
+    // Filter target users (usually just one if userId is provided)
+    const targetUsers = userId 
+      ? allUsersRows.filter((u: any) => u.user_id === userId) 
+      : allUsersRows.filter((u: any) => u.status === "active" || u.admin_status === "running");
+
+    if (userId && targetUsers.length === 0) {
+      throw new Error('User not found in this strategy records.');
+    }
+
     // Settlement start logic:
-    // 1. If user-specific, start from their last settlement or strategy creation
-    // 2. If strategy-wide, start from last strategy settlement or strategy creation
-    const settlementStart = userId 
-      ? (userLastSettlementEnd || strategy.created_at) 
+    // 1. If user-specific, start from their last settlement OR their strategy start date
+    // 2. If strategy-wide, start from last strategy settlement OR the strategy creation date
+    let settlementStart = userId 
+      ? (userLastSettlementEnd || targetUsers[0]?.created_at || strategy.created_at) 
       : (lastSettlement[0]?.settlement_end || strategy.created_at);
     
+    // Ensure settlementStart is not in the future compared to settlementEnd
     const settlementEnd = new Date();
+    if (new Date(settlementStart) > settlementEnd) {
+      settlementStart = strategy.created_at; // Fallback
+    }
+
+    // NEW: Check if there are any open trades for this strategy's master account.
+    // If there are open trades, settlement is NOT allowed for active users.
+    const [openTrades]: any = await connection.execute(
+      `SELECT COUNT(*) as count FROM master_trades_cache 
+       WHERE master_id = ? AND is_open = 1`,
+      [strategy.master_account_id]
+    );
+
+    if (openTrades[0].count > 0) {
+      // If we are settling a specific user, only block if they are still active.
+      // If they are already disconnected/stopped, they have no more open trades to wait for.
+      if (userId) {
+        const u = targetUsers[0];
+        if (u.status === "active" || u.admin_status === "running") {
+          await connection.rollback();
+          return { 
+            success: false, 
+            error: `Cannot run settlement: User is still active and there are ${openTrades[0].count} open trades for this strategy. Please disconnect the user or wait for trades to close.` 
+          };
+        }
+      } else {
+        await connection.rollback();
+        return { 
+          success: false, 
+          error: `Cannot run settlement: There are ${openTrades[0].count} open trades for this strategy. All trades must be closed before strategy-wide settlement.` 
+        };
+      }
+    }
 
     const [closedTrades]: any = await connection.execute(
-      `SELECT SUM(profit) as total_profit, SUM(swap) as total_swap 
+      `SELECT COUNT(*) as count, SUM(profit) as total_profit, SUM(swap) as total_swap 
        FROM master_trades_cache 
        WHERE master_id = ? AND is_open = 0 AND time_close > ? AND time_close <= ?`,
       [strategy.master_account_id, settlementStart, settlementEnd]
@@ -1545,40 +1607,21 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
 
     const totalProfit = Number(closedTrades[0]?.total_profit || 0);
     const totalSwap = Number(closedTrades[0]?.total_swap || 0);
+    const tradesCount = Number(closedTrades[0]?.count || 0);
 
-    // If it's a general strategy-wide settlement, we might want to skip if no profit.
-    // But if it's a specific user settlement (disconnect), we MUST proceed to return their capital.
-    if (!userId && totalProfit <= 0) {
+    // If it's a general strategy-wide settlement, we might want to skip if no trades or no profit.
+    // However, we should at least allow it if there are trades, even if negative, to mark them as settled.
+    if (!userId && tradesCount === 0) {
       await connection.rollback();
-      return { success: true, message: 'No positive profit to settle at this time.', settlementId: null };
+      return { success: true, message: 'No trades found to settle at this time.', settlementId: null };
     }
 
-    const userRowsQuery = userId
-      ? `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital
-         FROM running_strategies rs
-         JOIN users u ON rs.user_id = u.id
-         WHERE rs.strategy_id = ? AND rs.user_id = ?`
-      : `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital
-         FROM running_strategies rs
-         JOIN users u ON rs.user_id = u.id
-         WHERE rs.strategy_id = ? AND (rs.status = "active" OR rs.admin_status = "running")`;
-
-    const userRowsParams = userId ? [strategyId, userId] : [strategyId];
-    const [userRows]: any = await connection.execute(userRowsQuery, userRowsParams);
-
-    if (!Array.isArray(userRows) || userRows.length === 0) {
-      throw new Error(userId ? 'User not found or not active in this strategy.' : 'No active users found for strategy settlement.');
-    }
-
-    const allUsers = userRows;
-    const targetUsers = userId ? allUsers.filter((u: any) => u.user_id === userId) : allUsers;
-
-    if (userId && targetUsers.length === 0) {
-      throw new Error('User not found or not active in this strategy.');
-    }
-
+    // Calculate total deposit of all CURRENTLY active users to determine shares
+    // This ensures that profit is shared correctly among all participants.
+    const activeUsers = allUsersRows.filter((u: any) => u.status === "active" || u.admin_status === "running" || (userId && u.user_id === userId));
+    
     let totalDeposit = 0;
-    for (const u of allUsers) {
+    for (const u of activeUsers) {
       if (Number(u.capital) > 0) {
         totalDeposit += Number(u.capital);
       } else {
@@ -1620,9 +1663,12 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
       // System should always use same formula, even for a single trade.
       const commission = userGrossProfit > 0 ? (userGrossProfit * commissionPercent / 100) : 0;
       
-      // The amount to be withdrawn to the central wallet is the profit AFTER commission
-      const withdrawal = userGrossProfit - commission;
-      // The final balance for the user in this strategy after settlement
+      // The amount to be withdrawn to the central wallet is the profit AFTER commission.
+      // We only withdraw if there is actual profit. Losses remain in the strategy capital.
+      const withdrawal = Math.max(0, userGrossProfit - commission);
+      
+      // The final balance for the user in this strategy after settlement.
+      // Note: If there is a loss (userGrossProfit < 0), settledBalance will correctly be less than invested.
       const settledBalance = invested + userGrossProfit + userSwap - commission;
 
       // Only skip if the settledBalance is 0 or less AND it's not a user-specific settlement
@@ -1650,6 +1696,18 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
         'UPDATE running_strategies SET capital = ?, updated_at = NOW() WHERE user_id = ? AND strategy_id = ?',
         [settledBalance, u.user_id, strategyId]
       );
+
+      // NEW: Record the commission deduction in wallet_transactions for transparency
+      if (commission > 0) {
+        await connection.execute(
+          `INSERT INTO wallet_transactions (
+            id, user_id, strategy_id, running_strategy_id, amount, transaction_type, status, admin_message, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            `txn_comm_${uuidv4()}`, u.user_id, strategyId, u.rs_id, commission, 'commission', 'completed', `Settled Commission for strategy ${strategy.name}`
+          ]
+        );
+      }
 
       settledTotalProfit += userGrossProfit;
       settledTotalCommission += commission;

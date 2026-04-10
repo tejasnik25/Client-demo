@@ -514,73 +514,109 @@ export default function CopierHistoryPage() {
   }, [openPositions, connectAt, runningPeriods, sessionUserId, strategyStatus.isActive, selectedLotSize]);
 
   const stats = useMemo(() => {
-    // Real-time deposit: use the running strategy's current capital as the base
-    const deposit = Number(runningCapital || 0);
+    const normalizeId = (v: any) => String(v ?? '').trim();
+    const currentStrategyId = normalizeId(params.id);
+    const currentRsId = normalizeId(rsId);
 
-    // Real-time summary stats
-    const realizedProfitOnly = filteredClosed.reduce((sum, r) => sum + r.profit, 0);
-    const realizedSwapOnly = filteredClosed.reduce((sum, r) => sum + r.swap, 0);
+    // 1. Total Deposit = Sum of all approved deposits for this strategy
+    let totalDeposit = payments.filter(p => {
+      const type = String(p.transaction_type || p.transactionType || '').toLowerCase();
+      const status = String(p.status || '').toLowerCase();
+      
+      const pStrategyId = normalizeId((p as any).strategyId ?? (p as any).strategy_id);
+      const pRsId = normalizeId((p as any).runningStrategyId ?? (p as any).running_strategy_id);
+      const isThisStrategy = (pStrategyId && pStrategyId === currentStrategyId) || 
+                            (currentRsId && pRsId && pRsId === currentRsId);
+      
+      return isThisStrategy && (type === 'deposit' || type === 'settled' || type === 'charge') && 
+             (status === 'completed' || status === 'approved' || status === 'settled');
+    }).reduce((sum, p) => {
+      // Prioritize the amount paid by the user. 
+      // Often 'amount' or 'payable' is the gross paid, while 'capital' might be net.
+      const val = Number(p.amount || p.payable || p.payable_amount || p.capital || 0);
+      return sum + val;
+    }, 0);
 
-    const settlementTotals = settlements.reduce((acc, row) => ({
-      profit: acc.profit + Number(row.gross_profit || row.profit || 0),
-      swap: acc.swap + Number(row.swap_amount || row.swap || 0),
-      commission: acc.commission + Number(row.commission_amount || row.commission || 0),
-      withdrawal: acc.withdrawal + Math.max(0, Number(row.withdrawal_amount || row.withdrawal || 0)),
-    }), { profit: 0, swap: 0, commission: 0, withdrawal: 0 });
+    // If totalDeposit is very close to a round number (like 2000), it might be a floating point issue.
+    // However, the user specifically mentioned $1999.88, which is exactly $0.12 off.
+    // If it's a fixed purchase price, we should ensure we show what they PAID.
+    
+    // Absolute fallback: if no payments found, use runningCapital as the baseline deposit
+    if (totalDeposit <= 0 && Number(runningCapital) > 0) {
+      totalDeposit = Number(runningCapital);
+    }
 
+    // 2. Real-time summary stats (ALL closed trades since connectAt)
+    const totalRealizedProfit = filteredClosed.reduce((sum, r) => sum + r.profit, 0);
+    const totalRealizedSwap = filteredClosed.reduce((sum, r) => sum + r.swap, 0);
+
+    // 3. Commission: System displays last calculated commission only
     const latestSettlement = [...settlements].sort((a, b) => {
-      const aEnd = toMs(a.settlementEnd || a.settlement_end || a.settlementEnd || 0);
-      const bEnd = toMs(b.settlementEnd || b.settlement_end || b.settlementEnd || 0);
+      const aEnd = toMs(a.settlementEnd || a.settlement_end || 0);
+      const bEnd = toMs(b.settlementEnd || b.settlement_end || 0);
       if (aEnd !== bEnd) return bEnd - aEnd;
-      const aCreated = toMs(a.createdAt || a.created_at || a.settlement_created_at || 0);
-      const bCreated = toMs(b.createdAt || b.created_at || b.settlement_created_at || 0);
+      const aCreated = toMs(a.createdAt || a.created_at || 0);
+      const bCreated = toMs(b.createdAt || b.created_at || 0);
       return bCreated - aCreated;
     })[0];
-    const lastSettledCommission = Number(latestSettlement?.commission_amount || latestSettlement?.commission || 0);
+    const displayCommission = Number(latestSettlement?.commission_amount || latestSettlement?.commission || 0);
 
-    const totalRealizedProfit = realizedProfitOnly + settlementTotals.profit;
-    const totalRealizedSwap = realizedSwapOnly + settlementTotals.swap;
-    
-    // Commission is only updated when admin runs settlement; between settlements it remains fixed
-    const displayCommission = lastSettledCommission;
-    
-    // FP/L: Sum of all open trade profits
+    // 4. Settled Withdrawals (Sum of all previous withdrawals)
+    const totalSettledWithdrawal = settlements.reduce((acc, row) => 
+      acc + Math.max(0, Number(row.withdrawal_amount || row.withdrawal || 0)), 0);
+
+    // 5. Balance = Deposit + Profit + Swap – Commission
+    // Following user formula: Balance = Deposit + Profit + Swap - Commission
+    const realizedBalance = totalDeposit + totalRealizedProfit + totalRealizedSwap - displayCommission;
+
+    // 6. FP/L: Sum of all open trade profits
     const currentFloatProfitOnly = filteredOpen.reduce((sum, r) => sum + r.profit, 0);
-    // Open Swap: Sum of all swaps of the open trades
     const currentOpenSwap = filteredOpen.reduce((sum, r) => sum + r.swap, 0);
-    
     const currentFloatPL = currentFloatProfitOnly + currentOpenSwap;
-    
-    // Balance: Deposit + Total Realized Profit + Total Realized Swap - Commission (10%) - Settled Withdrawals
-    // This ensures the balance correctly reflects the net state after potential commission.
-    const realizedBalance = deposit + totalRealizedProfit + totalRealizedSwap - displayCommission - settlementTotals.withdrawal;
-    
-    // Total Real-time Swap: Realized Swap + Current Open Swap
-    const totalRealtimeSwap = totalRealizedSwap + currentOpenSwap;
-    
-    // Equity = Balance + FP/L
+
+    // 7. Equity = Balance + FP/L
     const currentEquity = realizedBalance + currentFloatPL;
 
     // Build real-time balance operations list
-    const depositOps: BalanceOp[] = [{
-      type: 'DEPOSIT',
-      amount: deposit,
-      time: String(connectAt || ""),
-      comment: 'Initial Investment'
-    }];
+    // All relevant payments for this strategy/user
+    const strategyPayments = payments.filter(p => {
+      const pStrategyId = normalizeId((p as any).strategyId ?? (p as any).strategy_id);
+      const pRsId = normalizeId((p as any).runningStrategyId ?? (p as any).running_strategy_id);
+      return (pStrategyId && pStrategyId === currentStrategyId) || 
+             (currentRsId && pRsId && pRsId === currentRsId);
+    });
 
-    // Add any subsequent deposits from payments
-    const additionalDeposits: BalanceOp[] = payments.filter(p => {
+    const paymentOps: BalanceOp[] = strategyPayments.filter(p => {
       const type = String(p.transaction_type || p.transactionType || '').toLowerCase();
       const status = String(p.status || '').toLowerCase();
-      const isLater = connectAt ? toMs(p.createdAt || p.created_at) > toMs(connectAt) : false;
-      return type === 'deposit' && (status === 'completed' || status === 'approved') && isLater;
-    }).map(p => ({
+      return (type === 'deposit' || type === 'charge') && (status === 'completed' || status === 'approved');
+    }).map(p => {
+      const isInitial = connectAt ? Math.abs(toMs(p.createdAt || p.created_at) - toMs(connectAt)) < 300000 : true; // 5 minute window
+      return {
+        type: 'DEPOSIT' as const,
+        amount: Number(p.capital || p.amount || 0),
+        time: String(p.createdAt || p.created_at || ""),
+        comment: isInitial ? 'Initial Investment' : (p.admin_message || 'Top-up Investment')
+      };
+    });
+
+    // Handle deduplication of "Initial Investment"
+    // If we have multiple payments within the initial window, only label the first one as "Initial"
+    const finalPaymentOps = paymentOps.reduce((acc: BalanceOp[], op) => {
+      if (op.comment === 'Initial Investment' && acc.some(x => x.comment === 'Initial Investment')) {
+        op.comment = 'Top-up Investment';
+      }
+      acc.push(op);
+      return acc;
+    }, []);
+
+    // If no payments found in DB but we have a deposit amount, add a manual entry
+    const depositOps: BalanceOp[] = (totalDeposit > 0 && finalPaymentOps.length === 0) ? [{
       type: 'DEPOSIT',
-      amount: Number(p.capital || p.amount || 0),
-      time: String(p.createdAt || p.created_at || ""),
-      comment: p.admin_message || 'Top-up Investment'
-    }));
+      amount: totalDeposit,
+      time: String(connectAt || ""),
+      comment: 'Initial Investment'
+    }] : finalPaymentOps;
 
     // Commission/Withdrawal ops are ONLY from settlements
     const settlementCommissionOps: BalanceOp[] = settlements.filter(s => Number(s.commission_amount || 0) > 0).map(s => ({
@@ -597,21 +633,21 @@ export default function CopierHistoryPage() {
       comment: 'Settled Withdrawal'
     }));
 
-    const balanceOperations = [...depositOps, ...additionalDeposits, ...settlementCommissionOps, ...withdrawalOps]
+    const balanceOperations = [...depositOps, ...settlementCommissionOps, ...withdrawalOps]
       .sort((a, b) => toMs(b.time) - toMs(a.time));
 
     return {
-      deposit: deposit.toFixed(2),
-      withdrawal: settlementTotals.withdrawal.toFixed(2),
+      deposit: totalDeposit.toFixed(2),
+      withdrawal: totalSettledWithdrawal.toFixed(2),
       profit: totalRealizedProfit.toFixed(2), 
-      swap: totalRealtimeSwap.toFixed(2), // Real-time Swap = sum of all swaps (realized + open)
+      swap: (totalRealizedSwap + currentOpenSwap).toFixed(2), // Real-time Swap = sum of all swaps (realized + open)
       commission: displayCommission.toFixed(2),
       balance: realizedBalance.toFixed(2), 
       equity: currentEquity.toFixed(2),
       floatPL: currentFloatPL.toFixed(2),
       balanceOperations,
     };
-  }, [filteredClosed, filteredOpen, payments, strategy, settlements, runningCapital, connectAt]);
+  }, [filteredClosed, filteredOpen, settlements, payments, params.id, connectAt, rsId, runningCapital]);
 
   const displayRows = useMemo(() => {
     if (filter === "opened") return filteredOpen;
