@@ -43,7 +43,6 @@ export async function POST(request: NextRequest) {
       terms_accepted,
       strategy_id,
       plan_level,
-      // New optional fields
       inr_amount,
       inr_to_usd_rate,
       crypto_network,
@@ -57,16 +56,14 @@ export async function POST(request: NextRequest) {
     const parsedTermsAccepted =
       typeof terms_accepted === 'string' ? ['true', '1', 'yes', 'on'].includes(terms_accepted.toLowerCase()) : !!terms_accepted;
 
-    if (!user_id || !amount || !transaction_type) {
-      return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
+    if (!user_id || !parsedAmount || !transaction_type) {
+      return NextResponse.json({ success: false, error: 'Missing required fields: user_id, amount, transaction_type' }, { status: 400 });
     }
 
     // Prevent creating transactions for other users
     if (String(user_id) !== String(session.user.id)) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ success: false, error: 'Unauthorized: Cannot create transaction for other users' }, { status: 401 });
     }
-
-    // Do not log sensitive payloads
 
     const { createWalletTransaction } = await import('@/db/dbService');
 
@@ -95,7 +92,8 @@ export async function POST(request: NextRequest) {
       try {
         const uploaded = await uploadToS3(key, bytes, receiptFile.type || 'application/octet-stream');
         return uploaded.url;
-      } catch {
+      } catch (s3Error) {
+        console.warn('S3 upload failed, falling back to local storage:', s3Error);
         // Local dev fallback if S3 isn't configured
         const fileName = `${safeTxId}_${uuidv4()}${ext}`.replace(/[^\w.-]+/g, '_');
         const dir = path.join(process.cwd(), 'public', 'uploads', 'wallet-proofs');
@@ -120,7 +118,6 @@ export async function POST(request: NextRequest) {
       mt_account_id,
       mt_account_password,
       terms_accepted: parsedTermsAccepted,
-      // Ensure strategy association is persisted for deployed/running views
       strategy_id,
       plan_level,
       inr_amount: parsedInrAmount,
@@ -132,13 +129,16 @@ export async function POST(request: NextRequest) {
 
     if (!transaction) {
       console.error('Failed to create wallet transaction: service returned null');
-      return NextResponse.json({ success: false, error: 'Failed to create transaction' }, { status: 500 });
+      return NextResponse.json({ success: false, error: 'Failed to create transaction in database' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, transaction });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating wallet transaction:', error);
-    return NextResponse.json({ success: false, error: 'Server error' }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: error?.message || 'Server error while creating transaction' },
+      { status: 500 }
+    );
   }
 }
 
@@ -177,7 +177,18 @@ export async function GET() {
       created_at: t.created_at,
       updated_at: t.updated_at,
     }));
-    return NextResponse.json({ success: true, transactions, balance }, { headers: { 'Cache-Control': 'no-store' } });
+
+    const total_deposited = rows.reduce((sum: number, t: any) => {
+      return sum + (t.transaction_type === 'deposit' && ['completed','settled','approved'].includes(t.status) ? Number(t.amount ?? 0) : 0);
+    }, 0);
+    const total_charged = rows.reduce((sum: number, t: any) => {
+      return sum + (t.transaction_type === 'charge' && ['completed','settled','approved'].includes(t.status) ? Number(t.amount ?? 0) : 0);
+    }, 0);
+
+    return NextResponse.json(
+      { success: true, transactions, balance, total_deposited, total_charged },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (error) {
     console.error('Error fetching wallet transactions:', error);
     return NextResponse.json({ success: false, error: 'Server error' }, { status: 500 });

@@ -1,7 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getUserById, getRunningStrategiesForUser, getStrategyById, getCachedMasterTrades, getRunningStrategyTotalCapital } from '@/db/dbService';
+import {
+  getUserById,
+  getRunningStrategiesForUser,
+  getClosedStrategiesForUser,
+  getStrategyById,
+  getCachedMasterTrades,
+  getRunningStrategyTotalCapital,
+  getSettlementsByUserAndStrategy,
+} from '@/db/dbService';
+
+async function getMasterTrades(strategyId: string, masterId: string) {
+  // Try to fetch fresh data first with fallback to cache
+  try {
+    const host = process.env.NEXTAUTH_URL
+      ? process.env.NEXTAUTH_URL.replace(/\/$/, '')
+      : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : 'http://127.0.0.1:3000';
+    const url = `${host}/api/strategies/${encodeURIComponent(strategyId)}/master-history`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        history: Array.isArray(data.history) ? data.history : [],
+        open_positions: Array.isArray(data.open_positions) ? data.open_positions : [],
+      };
+    }
+  } catch (error) {
+    console.warn('[AdminUserRoute] Live master history fetch failed, using cache:', error);
+  }
+
+  // Fallback to cache
+  return await getCachedMasterTrades(masterId);
+}
 
 // Helper function to check admin authorization
 async function checkAdminAuth() {
@@ -35,10 +73,10 @@ export async function GET(
 
     // Fetch running strategies for the user
     const runningStrategies = await getRunningStrategiesForUser(userId);
+    const closedStrategies = await getClosedStrategiesForUser(userId);
     
     // Enrich strategies with performance data from cached master trades
-    const enrichedStrategies = await Promise.all(
-      runningStrategies.map(async (rs) => {
+    const enrich = async (rs: any) => {
         const strategy = await getStrategyById(rs.strategyId);
         
         // Get metrics from master account trades if available
@@ -52,27 +90,52 @@ export async function GET(
         };
 
         if (strategy?.masterAccountId) {
-          const trades = await getCachedMasterTrades(strategy.masterAccountId);
-          
-          // Calculate Master PnL from history and live open trades
-          const masterRealizedProfit = trades.history.reduce((sum, t) => sum + (Number(t.profit) || 0), 0);
-          const masterFloatingProfit = trades.open_positions.reduce((sum, t) => sum + (Number(t.profit) || 0), 0);
+          const trades = await getMasterTrades(rs.strategyId, strategy.masterAccountId);
+
+          const masterRealizedProfit = trades.history.reduce((sum: number, t: any): number => sum + (Number(t.profit) || 0), 0);
+          const masterFloatingProfit = trades.open_positions.reduce((sum: number, t: any): number => sum + (Number(t.profit) || 0), 0);
 
           const totalStrategyCapital = await getRunningStrategyTotalCapital(rs.strategyId);
           const userCapital = Number(rs.capital || 0);
           const share = totalStrategyCapital > 0 ? userCapital / totalStrategyCapital : 1;
 
-          const realizedProfit = masterRealizedProfit * share;
-          const floatingProfit = masterFloatingProfit * share;
+          // Check if profit settlement has been run
+          const hasSettlements = (await getSettlementsByUserAndStrategy(userId, rs.strategyId)) || [];
+          
+          if (hasSettlements.length > 0) {
+            // Use settlement data if available (more accurate after settlement is run)
+            // The user's current running capital already includes prior settled profit/swap and commission.
+            const settlementTotals = hasSettlements.reduce<{ withdrawal: number; profit: number; swap: number; commission: number }>((acc, sItem) => {
+              return {
+                withdrawal: acc.withdrawal + Math.max(0, Number(sItem.withdrawal_amount || 0)),
+                profit: acc.profit + Number(sItem.gross_profit || 0),
+                swap: acc.swap + Number(sItem.swap_amount || 0),
+                commission: acc.commission + Number(sItem.commission_amount || 0),
+              };
+            }, { withdrawal: 0, profit: 0, swap: 0, commission: 0 });
 
-          metrics = {
-            floatingProfit,
-            realizedProfit,
-            totalTrades: trades.history.length + trades.open_positions.length,
-            openTrades: rs.open_trades !== undefined ? Number(rs.open_trades || 0) : trades.open_positions.length,
-            balance: userCapital + realizedProfit,
-            equity: userCapital + realizedProfit + floatingProfit,
-          };
+            metrics = {
+              floatingProfit: masterFloatingProfit * share,
+              realizedProfit: settlementTotals.profit,
+              totalTrades: trades.history.length + trades.open_positions.length,
+              openTrades: trades.open_positions.length,
+              balance: Number(rs.capital || 0),
+              equity: Number(rs.capital || 0) + (masterFloatingProfit * share),
+            };
+          } else {
+            // Use raw master profit calculation (before settlement)
+            const realizedProfit = masterRealizedProfit * share;
+            const floatingProfit = masterFloatingProfit * share;
+
+            metrics = {
+              floatingProfit,
+              realizedProfit,
+              totalTrades: trades.history.length + trades.open_positions.length,
+              openTrades: trades.open_positions.length,
+              balance: userCapital + realizedProfit,
+              equity: userCapital + realizedProfit + floatingProfit,
+            };
+          }
         }
 
         const normalizedCreatedAt = rs.created_at || rs.createdAt || rs.start_date || null;
@@ -89,6 +152,8 @@ export async function GET(
           status: rs.status || rs.status || 'unknown',
           createdAt: normalizedCreatedAt,
           updatedAt: normalizedUpdatedAt,
+          closedAt: rs.closed_at || null,
+          deletedAt: rs.deleted_at || null,
           metrics: {
             floatingProfit: Number(metrics.floatingProfit || 0),
             realizedProfit: Number(metrics.realizedProfit || 0),
@@ -98,12 +163,15 @@ export async function GET(
             equity: Number(metrics.equity || normalizedCapital),
           },
         };
-      })
-    );
+    };
+
+    const enrichedStrategies = await Promise.all(runningStrategies.map(enrich));
+    const enrichedClosedStrategies = await Promise.all(closedStrategies.map(enrich));
 
     return NextResponse.json({
       user,
       strategies: enrichedStrategies,
+      closedStrategies: enrichedClosedStrategies,
     });
   } catch (error) {
     console.error('Error fetching user details:', error);

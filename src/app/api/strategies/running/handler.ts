@@ -13,7 +13,8 @@ import {
   getCachedMasterTrades,
   getUserStrategyDeposit,
   getSettlementsByUserAndStrategy,
-  createWalletTransaction
+  createWalletTransaction,
+  getLatestLotSizeForUserStrategy
 } from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
@@ -105,7 +106,7 @@ export async function GET() {
           const share = totalStrategyCapital > 0 ? userCapital / totalStrategyCapital : 1;
 
           const realizedProfit = masterRealizedProfit * share;
-          const floatingProfit = masterFloatingProfit * share;
+          let floatingProfit = masterFloatingProfit * share;
 
           const hasSettlements = (await getSettlementsByUserAndStrategy(userId, id)) || [];
           if (hasSettlements.length > 0) {
@@ -118,16 +119,28 @@ export async function GET() {
               };
             }, { withdrawal: 0, profit: 0, swap: 0, commission: 0 });
 
+            const openTradesCount = trades.open_positions.length;
+            if (openTradesCount === 0) {
+              floatingProfit = 0;
+            }
+
             metrics.balance = deposit + settlementTotals.profit + settlementTotals.swap - settlementTotals.commission;
             metrics.equity = metrics.balance + floatingProfit;
             metrics.realizedProfit = settlementTotals.profit;
             metrics.floatingProfit = floatingProfit;
+            metrics.openTrades = openTradesCount;
+            metrics.totalTrades = trades.history.length + openTradesCount;
           } else {
+            const openTradesCount = trades.open_positions.length;
+            if (openTradesCount === 0) {
+              floatingProfit = 0;
+            }
+
             metrics = {
               floatingProfit,
               realizedProfit,
-              totalTrades: trades.history.length + trades.open_positions.length,
-              openTrades: trades.open_positions.length,
+              totalTrades: trades.history.length + openTradesCount,
+              openTrades: openTradesCount,
               balance: userCapital + realizedProfit,
               equity: userCapital + realizedProfit + floatingProfit,
             };
@@ -135,6 +148,58 @@ export async function GET() {
         } catch (err) {
           console.warn('[RunningStrategiesAPI] Error computing metrics for', id, err);
         }
+      }
+
+      const resolvedLotSize = await getLatestLotSizeForUserStrategy(userId, id, r.id);
+      const deriveLotSizeFromCapital = (): number => {
+        try {
+          const raw = (s as any)?.parameters?.lotPricing;
+          if (!raw) return 1;
+          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          if (!Array.isArray(parsed) || parsed.length === 0) return 1;
+
+          const rows = parsed
+            .map((x: any) => ({ lot: Number(x?.lot), amountUSD: Number(x?.amountUSD) }))
+            .filter((x: any) => Number.isFinite(x.lot) && x.lot > 0 && Number.isFinite(x.amountUSD) && x.amountUSD > 0);
+          if (rows.length === 0) return 1;
+
+          const oneLot = rows.find((x: any) => Number(x.lot) === 1);
+          const unitPrice = oneLot ? Number(oneLot.amountUSD) : Number(rows[0].amountUSD / rows[0].lot);
+          if (!Number.isFinite(unitPrice) || unitPrice <= 0) return 1;
+
+          const cap = Number(r.capital || 0);
+          if (!Number.isFinite(cap) || cap <= 0) return 1;
+
+          const derived = cap / unitPrice;
+          if (!Number.isFinite(derived) || derived <= 0) return 1;
+
+          // Prefer clean display values (1,2,3,...) when close enough.
+          const rounded = Math.round(derived);
+          if (Math.abs(derived - rounded) < 0.12 && rounded > 0) return rounded;
+          return Number(derived.toFixed(2));
+        } catch {
+          return 1;
+        }
+      };
+
+      const rowLot = Number(r.lot_size ?? r.lotSize ?? 0);
+      const txnLot = Number(resolvedLotSize || 0);
+      const derivedLot = Number(deriveLotSizeFromCapital() || 0);
+
+      // Treat lot=1 from DB as weak default if we have stronger evidence (>1).
+      let finalLotSize = 1;
+      if (Number.isFinite(rowLot) && rowLot > 1) {
+        finalLotSize = rowLot;
+      } else if (Number.isFinite(txnLot) && txnLot > 1) {
+        finalLotSize = txnLot;
+      } else if (Number.isFinite(derivedLot) && derivedLot > 1) {
+        finalLotSize = derivedLot;
+      } else if (Number.isFinite(rowLot) && rowLot > 0) {
+        finalLotSize = rowLot;
+      } else if (Number.isFinite(txnLot) && txnLot > 0) {
+        finalLotSize = txnLot;
+      } else if (Number.isFinite(derivedLot) && derivedLot > 0) {
+        finalLotSize = derivedLot;
       }
 
       const obj = {
@@ -149,6 +214,7 @@ export async function GET() {
         updatedAt: r.updatedAt || r.updated_at,
         createdAt: r.createdAt || r.created_at,
         plan: r.plan,
+        lotSize: Number(finalLotSize || 1),
         capital: Number(deposit),
         deposit: Number(deposit),
         platform: r.platform ?? null,
@@ -157,6 +223,11 @@ export async function GET() {
         snapshots,
         periods,
         metrics,
+        // Flatten metrics for backward compatibility with some UI components
+        floatProfit: metrics.floatingProfit,
+        balance: metrics.balance,
+        equity: metrics.equity,
+        openTrades: metrics.openTrades,
       };
       console.log(`[RunningStrategiesAPI] Strategy ${obj.strategyId} for user ${userId} has adminStatus: ${obj.adminStatus}`);
       running.push(obj);

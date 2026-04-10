@@ -109,12 +109,33 @@ export async function PATCH(
 
     try {
       const running = await getRunningStrategyById(params.id);
-      if (running?.strategyId) {
-        const settlementResult = await runProfitSharingSettlementAdmin(running.strategyId, (session.user as any).id);
+      if (running?.strategyId && running?.userId) {
+        // Pass the specific userId to only settle for this user
+        // This will now handle profit, loss, and transfer to central wallet.
+        const settlementResult = await runProfitSharingSettlementAdmin(running.strategyId, (session.user as any).id, running.userId);
         if (settlementResult?.success && Array.isArray(settlementResult.items)) {
-          // runProfitSharingSettlementAdmin already creates deposit transactions for settled strategy funds.
-          // Avoid duplicating deposits here to keep balance correct.
-          console.log(`[StatusUpdate] Strategy ${running.strategyId} profit settlement completed for ${settlementResult.items.length} users`);
+          console.log(`[StatusUpdate] Strategy ${running.strategyId} final settlement completed for user ${running.userId}`);
+          const userSettlement = settlementResult.items[0];
+          const returnedBalance = Number(userSettlement?.settled_balance || 0);
+          if (returnedBalance > 0) {
+            try {
+              await createWalletTransaction({
+                user_id: running.userId,
+                amount: returnedBalance,
+                capital: returnedBalance,
+                transaction_type: 'deposit',
+                status: 'completed',
+                admin_message: `Central wallet return after stop-copy approval for strategy ${running.strategyId}`
+              });
+              console.log(`[StatusUpdate] Returned ${returnedBalance} to central wallet for user ${running.userId}`);
+            } catch (walletErr) {
+              console.error('Failed to return balance to central wallet after stop-copy approval:', walletErr);
+            }
+          } else {
+            console.log(`[StatusUpdate] No balance returned to central wallet because user settlement balance is ${returnedBalance}`);
+          }
+        } else {
+          console.warn(`[StatusUpdate] Settlement result for user ${running.userId}:`, settlementResult?.message || settlementResult?.error);
         }
       }
     } catch (err) {

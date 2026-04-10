@@ -2,6 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useEffect } from 'react';
 import { FiUsers, FiDollarSign, FiLink, FiDatabase, FiActivity, FiTrendingUp, FiHardDrive } from 'react-icons/fi';
 import UserManagement from '@/components/admin/UserManagement';
@@ -80,9 +81,9 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <p className="mb-4">Manage all user accounts, reset passwords, and control access permissions.</p>
-            <a href="/admin/users" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <Link href="/admin/users" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Go to User Management
-            </a>
+            </Link>
           </CardContent>
         </Card>
         
@@ -97,9 +98,9 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <p className="mb-4">Add new trading strategies, update existing ones, and control user access.</p>
-            <a href="/admin/strategy" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <Link href="/admin/strategy" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Go to Strategy Management
-            </a>
+            </Link>
           </CardContent>
         </Card>
         
@@ -114,9 +115,9 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <p className="mb-4">Review pending payments, approve transactions, and manage user wallet balances.</p>
-            <a href="/admin/payments" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <Link href="/admin/payments" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Go to Payment Verification
-            </a>
+            </Link>
           </CardContent>
         </Card>
 
@@ -131,9 +132,9 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <p className="mb-4">View all strategies, copier counts, deposits, and run per-strategy settlement.</p>
-            <a href="/admin/profit-sharing" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <Link href="/admin/profit-sharing" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Go to Profit-sharing
-            </a>
+            </Link>
           </CardContent>
         </Card>
       </div>

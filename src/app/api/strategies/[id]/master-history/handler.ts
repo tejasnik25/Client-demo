@@ -199,17 +199,13 @@ export async function GET(
     try {
       const cached = await getCachedMasterTrades(masterId);
       const cachedHistory = Array.isArray(cached.history) ? cached.history : [];
-      const cachedOpen = Array.isArray(cached.open_positions) ? cached.open_positions : [];
+      // CRITICAL: We DO NOT merge cached open positions if we have a successful live fetch.
+      // The live fetch is the source of truth for currently open positions.
+      // If a position was in the cache but is not in the live fetch, it means it has been closed.
 
       const liveIds = new Set(
         mergedHistory
           .map((h: any) => h.position_id ?? h.ticket ?? h.deal_id)
-          .filter((v: any) => v != null)
-          .map((v: any) => String(v))
-      );
-      const liveOpenIds = new Set(
-        mergedOpen
-          .map((p: any) => p.position_id ?? p.ticket ?? p.deal_id)
           .filter((v: any) => v != null)
           .map((v: any) => String(v))
       );
@@ -218,12 +214,6 @@ export async function GET(
         const id = h.position_id ?? h.ticket ?? h.deal_id;
         if (id != null && !liveIds.has(String(id))) {
           mergedHistory.push(h);
-        }
-      }
-      for (const p of cachedOpen) {
-        const id = p.position_id ?? p.ticket ?? p.deal_id;
-        if (id != null && !liveOpenIds.has(String(id))) {
-          mergedOpen.push(p);
         }
       }
     } catch (mergeErr) {

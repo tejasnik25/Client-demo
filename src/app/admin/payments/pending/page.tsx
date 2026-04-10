@@ -101,8 +101,9 @@ export default function PaymentsPendingPage() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 10000);
-    return () => clearInterval(interval);
+    // Auto-refresh disabled per user request
+    // const interval = setInterval(loadData, 10000);
+    // return () => clearInterval(interval);
   }, []);
 
   const pendingDeposits = useMemo(() => 

@@ -96,8 +96,9 @@ const ApprovedPaymentsPage = () => {
 
   useEffect(() => {
     fetchApproved();
-    const interval = setInterval(fetchApproved, 60000);
-    return () => clearInterval(interval);
+    // Auto-refresh disabled per user request
+    // const interval = setInterval(fetchApproved, 60000);
+    // return () => clearInterval(interval);
   }, []);
 
   const withinDate = (d?: string) => {

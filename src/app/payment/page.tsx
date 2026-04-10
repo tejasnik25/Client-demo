@@ -107,7 +107,7 @@ const PaymentContent = () => {
   const renderStage = () => {
     switch (stage) {
       case 1:
-        return <Stage0_PlanSelection onNext={handleNext} setPaymentData={setPaymentData} paymentData={paymentData} strategy={strategy} />;
+        return <Stage0_PlanSelection setPaymentData={setPaymentData} paymentData={paymentData} strategy={strategy} />;
       case 2:
         return <Stage1_MethodSelection onNext={handleNext} setPaymentData={setPaymentData} />;
       case 3:

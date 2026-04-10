@@ -17,19 +17,31 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Running strategy not found' }, { status: 404 });
     }
 
-    // CRITICAL FIX: Only return settlements created AFTER this running_strategy was created
-    // This prevents old settlements from previous stop+repurchase cycles from appearing
     const [settlements]: any = await pool.execute(`
       SELECT psi.*, ps.settlement_start, ps.settlement_end, ps.created_at as settlement_created_at
       FROM profit_settlement_items psi
       JOIN profit_settlements ps ON psi.settlement_id = ps.id
-      WHERE psi.user_id = ?
+      WHERE psi.user_id = ? 
         AND psi.strategy_id = ?
-        AND (ps.created_at >= ? OR ps.settlement_end >= ?)
-      ORDER BY ps.settlement_end DESC
-    `, [rs.userId, rs.strategyId, rs.created_at, rs.created_at]);
+        AND ps.created_at >= ?
+      ORDER BY ps.settlement_end DESC, ps.created_at DESC
+    `, [rs.userId, rs.strategyId, rs.created_at]);
 
-    const mapped = settlements.map((s: any) => ({
+    let settlementRows: any[] = settlements;
+    if (!Array.isArray(settlementRows) || settlementRows.length === 0) {
+      console.warn(`[SettlementsAPI] No settlements found for rsId=${rsId} using created_at filter; falling back to full user strategy settlement history.`);
+      const [fallbackSettlements]: any = await pool.execute(`
+        SELECT psi.*, ps.settlement_start, ps.settlement_end, ps.created_at as settlement_created_at
+        FROM profit_settlement_items psi
+        JOIN profit_settlements ps ON psi.settlement_id = ps.id
+        WHERE psi.user_id = ? 
+          AND psi.strategy_id = ?
+        ORDER BY ps.settlement_end DESC, ps.created_at DESC
+      `, [rs.userId, rs.strategyId]);
+      settlementRows = fallbackSettlements;
+    }
+
+    const mapped = settlementRows.map((s: any) => ({
       ...s,
       settlementStart: s.settlement_start ? s.settlement_start.toISOString() : null,
       settlementEnd: s.settlement_end ? s.settlement_end.toISOString() : null,

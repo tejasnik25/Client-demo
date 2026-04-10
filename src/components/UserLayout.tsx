@@ -212,8 +212,9 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
 
     if (status === 'authenticated' && session?.user?.id) {
       checkUserStatus();
-      const id = setInterval(checkUserStatus, 30000); // Increased interval to 30s
-      return () => clearInterval(id);
+      // Auto-refresh disabled per user request
+      // const id = setInterval(checkUserStatus, 30000); // Increased interval to 30s
+      // return () => clearInterval(id);
     }
   }, [session?.user?.id, status, router, handleLogout]);
 
@@ -273,8 +274,9 @@ const UserLayout: React.FC<UserLayoutProps> = ({ children }) => {
       }
     };
     loadUserNotifications();
-    timer = setInterval(loadUserNotifications, 10000);
-    return () => timer && clearInterval(timer);
+    // Auto-refresh disabled per user request
+    // timer = setInterval(loadUserNotifications, 10000);
+    // return () => timer && clearInterval(timer);
   }, [session?.user?.id]);
 
   if (status === 'loading') {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -17,9 +17,8 @@ const TopupDetailsContent: React.FC = () => {
   const { user } = useAuth();
 
   const [transactionId, setTransactionId] = useState('');
-  const [inrAmount, setInrAmount] = useState('');
   const [usdAmount, setUsdAmount] = useState('');
-  const [inrToUsdRate, setInrToUsdRate] = useState<number | null>(null);
+  const [usdToInrRate, setUsdToInrRate] = useState<number | null>(null);
   const [isLoadingRate, setIsLoadingRate] = useState(false);
   const [rateError, setRateError] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -36,40 +35,40 @@ const TopupDetailsContent: React.FC = () => {
   const USDT_TRC20_ADDRESS = process.env.NEXT_PUBLIC_USDT_TRC20_ADDRESS || '';
   const WALLET_APP_DEEPLINK = process.env.NEXT_PUBLIC_USDT_WALLET_APP_LINK || '';
 
-  const paymentMethod = useMemo(() => methodParam, [methodParam]);
+  const [paymentMethod, setPaymentMethod] = useState<'QR' | 'USDT_ERC20' | 'USDT_TRC20'>(methodParam || 'QR');
   const isStrategyPurchase = !!strategyIdParam;
+
+  useEffect(() => {
+    if (methodParam) {
+      setPaymentMethod(methodParam);
+    }
+  }, [methodParam]);
 
   // Prefill amount and lock editing if provided via query
   useEffect(() => {
     if (amountParam) {
-      setInrAmount(amountParam);
+      setUsdAmount(amountParam);
     }
   }, [amountParam]);
 
   useEffect(() => {
     // Only fetch for non-crypto methods or if USD is needed
-    if (paymentMethod !== 'QR') {
-      // Default rate for USDT is 1:1, but we can still fetch for display
-      setInrToUsdRate(1);
-      return;
-    }
-
     const fetchRate = async () => {
       try {
         setRateError('');
         setIsLoadingRate(true);
-        const res = await fetch('https://api.exchangerate-api.com/v4/latest/INR');
+        const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
         const data = await res.json();
-        const rate = data?.rates?.USD;
+        const rate = data?.rates?.INR;
         if (typeof rate === 'number') {
-          setInrToUsdRate(rate);
+          setUsdToInrRate(rate);
         } else {
           throw new Error('Rate not available');
         }
       } catch (err) {
-        console.error('Failed to fetch INR→USD rate', err);
+        console.error('Failed to fetch USD→INR rate', err);
         setRateError('Unable to fetch conversion rate. Please try again.');
-        setInrToUsdRate(null);
+        setUsdToInrRate(null);
       } finally {
         setIsLoadingRate(false);
       }
@@ -80,18 +79,9 @@ const TopupDetailsContent: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [paymentMethod]);
 
-  useEffect(() => {
-    if (paymentMethod === 'QR' && inrToUsdRate && inrAmount) {
-      const inr = parseFloat(inrAmount);
-      if (!isNaN(inr) && inr > 0) {
-        setUsdAmount((inr * inrToUsdRate).toFixed(2));
-      } else {
-        setUsdAmount('');
-      }
-    } else if (paymentMethod === 'QR') {
-      setUsdAmount('');
-    }
-  }, [inrAmount, inrToUsdRate, paymentMethod]);
+  const inrAmount = usdToInrRate && usdAmount && !isNaN(parseFloat(usdAmount))
+    ? (parseFloat(usdAmount) * usdToInrRate).toFixed(2)
+    : '';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -114,15 +104,13 @@ const TopupDetailsContent: React.FC = () => {
       setError('Please enter the transaction ID');
       return;
     }
-    if (!inrAmount || isNaN(parseFloat(inrAmount)) || parseFloat(inrAmount) <= 0) {
-      setError('Please enter a valid INR amount');
+    if (!usdAmount || isNaN(parseFloat(usdAmount)) || parseFloat(usdAmount) <= 0) {
+      setError('Please enter a valid USD amount');
       return;
     }
-    if (paymentMethod === 'QR') {
-      if (!usdAmount || isNaN(parseFloat(usdAmount)) || parseFloat(usdAmount) <= 0) {
-        setError('Conversion rate unavailable. Please try again later.');
-        return;
-      }
+    if (!usdToInrRate) {
+      setError('Conversion rate unavailable. Please try again later.');
+      return;
     }
     if (!file) {
       setError('Please upload a payment receipt');
@@ -151,9 +139,14 @@ const TopupDetailsContent: React.FC = () => {
     setError('');
 
     try {
+      if (!user) {
+        setError('User not authenticated. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
       if (user) {
-        // For USDT, amount is already in USD. For QR (UPI), it might be INR.
-        const amountValue = paymentMethod === 'QR' ? parseFloat(usdAmount) : parseFloat(inrAmount);
+        const amountValue = parseFloat(usdAmount);
         
         const formData = new FormData();
         formData.append('user_id', user.id);
@@ -175,8 +168,8 @@ const TopupDetailsContent: React.FC = () => {
           if (planParam) formData.append('plan_level', planParam.toUpperCase());
         }
 
-        formData.append('inr_amount', String(parseFloat(inrAmount)));
-        formData.append('inr_to_usd_rate', String(inrToUsdRate ?? 1));
+        formData.append('inr_amount', String(parseFloat(inrAmount || '0')));
+        formData.append('inr_to_usd_rate', String(usdToInrRate ? (1 / usdToInrRate) : 0));
         formData.append(
           'crypto_network',
           paymentMethod === 'USDT_ERC20' ? 'ERC20' : paymentMethod === 'USDT_TRC20' ? 'TRC20' : ''
@@ -199,7 +192,11 @@ const TopupDetailsContent: React.FC = () => {
           body: formData,
         });
 
-        if (!response.ok) throw new Error('Failed to create transaction');
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Server error' }));
+          throw new Error(errorData.error || `HTTP ${response.status}: Failed to create transaction`);
+        }
+        
         const transactionResult = await response.json();
         if (transactionResult.success) {
           setSuccess(true);
@@ -207,12 +204,12 @@ const TopupDetailsContent: React.FC = () => {
           const url = txId ? `/wallet/payment-status?tx=${encodeURIComponent(txId)}` : '/wallet/payment-status';
           setTimeout(() => router.push(url), 1200);
         } else {
-          setError('Failed to create transaction. Please try again.');
+          setError(transactionResult.error || 'Failed to create transaction. Please try again.');
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error processing payment:', err);
-      setError('An error occurred while processing your payment. Please try again.');
+      setError(err?.message || 'An error occurred while processing your payment. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -257,6 +254,27 @@ const TopupDetailsContent: React.FC = () => {
             <p className="mt-1 text-sm text-gray-300">Complete your payment and submit the request.</p>
           </div>
           <form onSubmit={handleSubmit} className="px-6 py-6">
+            {/* Payment Method Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-300">Payment Method</label>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {['QR', 'USDT_ERC20', 'USDT_TRC20'].map((method) => (
+                  <button
+                    key={method}
+                    type="button"
+                    onClick={() => setPaymentMethod(method as 'QR' | 'USDT_ERC20' | 'USDT_TRC20')}
+                    className={`px-4 py-2 rounded-full border font-medium text-sm ${
+                      paymentMethod === method
+                        ? 'bg-[#7c3aed] text-white border-[#7c3aed]'
+                        : 'bg-transparent text-gray-300 border-[#283046] hover:border-[#7c3aed] hover:text-white'
+                    }`}
+                  >
+                    {method === 'QR' ? 'UPI / QR' : method === 'USDT_ERC20' ? 'USDT ERC20' : 'USDT TRC20'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* QR Display */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-300">Payment QR</label>
@@ -280,42 +298,33 @@ const TopupDetailsContent: React.FC = () => {
               />
             </div>
 
-            {/* Amount INR and USD */}
+            {/* Amount USD + INR preview */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300">
-                {paymentMethod?.startsWith('USDT') ? 'Amount ($ USD)' : 'Amount (₹ INR)'}
-              </label>
+              <label className="block text-sm font-medium text-gray-300">Amount ($ USD)</label>
               <input
                 type="number"
                 className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
                 placeholder="0.00"
-                value={inrAmount}
-                onChange={(e) => setInrAmount(e.target.value)}
-                min={paymentMethod?.startsWith('USDT') ? "50" : "1"}
+                value={usdAmount}
+                onChange={(e) => setUsdAmount(e.target.value)}
+                min="1"
                 step="0.01"
                 disabled={!!amountParam}
               />
-              {paymentMethod?.startsWith('USDT') && (
-                <p className="mt-1 text-xs text-amber-400 font-medium">Minimum deposit is $50.00 USD</p>
-              )}
-              {paymentMethod === 'QR' && (
-                <>
-                  <p className="mt-1 text-sm text-gray-400">USD is calculated automatically in real-time.</p>
-                  {isLoadingRate && <p className="mt-1 text-sm text-[#7c3aed]">Fetching latest exchange rate...</p>}
-                  {rateError && <p className="mt-1 text-sm text-red-400">{rateError}</p>}
-                  <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-300">
-                      Equivalent Amount ($ USD) {inrToUsdRate && <span className="text-xs text-gray-500">@ {inrToUsdRate.toFixed(6)} USD/INR</span>}
-                    </label>
-                    <input
-                      type="number"
-                      className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
-                      value={usdAmount}
-                      readOnly
-                    />
-                  </div>
-                </>
-              )}
+              <p className="mt-1 text-xs text-amber-400 font-medium">Minimum deposit is $50.00 USD</p>
+              {isLoadingRate && <p className="mt-1 text-sm text-[#7c3aed]">Fetching latest exchange rate...</p>}
+              {rateError && <p className="mt-1 text-sm text-red-400">{rateError}</p>}
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-300">
+                  Equivalent Amount (₹ INR) {usdToInrRate && <span className="text-xs text-gray-500">@ {usdToInrRate.toFixed(4)} INR/USD</span>}
+                </label>
+                <input
+                  type="text"
+                  className="block w-full sm:text-sm rounded-lg bg-[#0f1527] border border-[#283046] text-white focus:border-[#7c3aed] focus:ring-0 py-3"
+                  value={inrAmount ? `₹${Number(inrAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
+                  readOnly
+                />
+              </div>
             </div>
 
             {/* Transaction ID */}
@@ -433,20 +442,28 @@ const TopupDetailsContent: React.FC = () => {
                 type="submit"
                 disabled={
                   loading ||
+                  isLoadingRate ||
                   !paymentMethod ||
                   !transactionId ||
-                  !inrAmount ||
-                  (paymentMethod === 'QR' && !usdAmount) ||
+                  !usdAmount ||
+                  isNaN(parseFloat(usdAmount)) ||
+                  parseFloat(usdAmount) <= 0 ||
+                  parseFloat(usdAmount) < 50 ||
+                  !usdToInrRate ||
                   !file ||
                   !termsAccepted ||
                   (isStrategyPurchase && (!platform || !mtAccountId || !mtAccountPassword))
                 }
                 className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg shadow-sm text-white ${
                   loading ||
+                  isLoadingRate ||
                   !paymentMethod ||
                   !transactionId ||
-                  !inrAmount ||
-                  (paymentMethod === 'QR' && !usdAmount) ||
+                  !usdAmount ||
+                  isNaN(parseFloat(usdAmount)) ||
+                  parseFloat(usdAmount) <= 0 ||
+                  parseFloat(usdAmount) < 50 ||
+                  !usdToInrRate ||
                   !file ||
                   !termsAccepted ||
                   (isStrategyPurchase && (!platform || !mtAccountId || !mtAccountPassword))
@@ -477,22 +494,18 @@ const TopupDetailsContent: React.FC = () => {
             <div className="flex justify-between"><span className="text-gray-400">Method</span><span className="font-bold">{paymentMethod?.replace('_', ' ') || '—'}</span></div>
             <div className="flex justify-between">
               <span className="text-gray-400">Amount</span>
-              <span className="font-bold">
-                {paymentMethod?.startsWith('USDT') ? `$${inrAmount || '0.00'}` : `₹${inrAmount || '0.00'}`}
-              </span>
+              <span className="font-bold">${usdAmount || '0.00'}</span>
             </div>
-            {paymentMethod === 'QR' && usdAmount && (
+            {inrAmount && (
               <div className="flex justify-between">
-                <span className="text-gray-400">Est. USD</span>
-                <span className="text-green-400 font-bold">${usdAmount}</span>
+                <span className="text-gray-400">Est. INR</span>
+                <span className="text-green-400 font-bold">₹{Number(inrAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             )}
             <div className="flex justify-between"><span className="text-gray-400">Fee</span><span>0.00</span></div>
             <div className="flex justify-between font-semibold border-t border-[#283046] pt-3">
               <span>Total</span>
-              <span className="text-lg text-blue-400">
-                {paymentMethod?.startsWith('USDT') ? `$${inrAmount || '0.00'}` : `₹${inrAmount || '0.00'}`}
-              </span>
+              <span className="text-lg text-blue-400">${usdAmount || '0.00'}</span>
             </div>
           </div>
           <p className="mt-4 text-xs text-gray-400 italic">Payments are processed manually by our finance team for your security.</p>

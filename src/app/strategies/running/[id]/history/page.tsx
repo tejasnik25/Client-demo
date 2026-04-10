@@ -7,11 +7,13 @@
  * - "Closed" tab = Master A's closed positions (same as MT5 Terminal → History tab).
  * Data comes from master-history API (live from MT5 via Python trading service, no cache).
  */
-import { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Button from "@/components/ui/Button";
 import UserLayout from "@/components/UserLayout";
-import { FiChevronLeft, FiChevronRight, FiPlusCircle, FiMinusCircle, FiXCircle, FiExternalLink, FiChevronDown } from "react-icons/fi";
+import { COUNTRY_OPTIONS } from '@/utils/countries';
+import { FiChevronLeft, FiChevronRight, FiPlusCircle, FiMinusCircle, FiXCircle, FiExternalLink, FiChevronDown, FiActivity, FiClock, FiDollarSign, FiBarChart2, FiArrowUpRight, FiArrowDownLeft, FiUser, FiAlertCircle } from "react-icons/fi";
 
 type HistoryItem = {
   position_id?: string;
@@ -52,13 +54,14 @@ type OpenItem = {
 type Strategy = {
   id: string;
   name: string;
-  parameters: Record<string, string>;
+  parameters: Record<string, any>;
   planDetails?: Record<string, any>;
 };
 
 type Payment = {
   userId?: string;
   strategyId?: string;
+  lotSize?: number;
   payable?: number;
   status?: string;
   createdAt?: string;
@@ -69,18 +72,68 @@ type Payment = {
   runningStrategyId?: string;
   running_strategy_id?: string;
   payable_amount?: number;
+  capital?: number;
+  transaction_type?: string;
+  transactionType?: string;
+  admin_message?: string;
+};
+
+type BalanceOp = {
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'COMMISSION' | 'SWAP';
+  amount: number;
+  time: string;
+  comment: string;
 };
 
 type Plan = "Pro" | "Expert" | "Premium";
+const LOT_SIZE_USER_OVERRIDES: Record<string, number> = {
+  user_1775738809201: 2,
+};
+
+const toTradeSide = (row: any): 'BUY' | 'SELL' => {
+  const rawCandidates = [
+    row?.type,
+    row?.side,
+    row?.action,
+    row?.order_type,
+    row?.position_type,
+    row?.cmd,
+  ].map((v) => String(v ?? '').toUpperCase().trim());
+
+  if (rawCandidates.some((v) => v === '1' || v === 'SELL' || v.includes('SELL'))) return 'SELL';
+  if (rawCandidates.some((v) => v === '0' || v === 'BUY' || v.includes('BUY'))) return 'BUY';
+  return 'BUY';
+};
+
+const toDisplaySymbol = (value: any): string => {
+  const raw = String(value ?? 'UNKNOWN').trim().toUpperCase();
+  if (!raw || raw === 'UNKNOWN') return 'UNKNOWN';
+
+  // Remove common broker suffixes (e.g. BTCUSDm, EURUSD.pro, XAUUSD.a)
+  const cleaned = raw
+    .replace(/[._-].*$/, '')
+    .replace(/(MICRO|MINI|PRO|ECN)$/i, '')
+    .replace(/[A-Z]{0,2}M$/i, (m) => (m.toUpperCase() === 'M' ? '' : m));
+
+  const knownQuotes = ['USD', 'USDT', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD', 'BTC', 'ETH'];
+  for (const quote of knownQuotes) {
+    if (cleaned.length > quote.length && cleaned.endsWith(quote)) {
+      const base = cleaned.slice(0, cleaned.length - quote.length);
+      if (base.length >= 2 && base.length <= 6) return `${base}/${quote}`;
+    }
+  }
+  return cleaned;
+};
 
 export default function CopierHistoryPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [openPositions, setOpenPositions] = useState<OpenItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -97,6 +150,7 @@ export default function CopierHistoryPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [rsId, setRsId] = useState<string | null>(null);
+  const [runningLotSize, setRunningLotSize] = useState<number | null>(null);
   const [runningPeriods, setRunningPeriods] = useState<any[]>([]);
   const [modifications, setModifications] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
@@ -117,314 +171,21 @@ export default function CopierHistoryPage() {
     if (raw.includes("stopped") || raw.includes("idle") || raw.includes("offline") || raw.includes("disconnected")) {
       return { label: "Stopped", isActive: false };
     }
-    // Fallback until proper status is fetched
     return { label: "Stopped", isActive: false };
   }, [adminStatus, mtStatus]);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const [stratRes, paymentsRes, profileRes] = await Promise.all([
-          fetch("/api/strategies", { cache: "no-store" }),
-          fetch("/api/payments", { cache: "no-store" }),
-          fetch("/api/profile", { cache: "no-store" }).catch(() => null),
-        ]);
-        const stratData = await stratRes.json();
-        const s = (stratData.strategies || []).find((x: any) => x.id === params.id);
-        setStrategy(s || null);
-        const payJson = await paymentsRes.json();
-        setPayments(payJson.payments || []);
-        if (profileRes && profileRes.ok) {
-          const profile = await profileRes.json().catch(() => null);
-          setSessionUserId(profile?.user?.id || null);
-          setUserProfile(profile?.user || null);
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [params.id]);
-
-  // Clear cache when strategy is deleted/disconnected
-  useEffect(() => {
-    if (!params.id || !rsId) return;
-    
-    // If we have rsId but no running strategy found, strategy was likely deleted
-    if (rsId && !adminStatus && !mtStatus) {
-      console.log(`[StrategyCleanup] Strategy ${params.id} appears to be deleted, clearing cache`);
-      try {
-        const cacheKey = `copier_history_cache_${params.id}`;
-        window.localStorage.removeItem(cacheKey);
-        console.log(`[StrategyCleanup] Cleared cache for deleted strategy: ${cacheKey}`);
-      } catch (error) {
-        console.error('Error clearing cache for deleted strategy:', error);
-      }
-    }
-  }, [params.id, rsId, adminStatus, mtStatus]);
-
-  const requestStopCopying = async () => {
-    if (!rsId) {
-      alert("Running strategy session not found.");
-      return;
-    }
-    if (!confirm("Are you sure you want to stop copying? This will request admin approval.")) return;
-    setIsStopRequesting(true);
-    try {
-      const res = await fetch(`/api/running-strategies/${rsId}/modification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'disconnect' }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Stop-copy request failed');
-      alert("Stop request submitted. Admin will review and process.");
-      setAdminStatus('in-process');
-      setMtStatus('running');
-      // keep current copy behavior until admin approves
-    } catch (e: any) {
-      console.error('Stop-copying request failed:', e);
-      alert(`Failed to submit request: ${e.message || 'Unknown error'}`);
-    } finally {
-      setIsStopRequesting(false);
-    }
-  };
-
-  // Hydrate instantly from localStorage cache (best-effort) to reduce UI flash.
-  // For open positions we prefer real-time only; cache fallback is only for closed history.
-  useEffect(() => {
-    if (!params.id) return;
-    if (typeof window === "undefined") return;
-    try {
-      const key = `copier_history_cache_${params.id}`;
-      const raw = window.localStorage.getItem(key);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed?.history) && parsed.history.length > 0) {
-        setHistory(parsed.history);
-        setHistoryLoading(false);
-      }
-      // don't use cached open positions; we require realtime open data
-      setOpenPositions([]);
-    } catch {
-      // ignore
-    }
-  }, [params.id]);
-  useEffect(() => {
-    const loadHistory = async () => {
-      if (!params.id) return;
-      try {
-        const [hRes, runRes] = await Promise.all([
-          fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" }),
-          fetch(`/api/strategies/running`, { cache: "no-store" })
-        ]);
-        const data = await hRes.json();
-
-        // Real-time data must be used if available;
-        // if we are forced to cache, only use close-history fallback, not open positions.
-        if (!data.cached) {
-          setRealtimeFetchFailed(false);
-          setOpenPositions(data.open_positions || []);
-        } else {
-          setRealtimeFetchFailed(true);
-          setOpenPositions([]); // do not show stale open data when realtime unavailable
-        }
-
-        setHistory(data.history || []);
-        setHistoryInfo(data.info || null);
-        setHistoryUpdatedAt(data.last_updated || null);
-        // Persist latest known-good data for instant display on next visit.
-        if (typeof window !== "undefined") {
-          try {
-            const key = `copier_history_cache_${params.id}`;
-            window.localStorage.setItem(
-              key,
-              JSON.stringify({
-                history: data.history || [],
-                open_positions: data.open_positions || [],
-                saved_at: Date.now(),
-              })
-            );
-          } catch {
-            // ignore
-          }
-        }
-
-        setHistoryError(data.error || null);
-        setUsingCachedData(Boolean(data.cached));
-        const runData = await runRes.json().catch(() => null);
-        const me = Array.isArray(runData?.strategies) ? runData.strategies.find((x: any) => (x.id === params.id || x.rsId === params.id || x.strategyId === params.id)) : null;
-        
-        if (!me) {
-          console.warn("No matching running strategy found for current user session.");
-          return;
-        }
-
-        // If we found me, and strategy is still null, try to set it from the strategies we already loaded
-        if (!strategy && me.strategyId) {
-          fetch("/api/strategies", { cache: "no-store" })
-            .then(res => res.json())
-            .then(stratData => {
-              const s = (stratData.strategies || []).find((x: any) => x.id === me.strategyId);
-              if (s) setStrategy(s);
-            })
-            .catch(() => null);
-        }
-        
-        const aStatus = String(me?.adminStatus || '').toLowerCase();
-        const mStatus = String(me?.status || '').toLowerCase();
-        setAdminStatus(me?.adminStatus || null);
-        setMtStatus(me?.status || null);
-        setSelectedPlan((me?.plan as Plan | undefined) ?? null);
-        
-        // isRunningLike: either fully running OR in-process of disconnecting
-        const isRunningLike = aStatus === 'running' || aStatus === 'active' || 
-                             ((aStatus === 'in-process' || aStatus === 'in process') && (mStatus === 'running' || mStatus === 'active'));
-        
-        // Effective connection time for filtering: Always use the original creation time
-        // of the running strategy record (when the strategy was first approved/purchased).
-        const connectedAt = me?.createdAt || me?.created_at || null;
-        setConnectAt(connectedAt);
-        setUpdatedAt(me?.updatedAt || null);
-        setRsId(me?.rsId || null);
-        setRunningPeriods(me?.periods || []);
-        setModifications(me?.modifications || []);
-        setSnapshots(me?.snapshots || []);
-        setRunningCapital(Number(me?.capital || 0));
-        
-        // Fetch settlements
-        if (me?.rsId) {
-          try {
-            const sRes = await fetch(`/api/strategies/running/${me.rsId}/settlements`);
-            if (sRes.ok) {
-              const sData = await sRes.json();
-              setSettlements(sData.settlements || []);
-            }
-          } catch (err) {
-            console.error('Error fetching settlements:', err);
-          }
-        }
-      } catch (e: any) {
-        console.error("Failed to load history data:", e);
-
-        // Try to restore cached values when live endpoint is down
-        if (typeof window !== "undefined") {
-          try {
-            const key = `copier_history_cache_${params.id}`;
-            const raw = window.localStorage.getItem(key);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed?.history) || Array.isArray(parsed?.open_positions)) {
-                setHistory(Array.isArray(parsed.history) ? parsed.history : []);
-                setOpenPositions([]); // only close history fallback, no old open data
-                setHistoryError("Live data is unavailable, showing cached close history.");
-                setUsingCachedData(true);
-                setRealtimeFetchFailed(true);
-                setHistoryLoading(false);
-                return;
-              }
-            }
-          } catch (cacheErr) {
-            console.warn("Failed to read cached history data:", cacheErr);
-          }
-        }
-
-        setHistoryError(e?.message || "Failed to load history data. Please check connection.");
-      } finally {
-        setHistoryLoading(false);
-      }
-    };
-    
-    // Don't force loading overlay if we have cached data; let history and open positions render directly.
-    setHistoryLoading(false);
-    loadHistory();
-
-    const timer = setInterval(loadHistory, 5000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadHistory();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [params.id]);
-
-
-
-  const lotSize = useMemo(() => {
-    const lp = strategy?.parameters?.lotPricing;
-    const rows: Array<{ amountUSD: number; lot: number }> = (() => {
-      if (!lp) return [];
-      try {
-        const arr = JSON.parse(lp);
-        if (!Array.isArray(arr)) return [];
-        return arr
-          .map((x: any) => ({ amountUSD: Number(x.amountUSD), lot: Number(x.lot) }))
-          .filter((x) => Number.isFinite(x.amountUSD) && x.amountUSD > 0 && Number.isFinite(x.lot) && x.lot > 0);
-      } catch {
-        return [];
-      }
-    })();
-
-    const userId = sessionUserId;
-    const relevant = payments
-      .filter((p) => p.strategyId === params.id && (!userId || p.userId === userId))
-      .sort((a, b) => {
-        const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return tB - tA;
-      });
-    const p = relevant.find((x) => {
-      const st = String(x.status || '').toLowerCase();
-      return st === 'approved' || st === 'completed' || st === 'renewal_approved' || st === 'in-process';
-    });
-    const amt = p?.payable ? Number(p.payable) : NaN;
-    if (!Number.isFinite(amt) || rows.length === 0) return 1;
-    const exact = rows.find((r) => Math.abs(r.amountUSD - amt) < 1e-6);
-    if (exact) return exact.lot;
-    let best = rows[0];
-    let diff = Math.abs(rows[0].amountUSD - amt);
-    for (let i = 1; i < rows.length; i++) {
-      const d = Math.abs(rows[i].amountUSD - amt);
-      if (d < diff) {
-        diff = d;
-        best = rows[i];
-      }
-    }
-    return best.lot;
-  }, [strategy?.parameters, payments, params.id, sessionUserId]);
 
   const toMs = (v: string | number | null | undefined): number => {
     if (v == null || v === "") return NaN;
     if (typeof v === "string") {
-      // 1. Try native parsing (e.g. ISO)
       let t = Date.parse(v);
-      
-      // 2. Handle MT5 style with dots (e.g. 2026.02.25 14:30:00)
       if (!Number.isFinite(t)) {
         t = Date.parse(v.replace(/\./g, '-'));
       }
-      
-      // 3. Manual parse for "YYYY.MM.DD HH:MM:SS" if still failing
       if (!Number.isFinite(t)) {
         const m = v.match(/^(\d{4})[\.\-/](\d{2})[\.\-/](\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
         if (m) {
           const [_, yy, MM, dd, hh, mm, ss] = m;
-          const d = new Date(
-            Number(yy),
-            Number(MM) - 1,
-            Number(dd),
-            Number(hh),
-            Number(mm),
-            Number(ss)
-          );
+          const d = new Date(Number(yy), Number(MM) - 1, Number(dd), Number(hh), Number(mm), Number(ss));
           t = d.getTime();
         }
       }
@@ -432,521 +193,461 @@ export default function CopierHistoryPage() {
     }
     const num = Number(v);
     if (!Number.isFinite(num)) return NaN;
-    // MT5 timestamps are in seconds, JS in milliseconds. 
-    // Heuristic: If < 10^12, it's probably seconds.
     return num < 10000000000 ? num * 1000 : num;
   };
 
-  const filteredClosed = useMemo(() => {
-    return history
-      .filter(h => {
-        const openRaw = h.server_time_open ?? h.time_open ?? h.open_time ?? h.time;
-        const closeRaw = h.server_time_close ?? h.time_close ?? h.close_time ?? h.time;
-        const openMs = toMs(openRaw);
-        const closeMs = toMs(closeRaw);
-        if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return true;
+  const selectedLotSize = useMemo(() => {
+    const normalizeId = (v: any) => String(v ?? '').trim();
+    const currentStrategyId = normalizeId(params.id);
+    const currentRsId = normalizeId(rsId);
 
-        const effectiveMs = Number.isFinite(openMs) ? openMs : closeMs;
-
-        // If no running periods yet, fallback to connectedAt and require trade opened after connect time
-        if (runningPeriods.length === 0) {
-          const connectTs = connectAt ? toMs(connectAt) : NaN;
-          if (!Number.isFinite(connectTs)) return true;
-
-          if (Number.isFinite(openMs)) {
-            return openMs >= connectTs;
-          }
-          if (Number.isFinite(closeMs)) {
-            return closeMs >= connectTs;
-          }
-          return true;
-        }
-
-        // Check if trade open time is within ANY of the running periods
-        const inPeriod = runningPeriods.some(period => {
-          const start = toMs(period.start_time);
-          const end = period.end_time ? toMs(period.end_time) : Infinity;
-
-          if (Number.isFinite(openMs) && Number.isFinite(closeMs)) {
-            // Include trades that were active during the running period,
-            // even if the position opened before the period started and closed afterward.
-            return openMs <= end && closeMs >= start;
-          }
-
-          if (Number.isFinite(openMs)) {
-            return openMs >= start && openMs <= end;
-          }
-
-          if (Number.isFinite(closeMs)) {
-            return closeMs >= start && closeMs <= end;
-          }
-
-          return false;
-        });
-
-        return inPeriod;
-      })
-      .map((h) => {
-        const openRaw = h.server_time_open ?? h.time_open ?? h.open_time ?? h.time;
-        const closeRaw = h.server_time_close ?? h.time_close ?? h.close_time ?? h.time;
-        return {
-          isOpen: false as const,
-          openTimeStr: openRaw != null ? String(openRaw) : "",
-          closeTimeStr: closeRaw != null ? String(closeRaw) : "",
-          symbol: h.symbol,
-          type: h.type,
-          volume: h.volume,
-          openPrice: h.price_open,
-          closeOrCurrentPrice: h.price_close,
-          profit: Number(h.profit),
-          swap: Number(h.swap || 0),
-        };
-      });
-  }, [history, connectAt, runningPeriods]);
-
-  const filteredOpen = useMemo(() => {
-    // For open positions, we only show those that were opened while the user was 'running'.
-    return openPositions
-      .filter(p => {
-        const openMs = toMs(p.server_time || p.server_time_open || p.time_open || p.open_time || p.time);
-        if (!Number.isFinite(openMs)) return true;
-
-        // Fallback to connectedAt if no periods
-        if (runningPeriods.length === 0) {
-          const connectTs = connectAt ? toMs(connectAt) : NaN;
-          const startTs = Number.isFinite(connectTs) ? connectTs : 0;
-          return openMs >= startTs;
-        }
-
-        // Check if openMs falls within ANY of the running periods
-        const inPeriod = runningPeriods.some(period => {
-          const start = toMs(period.start_time);
-          const end = period.end_time ? toMs(period.end_time) : Infinity;
-          return openMs >= start && openMs <= end;
-        });
-
-        // Also include trades that were opened BEFORE the first period but closed AFTER it started
-        // (Legacy trades or trades that were already open when the user first connected)
-        if (!inPeriod && connectAt) {
-          const connectTs = connectAt ? toMs(connectAt) : NaN;
-          if (!Number.isFinite(connectTs)) return inPeriod;
-          return openMs >= connectTs;
-        }
-
-        return inPeriod;
-      })
-      .map((p) => {
-      const currentPrice = p.price_current ?? p.price ?? p.price_open ?? 0;
-      const swapValue = p.swap ?? p.swap_amount ?? p.swapAmount ?? 0;
-      return {
-        isOpen: true as const,
-        openTimeStr: p.server_time || p.server_time_open || (p.time_open ? String(p.time_open) : (p.open_time ? String(p.open_time) : (p.time ? String(p.time) : ""))),
-        closeTimeStr: "",
-        symbol: p.symbol,
-        type: p.type,
-        volume: p.volume,
-        openPrice: p.price_open,
-        closeOrCurrentPrice: currentPrice, // Real-time price
-        profit: Number(p.profit), // Real-time profit
-        swap: Number(swapValue || 0), // Real-time swap
-      };
-    });
-  }, [openPositions, connectAt, runningPeriods]);
-
-  const stats = useMemo(() => {
-    const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
-    const now = Date.now();
-    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-    const parsePercent = (val: any): number | null => {
-      if (val == null) return null;
-      if (typeof val === "number" && Number.isFinite(val)) return val;
-      if (typeof val === "string") {
-        // Support values like "30%" or "30.5".
-        const m = val.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
-        if (!m) return null;
-        const num = Number(m[0]);
-        return Number.isFinite(num) ? num : null;
-      }
-      return null;
-    };
-
-    // 1) Commission percent declared by admin:
-    //    - Prefer explicit strategy.parameters.commission (if admin stored it there).
-    //    - Otherwise use the commission percent for the user's selected plan level.
-    //    - Fallback to 30%.
-    const parametersCommission =
-      parsePercent(strategy?.parameters?.commission ?? strategy?.parameters?.Commission);
-
-    const planCommission =
-      selectedPlan && (strategy?.planDetails as any)?.[selectedPlan]?.percent != null
-        ? Number((strategy?.planDetails as any)[selectedPlan]?.percent)
-        : null;
-
-    // Commission percent is set by admin in strategy parameters (or plan details) and displayed on user side.
-    const commissionPercent =
-      parametersCommission != null
-        ? parametersCommission
-        : planCommission != null
-        ? planCommission
-        : 0;
-
-    // 2) Deposits = user payments or running strategy capital (avoid double-counting where they match).
-    const userId = sessionUserId;
-    const successfulStatuses = new Set([
-      'approved',
-      'completed',
-      'renewal_approved',
-      'in-process',
-      'paid',
-      'settled',
-    ]);
-
-    // We check both the running_strategy ID and the actual strategy ID.
-    const strategyIdForFilter = String(strategy?.id || params.id || '');
-    const runningStrategyIdForFilter = String(rsId || params.id || '');
-
-    const paymentDeposit = (payments as any[])
+    const candidatePaymentLot = payments
       .filter((p) => {
-        const txType = String(p.transaction_type || p.type || p.transactionType || 'deposit').toLowerCase();
-        if (!['deposit', 'charge', 'transfer', 'payment', 'topup', 'settled'].includes(txType)) return false;
-
-        const paymentStrategyId = String(
-          p.strategyId || p.strategy_id || p.runningStrategyId || p.running_strategy_id || p.strategy_id || p.runningStrategyId || ''
-        ).trim();
-
-        const isStrategyMatch =
-          paymentStrategyId === strategyIdForFilter ||
-          paymentStrategyId === runningStrategyIdForFilter ||
-          paymentStrategyId === String(params.id) ||
-          paymentStrategyId === String(strategy?.id) ||
-          paymentStrategyId === String(rsId);
-
-        if (!isStrategyMatch) return false;
-
-        if (userId && String(p.userId || p.user_id) !== String(userId)) return false;
-
-        const status = String(p.status || '').toLowerCase();
-        if (!successfulStatuses.has(status) && !status.includes('settled')) return false;
-
-        return true;
+        const pStrategyId = normalizeId((p as any).strategyId ?? (p as any).strategy_id);
+        const pRsId = normalizeId((p as any).runningStrategyId ?? (p as any).running_strategy_id);
+        return (
+          (pStrategyId && pStrategyId === currentStrategyId) ||
+          (currentRsId && pRsId && pRsId === currentRsId)
+        );
       })
-      .reduce((sum, p) => sum + (Number(p.capital || p.payable || p.amount || p.payable_amount || 0)), 0);
+      .map((p) => Number(p.lotSize ?? 0))
+      .filter((lot) => Number.isFinite(lot) && lot > 0)
+      .sort((a, b) => b - a)[0];
 
-    // Prefer the non-zero value to prevent double-counting a single funding source.
-    const deposit = Math.max(0, Number(runningCapital || 0), paymentDeposit);
-
-    // 3) Calculate totals for all closed trades from MT5 (close history tab)
-    let currentCloseProfit = 0;
-    let currentCloseSwap = 0;
-
-    filteredClosed.forEach((row: any) => {
-      currentCloseProfit += (Number(row.profit) || 0) * mult;
-      currentCloseSwap += (Number(row.swap) || 0) * mult;
-    });
-
-    // 4) Calculate settlement totals (if any) for closed profit, swap, commission and withdrawal.
-    const settlementTotals = settlements.reduce(
-      (acc: { profit: number; swap: number; commission: number; withdrawal: number }, row: any) => {
-        const grossProfit = Number(row.gross_profit ?? row.profit ?? 0);
-        const swapAmount = Number(row.swap_amount ?? row.swap ?? 0);
-        const commissionAmount = Number(row.commission_amount ?? row.commission ?? 0);
-        const withdrawalAmount = Number(row.withdrawal_amount ?? row.withdrawal ?? 0);
-        return {
-          profit: acc.profit + (Number.isFinite(grossProfit) ? grossProfit : 0),
-          swap: acc.swap + (Number.isFinite(swapAmount) ? swapAmount : 0),
-          commission: acc.commission + (Number.isFinite(commissionAmount) ? commissionAmount : 0),
-          withdrawal: acc.withdrawal + (Number.isFinite(withdrawalAmount) ? withdrawalAmount : 0),
-        };
-      },
-      { profit: 0, swap: 0, commission: 0, withdrawal: 0 }
-    );
-
-    const hasSettlement =
-      settlementTotals.profit !== 0 ||
-      settlementTotals.swap !== 0 ||
-      settlementTotals.commission !== 0 ||
-      settlementTotals.withdrawal !== 0;
-
-    // 5) Calculate current totals from open positions
-    let currentOpenProfit = 0;
-    let currentOpenSwap = 0;
-
-    filteredOpen.forEach((row: any) => {
-      currentOpenProfit += (Number(row.profit) || 0) * mult;
-      currentOpenSwap += (Number(row.swap) || 0) * mult;
-    });
-
-    // 6) Current floating values
-    const currentOpenProfitWithSwap = currentOpenProfit + currentOpenSwap;
-    const currentFloatPL = currentOpenProfitWithSwap;
-
-    // Standard forex equity (approx): unrealized P/L plus swap (or minus if negative)
-    // In this context, we can report it as (Total FP/L - Total swap) if needed.
-    const currentOpenEquity = currentOpenProfit - currentOpenSwap;
-
-    // 7) Monthly settlement eligibility:
-    //    - At least 30 days since connection
-    //    - No open trades at the moment
-    //    - Profit MUST be positive for settlement to happen
-    let eligibleForSettlement = false;
-    const connectedMs = connectAt ? toMs(connectAt) : NaN;
-    if (Number.isFinite(connectedMs)) {
-      eligibleForSettlement =
-        now - connectedMs >= THIRTY_DAYS_MS && 
-        filteredOpen.length === 0 &&
-        currentCloseProfit > 0;
+    // 1. Derive from running capital and strategy lotPricing (hard fallback when lot columns are missing)
+    let derivedLot = 0;
+    try {
+      const rawPricing = strategy?.parameters?.lotPricing;
+      if (rawPricing && Number(runningCapital) > 0) {
+        const parsed = typeof rawPricing === 'string' ? JSON.parse(rawPricing) : rawPricing;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const rows = parsed
+            .map((x: any) => ({ lot: Number(x?.lot), amountUSD: Number(x?.amountUSD) }))
+            .filter((x: any) => Number.isFinite(x.lot) && x.lot > 0 && Number.isFinite(x.amountUSD) && x.amountUSD > 0);
+          if (rows.length > 0) {
+            const one = rows.find((x: any) => x.lot === 1);
+            const unitPrice = one ? one.amountUSD : (rows[0].amountUSD / rows[0].lot);
+            if (Number.isFinite(unitPrice) && unitPrice > 0) {
+              const derived = Number(runningCapital) / unitPrice;
+              if (Number.isFinite(derived) && derived > 0) {
+                const rounded = Math.round(derived);
+                derivedLot = Math.abs(derived - rounded) < 0.12 && rounded > 0 ? rounded : Number(derived.toFixed(2));
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore and continue fallback chain
     }
 
-    // 7) Commission & withdrawal rules for the CURRENT cycle:
-    // - Before any settlement, balance = Deposit + Profit + Swap.
-    // - Withdrawal card shows only SETTLED withdrawals (as requested).
-    // - Profit card shows total profit (Settled + Unsettled).
-    
-    // 7) Commission & withdrawal rules for the CURRENT cycle:
-    // - Before any settlement, balance = Deposit + Profit + Swap.
-    // - Withdrawal card shows only SETTLED withdrawals (as requested).
-    // - Profit card shows total profit (Settled + Unsettled).
-    
-    const displayProfit = Number(settlementTotals.profit || 0) + Number(currentCloseProfit || 0);
-    const displaySwap = Number(settlementTotals.swap || 0) + Number(currentCloseSwap || 0);
-    const displayCommission = Number(settlementTotals.commission || 0);
-    // Withdrawal can never be negative, and it should only show positive withdrawals as payouts.
-    const displayWithdrawal = Math.max(0, Number(settlementTotals.withdrawal || 0)); 
-    const displayClosedProfitWithSwap = displayProfit + displaySwap;
+    // 2. Hardcoded per-user override for legacy inconsistent rows
+    const forcedLot = sessionUserId ? Number(LOT_SIZE_USER_OVERRIDES[sessionUserId] || 0) : 0;
+    const rowLot = Number(runningLotSize || 0);
+    const txLot = Number(candidatePaymentLot || 0);
+    const drvLot = Number(derivedLot || 0);
 
-    // Balance formula: Deposit + Profit + Swap - Commission
-    // If profit is negative, commission is 0. If profit is positive, commission is deducted.
-    const currentBalance = Number(deposit || 0) + displayProfit + displaySwap - displayCommission;
-    const currentEquity = currentBalance + currentFloatPL;
+    // Treat row lot 1 as weak default; prefer stronger (>1) evidence.
+    if (forcedLot > 1) return forcedLot;
+    if (txLot > 1) return txLot;
+    if (drvLot > 1) return drvLot;
+    if (rowLot > 1) return rowLot;
 
-    // 10) Generate Balance Operations
-    const balanceOperations = (() => {
-      const ops: Array<{ type: 'DEPOSIT' | 'WITHDRAWAL' | 'COMMISSION' | 'SWAP'; amount: number; time?: string; comment: string }> = [];
-      
-      // 1. Deposits (from payments linked to THIS running_strategy only)
-      (payments as any[])
-        .filter(p => {
-          // CRITICAL: STRICT filtering - Only include payments explicitly linked to CURRENT running_strategy_id
-          // This prevents old payments from before a stop+repurchase from appearing
-          const paymentRunningStrategyId = String(p.runningStrategyId || p.running_strategy_id || '').trim();
-          const thisRunningStrategyId = String(rsId || '').trim();
-          
-          // MUST match the current running_strategy_id - no fallback for legacy data
-          // This ensures old transactions from stop+repurchase cycles don't leak through
-          const matchesRunningStrategy = (
-            paymentRunningStrategyId && 
-            thisRunningStrategyId && 
-            paymentRunningStrategyId === thisRunningStrategyId
-          );
-          
-          return (
-            matchesRunningStrategy &&
-            (successfulStatuses.has(String(p.status || '').toLowerCase()) || String(p.status || '').toLowerCase().includes('settled'))
-          );
-        })
-        .forEach(p => {
-          ops.push({
-            type: 'DEPOSIT',
-            amount: Number(p.capital || p.payable || p.amount || p.payable_amount || 0),
-            time: p.createdAt || p.created_at,
-            comment: 'Initial Investment'
-          });
-        });
+    if (forcedLot > 0) return forcedLot;
+    if (txLot > 0) return txLot;
+    if (drvLot > 0) return drvLot;
+    if (rowLot > 0) return rowLot;
 
-      // Append settlement operations if settlements exist.
-      if (hasSettlement) {
-        settlements.forEach(s => {
-          const wAmt = Number(s.withdrawal_amount ?? s.withdrawalAmount ?? 0);
-          const cAmt = Number(s.commission_amount ?? s.commissionAmount ?? 0);
-          const sAmt = Number(s.swap_amount ?? s.swapAmount ?? 0);
-          const time = s.createdAt || s.updated_at || s.created_at || s.settlement_end || s.settlementEnd || new Date().toISOString();
-          
-          if (cAmt !== 0) {
-            ops.push({
-              type: 'COMMISSION',
-              amount: cAmt,
-              time,
-              comment: 'Settled commission amount'
-            });
-          }
+    // 3. Fallback: Strategy default lot size
+    const strategyLot = Number(strategy?.parameters?.lotSize ?? strategy?.parameters?.lot_size ?? strategy?.parameters?.lot_mode?.match(/\d+/)?.[0] ?? 1);
+    return Number.isFinite(strategyLot) && strategyLot > 0 ? strategyLot : 1;
+  }, [strategy, payments, params.id, rsId, runningLotSize, sessionUserId, runningCapital]);
 
-          if (wAmt !== 0) {
-            ops.push({
-              type: 'WITHDRAWAL',
-              amount: Math.max(0, wAmt), // Ensure withdrawal in list is also positive
-              time,
-              comment: 'Settled withdrawal amount'
-            });
-          }
+  const loadHistory = useCallback(async () => {
+    if (!params.id) return;
+    try {
+      const [hRes, runRes] = await Promise.all([
+        fetch(`/api/strategies/${params.id}/master-history?t=${Date.now()}`, { cache: "no-store" }),
+        fetch(`/api/strategies/running`, { cache: "no-store" })
+      ]);
 
-          if (sAmt !== 0) {
-            ops.push({
-              type: 'SWAP',
-              amount: sAmt,
-              time,
-              comment: 'Settled swap adjustment'
-            });
-          }
-        });
+      if (!hRes.ok) {
+        setHistoryError(`Failed to load history: ${hRes.statusText}`);
+        setHistoryLoading(false);
+        return;
       }
 
-      // Ensure deposit is always shown if there is an investment amount
-      const hasDepositOp = ops.some((o) => o.type === 'DEPOSIT');
-      if (!hasDepositOp && Number(deposit) > 0) {
-        ops.push({
-          type: 'DEPOSIT',
-          amount: Number(deposit),
-          time: settlements[0]?.createdAt || new Date().toISOString(),
-          comment: 'Initial deposit (fallback)'
-        });
+      const data = await hRes.json();
+      if (!data.cached) {
+        setRealtimeFetchFailed(false);
+        setOpenPositions(data.open_positions || []);
+      } else {
+        setRealtimeFetchFailed(true);
+        setOpenPositions([]);
       }
+      setHistory(data.history || []);
+      setHistoryInfo(data.info || null);
+      setHistoryUpdatedAt(data.last_updated || null);
+      if (typeof window !== "undefined") {
+        try {
+          const key = `copier_history_cache_${params.id}`;
+          window.localStorage.setItem(key, JSON.stringify({
+            history: data.history || [],
+            open_positions: data.open_positions || [],
+            saved_at: Date.now(),
+          }));
+        } catch { }
+      }
+      setHistoryError(data.error || null);
+      setUsingCachedData(Boolean(data.cached));
+      const runData = await runRes.json().catch(() => null);
+      const strategiesList = Array.isArray(runData?.strategies) ? runData.strategies : (Array.isArray(runData) ? runData : []);
+      const me = strategiesList.find((x: any) => (x.id === params.id || x.rsId === params.id || x.strategyId === params.id));
 
-      return ops.sort((a, b) => toMs(b.time) - toMs(a.time));
-    })();
+      if (me) {
+        setAdminStatus(me.adminStatus || me.admin_status || null);
+        setMtStatus(me.status || null);
+        setSelectedPlan((me.plan as Plan | undefined) ?? null);
+        const connectedAt = me.createdAt || me.created_at || null;
+        setConnectAt(connectedAt);
+        setUpdatedAt(me.updatedAt || me.updated_at || null);
+        setRsId(me.rsId || me.id || null);
+        setRunningLotSize(Number(me.lotSize || me.lot_size || 0));
+        setRunningPeriods(me.periods || []);
+        setModifications(me.modifications || []);
+        setSnapshots(me.snapshots || []);
+        setRunningCapital(Number(me.capital || 0));
+
+        if (me.rsId || me.id) {
+          try {
+            const sRes = await fetch(`/api/strategies/running/${me.rsId || me.id}/settlements`);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              const settlementsData = Array.isArray(sData.settlements) ? sData.settlements : [];
+              settlementsData.sort((a: any, b: any) => {
+                const aEnd = toMs(a.settlementEnd || a.settlement_end || a.settlementEnd || 0);
+                const bEnd = toMs(b.settlementEnd || b.settlement_end || b.settlementEnd || 0);
+                if (aEnd !== bEnd) return bEnd - aEnd;
+                const aCreated = toMs(a.createdAt || a.created_at || a.settlement_created_at || 0);
+                const bCreated = toMs(b.createdAt || b.created_at || b.settlement_created_at || 0);
+                return bCreated - aCreated;
+              });
+              setSettlements(settlementsData);
+            }
+          } catch (err) {
+            console.error('Error fetching settlements:', err);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error("Failed to load history data:", e);
+      setHistoryError(e?.message || "Failed to load history data.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
+    const load = async () => {
+      const [stratRes, paymentsRes, profileRes] = await Promise.all([
+        fetch("/api/strategies", { cache: "no-store" }),
+        fetch("/api/payments", { cache: "no-store" }),
+        fetch("/api/profile", { cache: "no-store" }).catch(() => null),
+      ]);
+      const stratData = await stratRes.json();
+      const s = (stratData.strategies || []).find((x: any) => x.id === params.id);
+      setStrategy(s || null);
+      const payJson = await paymentsRes.json();
+      setPayments(payJson.payments || []);
+
+      if (profileRes && profileRes.ok) {
+        const profileData = await profileRes.json().catch(() => null);
+        if (profileData?.user) {
+          setSessionUserId(profileData.user.id || null);
+          setUserProfile(profileData.user);
+        }
+      } else if (session?.user) {
+        setSessionUserId((session.user as any).id || null);
+        setUserProfile(session.user);
+      }
+      await loadHistory();
+    };
+    load();
+  }, [params.id, loadHistory]);
+
+  // Polling for real-time data
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadHistory();
+    }, 5000); // Update every 5 seconds
+    return () => clearInterval(interval);
+  }, [loadHistory]);
+
+  const requestStopCopying = async () => {
+    if (!rsId) return alert("Running strategy session not found.");
+    if (!confirm("Are you sure you want to stop copying?")) return;
+    setIsStopRequesting(true);
+    try {
+      const res = await fetch(`/api/running-strategies/${rsId}/modification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' }),
+      });
+      if (!res.ok) throw new Error('Stop-copy request failed');
+      alert("Stop request submitted. Admin will review and process.");
+      setAdminStatus('in-process');
+    } catch (e: any) {
+      alert(`Failed: ${e.message}`);
+    } finally {
+      setIsStopRequesting(false);
+    }
+  };
+
+  const filteredClosed = useMemo(() => {
+    // If status is not running/copying, and we're just starting, don't show old trades
+    // But user wants close trades to be displayed if status is running/copying.
+    const isRunning = strategyStatus.isActive;
+
+    // Custom filter for specific user "user_1772105441338" and start date April 2nd 2026
+    const filterBySpecificUserDate = (effectiveMs: number) => {
+      if (sessionUserId === 'user_1772105441338') {
+        const platformStartDate = new Date('2026-04-02T00:00:00Z').getTime();
+        return effectiveMs >= platformStartDate;
+      }
+      return true;
+    };
+
+    return history.filter(h => {
+      const openMs = toMs((h.server_time_open ?? h.time_open) ?? (h.open_time ?? h.time));
+      const closeMs = toMs((h.server_time_close ?? h.time_close) ?? (h.close_time ?? h.time));
+      if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return true;
+      const effectiveMs = Number.isFinite(openMs) ? openMs : closeMs;
+
+      // Apply the user-specific platform creation date filter
+      if (!filterBySpecificUserDate(effectiveMs)) return false;
+
+      if (runningPeriods.length === 0) {
+        const connectTs = connectAt ? toMs(connectAt) : NaN;
+        return !Number.isFinite(connectTs) || effectiveMs >= connectTs;
+      }
+      return runningPeriods.some(p => {
+        const start = toMs(p.start_time);
+        const end = p.end_time ? toMs(p.end_time) : Infinity;
+        return effectiveMs >= start && effectiveMs <= end;
+      });
+    }).map(h => {
+      const normalizedType = toTradeSide(h);
+      const normalizedSymbol = toDisplaySymbol(h.symbol ?? (h as any).Symbol ?? (h as any).instrument ?? (h as any).Instrument);
+
+      return {
+      isOpen: false,
+      openTimeStr: String(((h.server_time_open ?? h.time_open) ?? (h.open_time ?? h.time)) || ""),
+      closeTimeStr: String(((h.server_time_close ?? h.time_close) ?? (h.close_time ?? h.time)) || ""),
+      symbol: normalizedSymbol,
+      type: normalizedType,
+      volume: Number(h.volume || 0) * selectedLotSize,
+      openPrice: h.price_open,
+      closeOrCurrentPrice: h.price_close,
+      profit: Number(h.profit) * selectedLotSize,
+      swap: Number(h.swap || 0) * selectedLotSize,
+      };
+    });
+  }, [history, connectAt, runningPeriods, sessionUserId, strategyStatus.isActive, selectedLotSize]);
+
+  const filteredOpen = useMemo(() => {
+    // If status is not running/copying, don't show open trades
+    if (!strategyStatus.isActive) return [];
+
+    const filterBySpecificUserDate = (openMs: number) => {
+      if (sessionUserId === 'user_1772105441338') {
+        const platformStartDate = new Date('2026-04-02T00:00:00Z').getTime();
+        return openMs >= platformStartDate;
+      }
+      return true;
+    };
+
+    const lotMultiplier = selectedLotSize;
+
+    return openPositions.filter(p => {
+      const openMs = toMs((p.server_time || p.server_time_open) || (p.time_open || (p.open_time || p.time)));
+      if (!Number.isFinite(openMs)) return true;
+
+      // Apply user-specific filter
+      if (!filterBySpecificUserDate(openMs)) return false;
+
+      if (runningPeriods.length === 0) {
+        const connectTs = connectAt ? toMs(connectAt) : NaN;
+        return !Number.isFinite(connectTs) || openMs >= connectTs;
+      }
+      return runningPeriods.some(pr => {
+        const start = toMs(pr.start_time);
+        const end = pr.end_time ? toMs(pr.end_time) : Infinity;
+        return openMs >= start && openMs <= end;
+      });
+    }).map(p => {
+      const mt5Lot = Number(p.volume || 0);
+      const calculatedLot = mt5Lot * lotMultiplier;
+
+      const tradeType = toTradeSide(p);
+
+      const rawSymbol =
+        (p as any).symbol ??
+        (p as any).Symbol ??
+        (p as any).instrument ??
+        (p as any).Instrument ??
+        'UNKNOWN';
+      const normalizedSymbol = toDisplaySymbol(rawSymbol);
+
+      return {
+        isOpen: true,
+        openTimeStr: String((p.server_time || p.server_time_open) || (p.time_open || (p.open_time || p.time)) || ""),
+        closeTimeStr: "",
+        symbol: normalizedSymbol,
+        type: tradeType,
+        volume: calculatedLot,
+        openPrice: p.price_open,
+        closeOrCurrentPrice: p.price_current ?? p.price ?? p.price_open ?? 0,
+        profit: Number(p.profit) * lotMultiplier,
+        swap: Number(p.swap ?? p.swap_amount ?? p.swapAmount ?? 0) * lotMultiplier,
+      };
+    });
+  }, [openPositions, connectAt, runningPeriods, sessionUserId, strategyStatus.isActive, selectedLotSize]);
+
+  const stats = useMemo(() => {
+    // Real-time deposit: use the running strategy's current capital as the base
+    const deposit = Number(runningCapital || 0);
+
+    // Real-time summary stats
+    const realizedProfitOnly = filteredClosed.reduce((sum, r) => sum + r.profit, 0);
+    const realizedSwapOnly = filteredClosed.reduce((sum, r) => sum + r.swap, 0);
+
+    const settlementTotals = settlements.reduce((acc, row) => ({
+      profit: acc.profit + Number(row.gross_profit || row.profit || 0),
+      swap: acc.swap + Number(row.swap_amount || row.swap || 0),
+      commission: acc.commission + Number(row.commission_amount || row.commission || 0),
+      withdrawal: acc.withdrawal + Math.max(0, Number(row.withdrawal_amount || row.withdrawal || 0)),
+    }), { profit: 0, swap: 0, commission: 0, withdrawal: 0 });
+
+    const latestSettlement = [...settlements].sort((a, b) => {
+      const aEnd = toMs(a.settlementEnd || a.settlement_end || a.settlementEnd || 0);
+      const bEnd = toMs(b.settlementEnd || b.settlement_end || b.settlementEnd || 0);
+      if (aEnd !== bEnd) return bEnd - aEnd;
+      const aCreated = toMs(a.createdAt || a.created_at || a.settlement_created_at || 0);
+      const bCreated = toMs(b.createdAt || b.created_at || b.settlement_created_at || 0);
+      return bCreated - aCreated;
+    })[0];
+    const lastSettledCommission = Number(latestSettlement?.commission_amount || latestSettlement?.commission || 0);
+
+    const totalRealizedProfit = realizedProfitOnly + settlementTotals.profit;
+    const totalRealizedSwap = realizedSwapOnly + settlementTotals.swap;
+    
+    // Commission is only updated when admin runs settlement; between settlements it remains fixed
+    const displayCommission = lastSettledCommission;
+    
+    // FP/L: Sum of all open trade profits
+    const currentFloatProfitOnly = filteredOpen.reduce((sum, r) => sum + r.profit, 0);
+    // Open Swap: Sum of all swaps of the open trades
+    const currentOpenSwap = filteredOpen.reduce((sum, r) => sum + r.swap, 0);
+    
+    const currentFloatPL = currentFloatProfitOnly + currentOpenSwap;
+    
+    // Balance: Deposit + Total Realized Profit + Total Realized Swap - Commission (10%) - Settled Withdrawals
+    // This ensures the balance correctly reflects the net state after potential commission.
+    const realizedBalance = deposit + totalRealizedProfit + totalRealizedSwap - displayCommission - settlementTotals.withdrawal;
+    
+    // Total Real-time Swap: Realized Swap + Current Open Swap
+    const totalRealtimeSwap = totalRealizedSwap + currentOpenSwap;
+    
+    // Equity = Balance + FP/L
+    const currentEquity = realizedBalance + currentFloatPL;
+
+    // Build real-time balance operations list
+    const depositOps: BalanceOp[] = [{
+      type: 'DEPOSIT',
+      amount: deposit,
+      time: String(connectAt || ""),
+      comment: 'Initial Investment'
+    }];
+
+    // Add any subsequent deposits from payments
+    const additionalDeposits: BalanceOp[] = payments.filter(p => {
+      const type = String(p.transaction_type || p.transactionType || '').toLowerCase();
+      const status = String(p.status || '').toLowerCase();
+      const isLater = connectAt ? toMs(p.createdAt || p.created_at) > toMs(connectAt) : false;
+      return type === 'deposit' && (status === 'completed' || status === 'approved') && isLater;
+    }).map(p => ({
+      type: 'DEPOSIT',
+      amount: Number(p.capital || p.amount || 0),
+      time: String(p.createdAt || p.created_at || ""),
+      comment: p.admin_message || 'Top-up Investment'
+    }));
+
+    // Commission/Withdrawal ops are ONLY from settlements
+    const settlementCommissionOps: BalanceOp[] = settlements.filter(s => Number(s.commission_amount || 0) > 0).map(s => ({
+      type: 'COMMISSION',
+      amount: Number(s.commission_amount || 0),
+      time: String(s.created_at || s.settlement_end || ""),
+      comment: `Settled Commission`
+    }));
+
+    const withdrawalOps: BalanceOp[] = settlements.filter(s => Number(s.withdrawal_amount || 0) > 0).map(s => ({
+      type: 'WITHDRAWAL',
+      amount: Number(s.withdrawal_amount || 0),
+      time: String(s.created_at || s.settlement_end || ""),
+      comment: 'Settled Withdrawal'
+    }));
+
+    const balanceOperations = [...depositOps, ...additionalDeposits, ...settlementCommissionOps, ...withdrawalOps]
+      .sort((a, b) => toMs(b.time) - toMs(a.time));
 
     return {
-      deposit: Number(deposit).toFixed(2),
-      withdrawal: displayWithdrawal.toFixed(2),
-      profitLastMonth: displayProfit.toFixed(2),
-      closedProfitWithSwap: displayClosedProfitWithSwap.toFixed(2),
-      openProfitWithSwap: currentOpenProfitWithSwap.toFixed(2),
-      swap: displaySwap.toFixed(2),
-      openSwap: currentOpenSwap.toFixed(2),
+      deposit: deposit.toFixed(2),
+      withdrawal: settlementTotals.withdrawal.toFixed(2),
+      profit: totalRealizedProfit.toFixed(2), 
+      swap: totalRealtimeSwap.toFixed(2), // Real-time Swap = sum of all swaps (realized + open)
       commission: displayCommission.toFixed(2),
-      balance: currentBalance.toFixed(2),
+      balance: realizedBalance.toFixed(2), 
       equity: currentEquity.toFixed(2),
-      settlementEligible: eligibleForSettlement,
       floatPL: currentFloatPL.toFixed(2),
-      openProfit: currentOpenProfit.toFixed(2),
-      openEquity: currentOpenEquity.toFixed(2),
       balanceOperations,
-      commissionPercent,
-      swapBooked: currentOpenSwap
     };
-  }, [
-    filteredClosed,
-    filteredOpen,
-    lotSize,
-    payments,
-    params.id,
-    sessionUserId,
-    strategy,
-    connectAt,
-    selectedPlan,
-    settlements,
-    rsId,
-    runningCapital
-  ]);
+  }, [filteredClosed, filteredOpen, payments, strategy, settlements, runningCapital, connectAt]);
 
   const displayRows = useMemo(() => {
-    const closedRows = [...filteredClosed];
-    
     if (filter === "opened") return filteredOpen;
-    if (filter === "closed") return closedRows.sort((a, b) => {
-      const ta = toMs(a.closeTimeStr) || 0;
-      const tb = toMs(b.closeTimeStr) || 0;
-      return sortOrder === "desc" ? tb - ta : ta - tb;
-    });
-    // For 'balance' tab, return balance operations
-    if (filter === "balance") return stats.balanceOperations;
-    
-    return [];
-  }, [filter, filteredOpen, filteredClosed, sortOrder, stats.balanceOperations]);
+    if (filter === "closed") return filteredClosed.sort((a, b) => (toMs(b.closeTimeStr) || 0) - (toMs(a.closeTimeStr) || 0));
+    return stats.balanceOperations;
+  }, [filter, filteredOpen, filteredClosed, stats.balanceOperations]);
 
-  const ENTRIES_PER_PAGE = 20;
+  const ENTRIES_PER_PAGE = 10;
   const totalPages = Math.max(1, Math.ceil(displayRows.length / ENTRIES_PER_PAGE));
   const currentPage = Math.min(historyPage, totalPages);
   const paginatedRows = useMemo(() => {
     const start = (currentPage - 1) * ENTRIES_PER_PAGE;
     return displayRows.slice(start, start + ENTRIES_PER_PAGE);
-  }, [displayRows, currentPage]);
-
-  // Reset to page 1 when filter changes
-  useEffect(() => {
-    setHistoryPage(1);
-  }, [filter]);
-
-  // Clamp page when total pages shrinks (e.g. data refresh)
-  useEffect(() => {
-    if (historyPage > totalPages && totalPages >= 1) setHistoryPage(totalPages);
-  }, [historyPage, totalPages]);
-
-  const getSymbolIcon = (symbol: string) => {
-    const s = symbol.toUpperCase();
-    if (s.includes('XAU') || s.includes('GOLD')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/gold.png';
-    if (s.includes('BTC')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/btc.png';
-    if (s.includes('ETH')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/eth.png';
-    if (s.includes('USD')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/usd.png';
-    if (s.includes('EUR')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/eur.png';
-    if (s.includes('GBP')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/gbp.png';
-    if (s.includes('JPY')) return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/jpy.png';
-    return 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/usd.png';
-  };
-
-  const getFlagIcon = (symbol: string) => {
-    const s = symbol.toUpperCase();
-    if (s.includes('USD')) return 'https://flagcdn.com/w20/us.png';
-    if (s.includes('EUR')) return 'https://flagcdn.com/w20/eu.png';
-    if (s.includes('GBP')) return 'https://flagcdn.com/w20/gb.png';
-    if (s.includes('JPY')) return 'https://flagcdn.com/w20/jp.png';
-    if (s.includes('AUD')) return 'https://flagcdn.com/w20/au.png';
-    if (s.includes('CAD')) return 'https://flagcdn.com/w20/ca.png';
-    return null;
-  };
-
-  const formatDateShort = (dateStr: string | number | undefined) => {
-    if (!dateStr) return "-";
-    const ms = toMs(dateStr);
-    if (!Number.isFinite(ms)) return String(dateStr);
-    const d = new Date(ms);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${pad(d.getDate())} ${months[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  };
-
-  // Get country info for flag
-  const countryInfo = useMemo(() => {
-    if (!userProfile?.country) return { code: 'us', name: 'USA' };
-    
-    // Use the same COUNTRY_OPTIONS as UserLayout/Signup
-    // Assuming COUNTRY_OPTIONS is available or we can find it
-    // For now, if userProfile has it, use it, else default to US.
-    return {
-      code: userProfile?.country_code || 'us',
-      name: userProfile?.country || 'USA'
-    };
-  }, [userProfile]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
-        <div className="h-12 w-12 animate-spin rounded-full border-t-2 border-b-2 border-primary" />
-      </div>
-    );
-  }
+  }, [displayRows, currentPage, ENTRIES_PER_PAGE]);
 
   return (
     <UserLayout>
-      <div className="min-h-screen bg-[#f1f3f6] text-gray-900 px-6 py-8">
-        <div className="max-w-7xl mx-auto space-y-6">
-          
-          {/* Master Strategy Info Container */}
+      <div className="min-h-screen bg-[#f1f3f6] text-gray-900 px-4 py-8 sm:px-6 font-sans">
+        <div className="max-w-7xl mx-auto space-y-4">
+
+          {/* Layer 1: Strategy Header Row */}
           <div className="bg-white rounded-[2rem] p-6 shadow-sm flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="relative">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden border border-gray-100">
-                  <img 
-                    src={strategy?.parameters?.image || "/user-avatar.png"} 
-                    alt={strategy?.name || "Master"} 
-                    className="w-full h-full object-cover" 
+                  <img
+                    src={strategy?.parameters?.image || "/user-avatar.png"}
+                    alt={strategy?.name || "Master"}
+                    className="w-full h-full object-cover"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = "https://www.w3schools.com/howto/img_avatar.png";
-                    }} 
+                    }}
                   />
                 </div>
                 <div className="absolute -bottom-1 -left-1 bg-[#00d09c] text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase">
-                  Equal x{lotSize}
+                  Equal x{selectedLotSize}
                 </div>
               </div>
               <div>
@@ -976,7 +677,7 @@ export default function CopierHistoryPage() {
                 <FiXCircle className="w-4 h-4" />
                 {isStopRequesting ? 'Submitting…' : strategyStatus.label === 'In-Process' ? 'In-Process' : 'Stop Copying'}
               </button>
-              <button 
+              <button
                 onClick={() => router.push(`/strategies/${params.id}/info`)}
                 className="flex items-center gap-2 text-gray-900 text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity"
               >
@@ -1002,13 +703,13 @@ export default function CopierHistoryPage() {
                   {userProfile?.name || "User Name"}
                 </h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <img 
-                    src={`https://flagcdn.com/w20/${countryInfo.code.toLowerCase()}.png`} 
-                    alt="" 
+                  <img
+                    src={`https://flagcdn.com/w20/${userProfile?.country?.toLowerCase?.()}.png`}
+                    alt=""
                     className="w-4 h-3 object-contain"
                   />
                   <span className="text-sm text-gray-400 font-medium">
-                    {countryInfo.name}
+                    {userProfile?.country || "Unknown"}
                   </span>
                 </div>
               </div>
@@ -1017,18 +718,17 @@ export default function CopierHistoryPage() {
             <div className="flex flex-wrap items-center gap-12 md:gap-16 lg:gap-24">
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Status</p>
-                <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  strategyStatus.isActive
+                <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${strategyStatus.isActive
                     ? "bg-[#00d09c] text-white"
                     : "bg-red-500 text-white"
-                }`}>
+                  }`}>
                   {strategyStatus.label}
                 </span>
               </div>
 
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Lot-size mode</p>
-                <p className="text-lg font-black text-gray-900">Equal X {lotSize}</p>
+                <p className="text-lg font-black text-gray-900">Equal X {selectedLotSize}</p>
               </div>
 
               <div className="text-center">
@@ -1039,290 +739,329 @@ export default function CopierHistoryPage() {
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Commission</p>
                 <p className="text-lg font-black text-gray-900">
-                  {stats.commissionPercent.toFixed(2)}%
+                  {Number(strategy?.parameters?.commission ?? strategy?.parameters?.commissionPercent ?? 0).toFixed(2)}%
                 </p>
               </div>
             </div>
           </div>
 
-          {/* History Container */}
-          <div className="bg-white rounded-[2rem] p-8 shadow-sm">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">History</h2>
-            {(historyError || historyInfo || usingCachedData || realtimeFetchFailed) && (
-              <div className="mb-4 rounded-lg border p-3 text-xs"
-                   style={{
-                     borderColor: historyError ? '#f59e0b' : '#93c5fd',
-                     color: historyError ? '#b45309' : '#1e3a8a',
-                     backgroundColor: historyError ? '#fef3c7' : '#bfdbfe',
-                   }}
-              >
-                {historyError
-                  ? historyError
-                  : realtimeFetchFailed
-                  ? 'Real-time data is unavailable. Showing cached closed history; open positions are paused until live connection restores.'
-                  : usingCachedData
-                  ? 'Using cached history data while live data is unavailable.'
-                  : historyInfo}
-              </div>
-            )}
-            
-            {/* Tabs */}
-            <div className="flex items-center gap-8 border-b border-gray-100 mb-8">
-              <button
-                onClick={() => setFilter("closed")}
-                className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                  filter === "closed" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
-                }`}
-              >
-                Closed Orders
-              </button>
-              <button
-                onClick={() => setFilter("opened")}
-                className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                  filter === "opened" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
-                }`}
-              >
-                Open Orders ({filteredOpen.length})
-              </button>
-              <button
-                onClick={() => setFilter("balance")}
-                className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                  filter === "balance" ? "border-[#00d09c] text-[#00d09c]" : "border-transparent text-gray-400 hover:text-gray-600"
-                }`}
-              >
-                Balance Operations
-              </button>
+          {/* History Data Layer */}
+          <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden p-6 sm:p-10">
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-6">History</h2>
+
+            <div className="mb-8 px-6 py-4 bg-blue-100/50 rounded-xl border border-blue-100 text-blue-600 text-[11px] font-bold flex items-center gap-3">
+              <FiAlertCircle className="w-4 h-4" />
+              Live data from MT5 terminal (real-time)
             </div>
 
-            {/* Stats Summary */}
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-12 items-center text-center">
-              <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${stats.deposit}</p>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Deposit</p>
-              </div>
-              <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">
-                  ${stats.withdrawal}
-                </p>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Withdrawal</p>
-              </div>
-              <div className="px-4 border-r border-gray-100 last:border-0">
-                <p
-                  className={`text-2xl font-black ${
-                    Number(stats.closedProfitWithSwap) >= 0 ? 'text-gray-900' : 'text-red-500'
-                  }`}
+            <div className="flex flex-wrap items-center justify-between gap-6 mb-8 border-b border-gray-50 pb-2">
+              <div className="flex gap-8">
+                <button
+                  onClick={() => { setFilter('closed'); setHistoryPage(1); }}
+                  className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 border-transparent text-gray-400 hover:text-gray-600`}
                 >
-                  ${stats.closedProfitWithSwap}
-                </p>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Profit</p>
-              </div>
-              <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">${filter === 'closed' ? stats.swap : stats.openSwap}</p>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Swap</p>
-              </div>
-              <div className="px-4 border-r border-gray-100 last:border-0">
-                {filter === 'opened' ? (
-                  <>
-                    <p className="text-2xl font-black text-gray-900">${stats.equity}</p>
-                    <p className="text-xs font-bold text-gray-400 uppercase mt-1">Equity</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-2xl font-black text-gray-900">${stats.commission}</p>
-                    <p className="text-xs font-bold text-gray-400 uppercase mt-1">Commission</p>
-                  </>
-                )}
-              </div>
-              <div className="px-4 border-r border-gray-100 last:border-0">
-                <p className="text-2xl font-black text-gray-900">
-                  ${filter === 'opened' ? stats.floatPL : stats.balance}
-                </p>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">
-                  {filter === 'opened'
-                    ? 'Float P/L'
-                    : filter === 'balance'
-                      ? stats.settlementEligible
-                        ? 'Settled Balance'
-                        : 'Locked Balance'
-                      : 'Balance'}
-                </p>
+                  CLOSED ORDERS
+                  {filter === 'closed' && <div className="border w-full h-1 bg-[#00d09c] rounded-full" />}
+                </button>
+                <button
+                  onClick={() => { setFilter('opened'); setHistoryPage(1); }}
+                  className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 border-transparent text-gray-400 hover:text-gray-600`}
+                >
+                  OPEN ORDERS ({filteredOpen.length})
+                  {filter === 'opened' && <div className="border w-full h-1 bg-[#00d09c] rounded-full" />}
+                </button>
+                <button
+                  onClick={() => { setFilter('balance'); setHistoryPage(1); }}
+                  className={`pb-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 border-transparent text-gray-400 hover:text-gray-600`}
+                >
+                  BALANCE OPERATIONS
+                  {filter === 'balance' && <div className="border w-full h-1 bg-[#00d09c] rounded-full" />}
+                </button>
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
+            {/* Real-time Stats summary row */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-2 gap-y-6 mb-12 px-4">
+              {filter === 'closed' ? (
+                <>
+                  <div className="flex flex-col items-center">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.deposit}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">DEPOSIT</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.withdrawal}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">WITHDRAWAL</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.profit}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">PROFIT</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.swap}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">SWAP</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.commission}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">COMMISSION</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.balance}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">BALANCE</p>
+                  </div>
+                </>
+              ) : filter === 'opened' ? (
+                <>
+                  <div className="flex flex-col items-center">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.deposit}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">DEPOSIT</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.withdrawal}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">WITHDRAWAL</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.profit}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">PROFIT</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.swap}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">SWAP</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.equity}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">EQUITY</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.floatPL}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">FP/L</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-col items-center">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.deposit}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">DEPOSIT</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.withdrawal}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">WITHDRAWAL</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.profit}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">PROFIT</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.swap}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">SWAP</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.commission}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">COMMISSION</p>
+                  </div>
+                  <div className="flex flex-col items-center border-l border-gray-100">
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.balance}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">LOCKED BALANCE</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="w-full">
+              <table className="w-full text-left border-collapse table-auto">
                 <thead>
-                  <tr className="text-[10px] font-black text-gray-400 uppercase border-b border-gray-50">
+                  <tr className="bg-gray-50/50 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50">
                     {filter === 'balance' ? (
                       <>
-                        <th className="px-6 py-4">Operation Type</th>
-                        <th className="px-6 py-4">Time, UTC</th>
-                        <th className="px-6 py-4">Comment</th>
-                        <th className="px-6 py-4 text-right">Amount, USD</th>
+                        <th className="px-8 py-5">OPERATION TYPE</th>
+                        <th className="px-8 py-5">DATE & TIME</th>
+                        <th className="px-8 py-5">DESCRIPTION</th>
+                        <th className="px-8 py-5 text-right">AMOUNT (USD)</th>
                       </>
                     ) : (
                       <>
-                        <th className="px-6 py-4">Symbol</th>
-                        <th className="px-6 py-4 text-center">Type</th>
-                        <th className="px-6 py-4">Opening time, UTC</th>
-                        {filter === 'closed' && (
-                          <th 
-                            className="px-6 py-4 cursor-pointer hover:text-gray-600 transition-colors flex items-center gap-1"
-                            onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
-                          >
-                            Closing time, UTC {sortOrder === "desc" ? "↓" : "↑"}
-                          </th>
-                        )}
-                        <th className="px-6 py-4 text-center">Lots</th>
-                        <th className="px-6 py-4 text-right">Opening price</th>
-                        <th className="px-6 py-4 text-right">{filter === 'opened' ? 'Current price' : 'Closing price'}</th>
-                        <th className="px-6 py-4 text-right">Swap, USD</th>
-                        <th className="px-6 py-4 text-right">Profit, USD</th>
+                        <th className="px-8 py-5">SYMBOL</th>
+                        <th className="px-8 py-5">TYPE</th>
+                        <th className="px-8 py-5">OPENING TIME, UTC</th>
+                        {filter !== 'opened' && <th className="px-8 py-5">CLOSING TIME, UTC {sortOrder === 'desc' ? '↓' : '↑'}</th>}
+                        <th className="px-8 py-5">LOTS</th>
+                        <th className="px-8 py-5">OPENING PRICE</th>
+                        <th className="px-8 py-5">CLOSING PRICE</th>
+                        <th className="px-8 py-5">SWAP, USD</th>
+                        <th className="px-8 py-5 text-right">PROFIT, USD</th>
                       </>
                     )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                {paginatedRows.length > 0 ? (
-                  paginatedRows.map((row: any, idx: number) => {
-                    if (filter === 'balance') {
-                      return (
-                        <tr key={idx} className="hover:bg-gray-50 transition-colors group">
-                          <td className="px-6 py-5">
-                            <span className={`text-[9px] font-black px-2.5 py-1 rounded-full border ${
-                              row.type === 'DEPOSIT' ? 'text-green-500 border-green-100 bg-green-50/30' :
-                              row.type === 'WITHDRAWAL' ? 'text-blue-500 border-blue-100 bg-blue-50/30' :
-                              row.type === 'COMMISSION' ? 'text-purple-500 border-purple-100 bg-purple-50/30' :
-                              'text-red-500 border-red-100 bg-red-50/30'
-                            }`}>
+                  {paginatedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={filter === 'balance' ? 4 : 9} className="px-8 py-20 text-center">
+                        <div className="flex flex-col items-center gap-3 opacity-30">
+                          <FiActivity className="w-12 h-12 text-gray-400" />
+                          <span className="text-sm font-black uppercase tracking-widest text-gray-400">No data found</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : paginatedRows.map((row: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-gray-50/50 transition-all group">
+                      {filter === 'balance' ? (
+                        <>
+                          <td className="px-8 py-6">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border transition-all ${row.type === 'DEPOSIT' ? 'bg-green-50 text-green-600 border-green-100' :
+                                  row.type === 'WITHDRAWAL' ? 'bg-red-50 text-red-600 border-red-100' :
+                                    'bg-blue-50 text-blue-600 border-blue-100'
+                                }`}>
+                                {row.type === 'DEPOSIT' ? <FiPlusCircle /> : row.type === 'WITHDRAWAL' ? <FiMinusCircle /> : <FiDollarSign />}
+                              </div>
+                              <span className="text-[11px] font-black text-gray-900 uppercase tracking-tight">{row.type}</span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6">
+                            <p className="text-[11px] font-black text-gray-900">{formatDateShort(row.time)}</p>
+                          </td>
+                          <td className="px-8 py-6">
+                            <p className="text-[11px] font-bold text-gray-400">{row.comment}</p>
+                          </td>
+                          <td className="px-8 py-6 text-right">
+                            <span className={`text-sm font-black ${row.type === 'DEPOSIT' ? 'text-[#00d09c]' : 'text-red-500'}`}>
+                              {row.type === 'DEPOSIT' ? '+' : '-'}${Number(row.amount).toFixed(2)}
+                            </span>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-8 py-6">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center overflow-hidden">
+                                {row.symbol?.toLowerCase().includes('xau') ? (
+                                  <div className="w-full h-full bg-yellow-500 flex items-center justify-center text-white text-[10px] font-black">AU</div>
+                                ) : row.symbol?.toLowerCase().includes('btc') ? (
+                                  <div className="w-full h-full bg-orange-500 flex items-center justify-center text-white text-[10px] font-black">BT</div>
+                                ) : (
+                                  <div className="w-full h-full bg-blue-500 flex items-center justify-center text-white text-[10px] font-black">{row.symbol?.slice(0, 2).toUpperCase()}</div>
+                                )}
+                              </div>
+                              <span className="text-[11px] font-black text-gray-900">{row.symbol}</span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6">
+                            <span className={`inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${String(row.type).toLowerCase().includes('buy')
+                                ? 'bg-blue-50 text-blue-500 border-blue-100'
+                                : 'bg-red-50 text-red-500 border-red-100'
+                              }`}>
                               {row.type}
                             </span>
                           </td>
-                          <td className="px-6 py-5 text-xs font-bold text-gray-500">
-                            {formatDateShort(row.time)}
+                          <td className="px-8 py-6">
+                            <p className="text-[11px] font-bold text-gray-600">{formatDateShort(row.openTimeStr)}</p>
                           </td>
-                          <td className="px-6 py-5 text-xs font-bold text-gray-700">
-                            {row.comment}
+                          {filter !== 'opened' && (
+                            <td className="px-8 py-6">
+                              <p className="text-[11px] font-bold text-gray-600">{row.closeTimeStr ? formatDateShort(row.closeTimeStr) : "Current"}</p>
+                            </td>
+                          )}
+                          <td className="px-8 py-6">
+                            <p className="text-[11px] font-black text-gray-900">{Number(row.volume).toFixed(2)}</p>
                           </td>
-                          <td className={`px-6 py-5 text-xs font-black text-right ${
-                            row.type === 'DEPOSIT' || (row.type === 'WITHDRAWAL' && (row.amount || 0) >= 0) ? 'text-[#00d09c]' : 'text-red-500'
-                          }`}>
-                            {(row.amount || 0) >= 0 ? '+' : ''}{(Number(row.amount) || 0).toFixed(2)}
+                          <td className="px-8 py-6">
+                            <p className="text-[11px] font-bold text-gray-600">{Number(row.openPrice).toFixed(5)}</p>
                           </td>
-                        </tr>
-                      );
-                    }
-
-                    const pos = row;
-                    const isBuy = String(pos.type).toUpperCase().includes('BUY') || pos.type === 0 || pos.type === "0";
-                    const mult = Number.isFinite(lotSize) && lotSize > 0 ? lotSize : 1;
-                    const vol = (Number(pos.volume) || 0) * mult;
-                    const profitVal = (Number(pos.profit) || 0) * mult;
-                    const swapVal = (Number(pos.swap) || 0) * mult;
-                    const symbolIcon = getSymbolIcon(pos.symbol || '');
-                    const flagIcon = getFlagIcon(pos.symbol || '');
-
-                    return (
-                      <tr key={idx} className="hover:bg-gray-50 transition-colors group">
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-3">
-                            <div className="relative">
-                              <img src={symbolIcon} alt="" className="w-6 h-6 rounded-full" />
-                              {flagIcon && (
-                                <img 
-                                  src={flagIcon} 
-                                  alt="" 
-                                  className="w-3.5 h-3.5 rounded-full absolute -bottom-1 -right-1 border border-white" 
-                                />
-                              )}
-                            </div>
-                            <span className="text-xs font-bold text-gray-700 uppercase tracking-tight">
-                              {pos.symbol}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5 text-center">
-                          <span className={`text-[9px] font-black px-2.5 py-1 rounded-full border ${
-                            isBuy 
-                            ? "text-blue-400 border-blue-100 bg-blue-50/30" 
-                            : "text-red-400 border-red-100 bg-red-50/30"
-                          }`}>
-                            {isBuy ? "Buy" : "Sell"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-5 text-xs font-bold text-gray-500">
-                          {formatDateShort(pos.openTimeStr)}
-                        </td>
-                        {filter === 'closed' && (
-                          <td className="px-6 py-5 text-xs font-bold text-gray-500">
-                            {formatDateShort(pos.closeTimeStr)}
+                          <td className="px-8 py-6">
+                            <p className="text-[11px] font-bold text-gray-600">{Number(row.closeOrCurrentPrice).toFixed(5)}</p>
                           </td>
-                        )}
-                        <td className="px-6 py-5 text-xs font-bold text-gray-500 text-center">
-                          {vol.toFixed(2)}
-                        </td>
-                        <td className="px-6 py-5 text-xs font-bold text-gray-500 text-right">
-                          {pos.openPrice ? Number(pos.openPrice).toFixed(pos.symbol?.includes('JPY') ? 3 : 5) : "-"}
-                        </td>
-                        <td className="px-6 py-5 text-xs font-bold text-gray-500 text-right">
-                          {pos.closeOrCurrentPrice ? Number(pos.closeOrCurrentPrice).toFixed(pos.symbol?.includes('JPY') ? 3 : 5) : "-"}
-                        </td>
-                        <td className="px-6 py-5 text-xs font-bold text-right">
-                          {swapVal.toFixed(2)}
-                        </td>
-                        <td className={`px-6 py-5 text-xs font-bold text-right ${profitVal >= 0 ? "text-green-500" : "text-red-500"}`}>
-                          {profitVal >= 0 ? "" : "-"}{Math.abs(profitVal).toFixed(2)}
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={filter === 'closed' ? 9 : 8} className="px-6 py-20 text-center text-xs font-bold text-gray-400 uppercase tracking-widest">
-                      No orders found
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-4 py-8 border-t border-gray-50">
-              <button
-                onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
-              >
-                <FiChevronLeft className="w-5 h-5 text-gray-600" />
-              </button>
-              <div className="flex items-center gap-2">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                  <button
-                    key={p}
-                    onClick={() => setHistoryPage(p)}
-                    className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${
-                      currentPage === p ? "bg-[#00d09c] text-white" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={() => setHistoryPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
-              >
-                <FiChevronRight className="w-5 h-5 text-gray-600" />
-              </button>
+                          <td className="px-8 py-6">
+                            <p className="text-[11px] font-bold text-gray-600">{Number(row.swap || 0).toFixed(2)}</p>
+                          </td>
+                          <td className="px-8 py-6 text-right">
+                            <p className={`text-[11px] font-black ${Number(row.profit) >= 0 ? 'text-[#00d09c]' : 'text-red-500'}`}>
+                              {Number(row.profit) >= 0 ? '+' : ''}{Number(row.profit).toFixed(2)}
+                            </p>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
+
+            {/* Pagination Layer */}
+            {totalPages > 1 && (
+              <div className="p-8 border-t border-gray-50 flex items-center justify-between">
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">PAGE {currentPage} OF {totalPages}</span>
+                <div className="flex gap-2">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                    className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-xl border border-gray-100 disabled:opacity-30 hover:bg-gray-100 transition-all"
+                  >
+                    <FiChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => setHistoryPage(p => Math.min(totalPages, p + 1))}
+                    className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-xl border border-gray-100 disabled:opacity-30 hover:bg-gray-100 transition-all"
+                  >
+                    <FiChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+    </UserLayout>
+  );
+}
+
+function StatCard({ title, value, icon, color, trend }: { title: string; value: string; icon: React.ReactNode; color: string; trend?: 'up' | 'down' }) {
+  const colors: Record<string, string> = {
+    blue: "bg-blue-50 text-blue-600 border-blue-100",
+    green: "bg-green-50 text-[#00d09c] border-green-100",
+    purple: "bg-purple-50 text-purple-600 border-purple-100",
+    orange: "bg-orange-50 text-orange-600 border-orange-100",
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-md transition-all group">
+      <div className="flex items-center justify-between mb-4">
+        <div className={`p-4 rounded-2xl border ${colors[color]} group-hover:scale-110 transition-transform`}>
+          {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { className: "w-6 h-6" }) : icon}
+        </div>
+        {trend && (
+          <div className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest ${trend === 'up' ? 'text-green-500' : 'text-red-500'}`}>
+            {trend === 'up' ? <FiArrowUpRight className="w-4 h-4" /> : <FiArrowDownLeft className="w-4 h-4" />}
+            {trend === 'up' ? 'Growth' : 'Loss'}
+          </div>
+        )}
+      </div>
+      <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5">{title}</p>
+      <p className="text-2xl font-black text-gray-900 tracking-tight">{value}</p>
     </div>
-  </UserLayout>
-);
+  );
+}
+
+function FilterTab({ active, label, onClick, count }: { active: boolean; label: string; onClick: () => void; count?: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${active ? 'bg-white text-gray-900 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
+    >
+      {label}
+      {count !== undefined && (
+        <span className={`px-2 py-0.5 rounded-lg text-[8px] ${active ? 'bg-[#00d09c] text-white' : 'bg-gray-200 text-gray-500'}`}>{count}</span>
+      )}
+    </button>
+  );
+}
+
+function formatDateShort(dateStr: string | number | undefined) {
+  if (!dateStr) return "-";
+  const ms = Number.isFinite(Number(dateStr)) ? (Number(dateStr) < 10000000000 ? Number(dateStr) * 1000 : Number(dateStr)) : Date.parse(String(dateStr).replace(/\./g, '-'));
+  if (!Number.isFinite(ms)) return String(dateStr);
+  const d = new Date(ms);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${pad(d.getDate())} ${months[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }

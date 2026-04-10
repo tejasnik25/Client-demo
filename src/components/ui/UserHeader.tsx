@@ -28,8 +28,9 @@ export function UserHeader() {
     };
 
     fetchBalance();
-    const interval = setInterval(fetchBalance, 10000); // Poll every 10 seconds
-    return () => clearInterval(interval);
+    // Auto-refresh disabled per user request
+    // const interval = setInterval(fetchBalance, 10000); // Poll every 10 seconds
+    // return () => clearInterval(interval);
   }, [session?.user?.id]);
 
   // Get page title from pathname

@@ -363,17 +363,23 @@ const WithdrawDetailsContent: React.FC = () => {
                 type="submit"
                 disabled={
                   loading ||
+                  isLoadingRate ||
                   !transactionId ||
                   !inrAmount ||
-                  (paymentMethod === 'QR' && !usdAmount) ||
+                  isNaN(parseFloat(inrAmount)) ||
+                  parseFloat(inrAmount) <= 0 ||
+                  (paymentMethod === 'QR' && (!usdAmount || isNaN(parseFloat(usdAmount)) || parseFloat(usdAmount) <= 0)) ||
                   !file ||
                   !termsAccepted
                 }
                 className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg shadow-sm text-white ${
                   loading ||
+                  isLoadingRate ||
                   !transactionId ||
                   !inrAmount ||
-                  (paymentMethod === 'QR' && !usdAmount) ||
+                  isNaN(parseFloat(inrAmount)) ||
+                  parseFloat(inrAmount) <= 0 ||
+                  (paymentMethod === 'QR' && (!usdAmount || isNaN(parseFloat(usdAmount)) || parseFloat(usdAmount) <= 0)) ||
                   !file ||
                   !termsAccepted
                     ? 'bg-gray-500 cursor-not-allowed'

@@ -16,6 +16,8 @@ const WalletPageContent: React.FC = () => {
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const usdToInrRate = Number(process.env.NEXT_PUBLIC_USD_TO_INR_RATE || 83);
+  const walletBalanceInr = walletBalance * usdToInrRate;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -27,12 +29,13 @@ const WalletPageContent: React.FC = () => {
         
         const balanceData = await balanceRes.json();
         if (balanceData?.success) {
-          setWalletBalance(balanceData.user?.wallet_balance || 0);
+          setWalletBalance(balanceData.user?.wallet_balance ?? balanceData.user?.walletBalance ?? 0);
         }
 
         const txData = await txRes.json();
         if (txData?.success) {
           setTransactions(txData.transactions || []);
+          setWalletBalance(txData.balance ?? balanceData.user?.wallet_balance ?? balanceData.user?.walletBalance ?? 0);
         }
       } catch (error) {
         console.error('Failed to fetch wallet data:', error);
@@ -42,8 +45,9 @@ const WalletPageContent: React.FC = () => {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 10000); // Poll every 10 seconds
-    return () => clearInterval(interval);
+    // Auto-refresh disabled per user request
+    // const interval = setInterval(fetchData, 10000); // Poll every 10 seconds
+    // return () => clearInterval(interval);
   }, []);
 
   const getStatusIcon = (status: string) => {
@@ -76,6 +80,9 @@ const WalletPageContent: React.FC = () => {
               <span className="text-blue-500">$</span>
               {walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h2>
+            <p className="mt-2 text-sm font-semibold text-gray-300">
+              ₹{walletBalanceInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
           </div>
           
           <div className="flex gap-4">

@@ -37,6 +37,7 @@ type RunningItem = {
   balance?: number;
   equity?: number;
   floatProfit?: number;
+  capital?: number;
 };
 
 type Strategy = {
@@ -100,12 +101,12 @@ const RunningStrategiesPageInner: React.FC = () => {
   useEffect(() => {
     loadData(true);
     
-    // Set up real-time polling every 10 seconds
-    const interval = setInterval(() => {
-      loadData(false);
-    }, 10000);
+    // Auto-refresh disabled per user request
+    // const interval = setInterval(() => {
+    //   loadData(false);
+    // }, 10000);
 
-    return () => clearInterval(interval);
+    // return () => clearInterval(interval);
   }, []);
 
   const toggleExpand = (id: string) => {

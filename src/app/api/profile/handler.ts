@@ -19,11 +19,14 @@ export async function GET(req: NextRequest) {
       }
       const { password: _p, ...safeUserFromToken } = userFromToken as any;
       try {
-        const { readDatabase } = await import('@/db/dbService');
+        const { readDatabase, getWalletBalance } = await import('@/db/dbService');
         const db = readDatabase();
         const jsonUser = db.users.find((u: any) => u.id === (token as any).id);
         (safeUserFromToken as any).enabled =
           typeof jsonUser?.enabled !== 'undefined' ? !!jsonUser.enabled : (safeUserFromToken as any).enabled ?? true;
+        const walletBalance = await getWalletBalance((token as any).id);
+        (safeUserFromToken as any).walletBalance = walletBalance;
+        (safeUserFromToken as any).wallet_balance = walletBalance;
       } catch {
         (safeUserFromToken as any).enabled = (safeUserFromToken as any).enabled ?? true;
       }
@@ -42,14 +45,17 @@ export async function GET(req: NextRequest) {
       const jsonUser = db.users.find((u: any) => u.id === session.user.id);
       (safeUser as any).enabled =
         typeof jsonUser?.enabled !== 'undefined' ? !!jsonUser.enabled : (safeUser as any).enabled ?? true;
-      (safeUser as any).walletBalance = await getWalletBalance(session.user.id);
-    } catch {
+      const walletBalance = await getWalletBalance(session.user.id);
+      (safeUser as any).walletBalance = walletBalance;
+      (safeUser as any).wallet_balance = walletBalance;
+    } catch (profileError) {
+      console.error('Error enriching profile:', profileError);
       (safeUser as any).enabled = (safeUser as any).enabled ?? true;
     }
 
     return NextResponse.json({ success: true, user: safeUser });
   } catch (error) {
-    console.error('Error fetching profile:', error);
+    console.error('Profile API error:', error);
     return NextResponse.json({ error: 'Failed to fetch profile' }, { status: 500 });
   }
 }

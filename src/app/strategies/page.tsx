@@ -84,10 +84,10 @@ const StrategiesPageInner: React.FC = () => {
   }, [searchParams]);
 
   useEffect(() => {
-    if (!user && topTab === 'deployed') {
+    if (!profileLoading && !user && topTab === 'deployed') {
       setTopTab('explore');
     }
-  }, [user, topTab]);
+  }, [user, topTab, profileLoading]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -117,8 +117,9 @@ const StrategiesPageInner: React.FC = () => {
     };
 
     fetchProfile();
-    const interval = setInterval(fetchProfile, 10000);
-    return () => clearInterval(interval);
+    // Auto-refresh disabled per user request
+    // const interval = setInterval(fetchProfile, 10000);
+    // return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -162,7 +163,7 @@ const StrategiesPageInner: React.FC = () => {
         setLoadingRunning(true);
         const res = await fetch('/api/strategies/running', { cache: 'no-store' });
         const data = await res.json();
-        setRunning(data?.strategies || []);
+        setRunning(Array.isArray(data) ? data : data?.strategies || []);
       } catch {
         setRunning([]);
       } finally {
@@ -189,14 +190,12 @@ const StrategiesPageInner: React.FC = () => {
     for (const r of running as any[]) {
       const st = String((r as any)?.adminStatus || (r as any)?.status || '').toLowerCase();
       if (st === 'running' || st === 'connected' || st === 'active') {
-        const sid = (r as any)?.id; // strategy id in running payload
-        if (sid) set.add(String(sid));
+        const sid = String((r as any)?.strategyId || (r as any)?.id || '');
+        if (sid) set.add(sid);
       }
     }
     return set;
   }, [running]);
-
- 
 
   const renderAdminStatusBadge = (s: string, r?: any) => {
     const k = (s || '').toLowerCase();
@@ -633,6 +632,7 @@ const StrategiesPageInner: React.FC = () => {
                   const isPending = pendingIds.includes((r as any)?.rsId || r.id);
                   const investedAmount = Number(r.deposit || r.capital || 0);
                   const metrics = r.metrics || {};
+                  const displayDeposit = Number(investedAmount || 0);
                   const displayBalance = Number(metrics.balance ?? investedAmount);
                   const displayFloatProfit = Number(metrics.floatingProfit ?? 0);
                   const displayEquity = Number(metrics.equity ?? (displayBalance + displayFloatProfit));
@@ -667,6 +667,11 @@ const StrategiesPageInner: React.FC = () => {
                           <div className="flex flex-col items-center">
                             <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Status</span>
                             {renderAdminStatusBadge(cur, r)}
+                          </div>
+
+                          <div className="flex flex-col items-center">
+                            <span className="text-[11px] font-bold text-gray-300 uppercase mb-1">Deposit</span>
+                            <span className="text-sm font-bold text-gray-900">{formatCurrency(displayDeposit)}</span>
                           </div>
 
                           <div className="flex flex-col items-center">

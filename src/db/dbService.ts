@@ -124,7 +124,17 @@ export const initializeDatabase = async () => {
       await pool.execute('ALTER TABLE running_strategy_modifications ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
     } catch (e) { /* ignore */ }
 
-    // Add capital column to wallet_transactions if it doesn't exist
+    // Add capital column to running_strategies if it doesn't exist
+    try {
+      await pool.execute('ALTER TABLE running_strategies ADD COLUMN closed_at TIMESTAMP NULL AFTER updated_at');
+    } catch (e) { /* ignore */ }
+    try {
+      await pool.execute('ALTER TABLE running_strategies ADD COLUMN lot_size DECIMAL(10, 4) DEFAULT 1.0000 AFTER capital');
+    } catch (e) { /* ignore */ }
+    try {
+      await pool.execute('ALTER TABLE running_strategies ADD COLUMN deleted_at TIMESTAMP NULL AFTER closed_at');
+    } catch (e) { /* ignore */ }
+
     try {
       await pool.execute('ALTER TABLE wallet_transactions ADD COLUMN capital DECIMAL(10, 2) DEFAULT 0 AFTER amount');
     } catch (e) { /* ignore */ }
@@ -133,6 +143,9 @@ export const initializeDatabase = async () => {
     } catch (e) { /* ignore */ }
     try {
       await pool.execute('ALTER TABLE wallet_transactions ADD COLUMN running_strategy_id VARCHAR(255) AFTER strategy_id');
+    } catch (e) { /* ignore */ }
+    try {
+      await pool.execute('ALTER TABLE wallet_transactions ADD COLUMN lot_size DECIMAL(10, 4) NULL AFTER strategy_id');
     } catch (e) { /* ignore */ }
 
     await pool.execute(`
@@ -184,25 +197,57 @@ export const initializeDatabase = async () => {
 export const createWalletTransaction = async (data: any) => {
   try {
     const id = data.id || uuidv4();
-    // Generate unique transaction_id if not provided
     const transaction_id = data.transaction_id || `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
     
-    const fields = [
-      'id', 'user_id', 'amount', 'capital', 'transaction_type', 'payment_method', 
-      'strategy_id', 'running_strategy_id', 'status', 'inr_amount', 'inr_to_usd_rate', 
-      'crypto_network', 'crypto_wallet_address', 'wallet_app_deeplink', 'plan_level', 'transaction_id', 'admin_message'
-    ];
-    const placeholders = fields.map(() => '?').join(', ');
-    const values = [
-      id, data.user_id, data.amount, data.capital || data.amount || 0, data.transaction_type || 'deposit', data.payment_method || null,
-      data.strategy_id || null, data.running_strategy_id || null, data.status || 'pending', data.inr_amount || null, data.inr_to_usd_rate || null,
-      data.crypto_network || null, data.crypto_wallet_address || null, data.wallet_app_deeplink || null, data.plan_level || null, transaction_id,
-      data.admin_message || null
-    ];
-    
+    // Get available columns from the actual table
+    const [columns]: any = await pool.execute(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wallet_transactions'
+      ORDER BY ORDINAL_POSITION
+    `);
+    const availableColumns = Array.isArray(columns) ? columns.map((row: any) => row.COLUMN_NAME) : [];
+
+    // Build the insert based on available columns and provided data
+    const insertData: any = {
+      id,
+      user_id: data.user_id,
+      amount: data.amount,
+      transaction_type: data.transaction_type || 'deposit',
+      payment_method: data.payment_method,
+      transaction_id,
+      receipt_path: data.receipt_path,
+      status: data.status || 'pending',
+      platform: data.platform,
+      mt_account_id: data.mt_account_id,
+      mt_account_password: data.mt_account_password,
+      terms_accepted: data.terms_accepted ? 1 : 0,
+      strategy_id: data.strategy_id,
+      lot_size: data.lot_size ?? data.lotSize,
+      running_strategy_id: data.running_strategy_id,
+      plan_level: data.plan_level,
+      inr_amount: data.inr_amount,
+      inr_to_usd_rate: data.inr_to_usd_rate,
+      crypto_network: data.crypto_network,
+      crypto_wallet_address: data.crypto_wallet_address,
+      wallet_app_deeplink: data.wallet_app_deeplink,
+    };
+
+    // Filter to only include columns that exist in the table and values that can be bound
+    const validEntries = Object.entries(insertData).filter(
+      ([key, value]) => availableColumns.includes(key) && value !== undefined
+    );
+    const finalFields = validEntries.map(([key]) => key);
+    const finalValues = validEntries.map(([, value]) => (value === undefined ? null : value));
+    const finalPlaceholders = finalFields.map(() => '?').join(', ');
+
+    if (finalFields.length === 0) {
+      throw new Error('No valid fields to insert');
+    }
+
     await pool.execute(
-      `INSERT INTO wallet_transactions (${fields.join(', ')}) VALUES (${placeholders})`,
-      values
+      `INSERT INTO wallet_transactions (${finalFields.join(', ')}) VALUES (${finalPlaceholders})`,
+      finalValues
     );
     return { id, transaction_id, ...data };
   } catch (error) {
@@ -256,19 +301,69 @@ export const getWalletBalance = async (userId: string) => {
       [userId]
     );
 
-    const [reservedRows]: any = await pool.execute(
-      `SELECT COALESCE(SUM(capital),0) as reserved_capital FROM running_strategies WHERE user_id = ? AND (status = 'active' OR admin_status = 'running')`,
-      [userId]
-    );
-
-    const totalDeposited = Number(rows[0]?.balance || 0);
-    const reservedCapital = Number(reservedRows[0]?.reserved_capital || 0);
-
-    const availableBalance = totalDeposited - reservedCapital;
-    return Number(availableBalance.toFixed(2));
+    // Hard rule: wallet balance is derived only from completed wallet ledger transactions.
+    // No extra subtraction from running_strategies to prevent double-deduct bugs.
+    const ledgerBalance = Number(rows[0]?.balance || 0);
+    return Number(ledgerBalance.toFixed(2));
   } catch (error) {
     console.error('getWalletBalance failed:', error);
     return 0;
+  }
+};
+
+export const getLatestLotSizeForUserStrategy = async (
+  userId: string,
+  strategyId: string,
+  runningStrategyId?: string
+): Promise<number> => {
+  try {
+    // Prefer lot size from the exact running strategy if present.
+    if (runningStrategyId) {
+      try {
+        const [rows]: any = await pool.execute(
+          `SELECT lot_size
+           FROM wallet_transactions
+           WHERE user_id = ?
+             AND strategy_id = ?
+             AND running_strategy_id = ?
+             AND transaction_type IN ('charge', 'deposit')
+             AND status IN ('completed','approved','settled')
+             AND lot_size IS NOT NULL
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [userId, strategyId, runningStrategyId]
+        );
+        const lot = Number(rows?.[0]?.lot_size ?? 0);
+        if (Number.isFinite(lot) && lot > 0) return lot;
+      } catch {
+        // Ignore if lot_size column does not exist in this environment.
+      }
+    }
+
+    // Fallback to latest strategy-level completed transaction lot size.
+    try {
+      const [rows]: any = await pool.execute(
+        `SELECT lot_size
+         FROM wallet_transactions
+         WHERE user_id = ?
+           AND strategy_id = ?
+           AND transaction_type IN ('charge', 'deposit')
+           AND status IN ('completed','approved','settled')
+           AND lot_size IS NOT NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId, strategyId]
+      );
+      const lot = Number(rows?.[0]?.lot_size ?? 0);
+      if (Number.isFinite(lot) && lot > 0) return lot;
+    } catch {
+      // Ignore if lot_size column does not exist.
+    }
+
+    return 1;
+  } catch (error) {
+    console.error('getLatestLotSizeForUserStrategy failed:', error);
+    return 1;
   }
 };
 
@@ -354,6 +449,9 @@ export const getStrategyById = async (id: string) => {
     if (!rows[0]) return null;
     const s = rows[0];
     const parsedParameters = typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : s.parameters || {};
+    if (parsedParameters.lot_size !== undefined && parsedParameters.lotSize === undefined) {
+      parsedParameters.lotSize = Number(parsedParameters.lot_size);
+    }
     const rawRiskScore = s.risk_score ?? s.riskScore ?? parsedParameters.riskScore ?? parsedParameters.risk_score;
     return {
       ...s,
@@ -388,6 +486,9 @@ export const getAllStrategies = async () => {
     return rows.map((s: any) => {
       const parsedParameters = typeof s.parameters === 'string' ? JSON.parse(s.parameters || '{}') : s.parameters || {};
       const rawRiskScore = s.risk_score ?? s.riskScore ?? parsedParameters.riskScore ?? parsedParameters.risk_score;
+      if (parsedParameters.lot_size !== undefined && parsedParameters.lotSize === undefined) {
+        parsedParameters.lotSize = Number(parsedParameters.lot_size);
+      }
       return {
         ...s,
         masterAccountId: s.master_account_id,
@@ -438,10 +539,21 @@ export const getRunningStrategyById = async (id: string) => {
 
 export const getRunningStrategiesForUser = async (userId: string) => {
   try {
-    const [rows]: any = await pool.execute(
-      'SELECT * FROM running_strategies WHERE user_id = ? AND admin_status NOT IN ("disconnected","stopped") AND status NOT IN ("stopped","error")',
-      [userId]
-    );
+    // Try to filter by deleted_at if the column exists
+    let query = 'SELECT * FROM running_strategies WHERE user_id = ?';
+    let params = [userId];
+
+    try {
+      // Check if deleted_at column exists by running a simple query
+      await pool.execute('SELECT deleted_at FROM running_strategies LIMIT 1');
+      query += ' AND deleted_at IS NULL';
+    } catch (e) {
+      console.warn('[dbService] deleted_at column might not exist yet, skipping filter');
+    }
+
+    query += ' AND admin_status NOT IN ("disconnected","stopped") AND status NOT IN ("stopped","error")';
+    
+    const [rows]: any = await pool.execute(query, params);
     return rows.map((r: any) => ({
       ...r,
       strategyId: r.strategy_id,
@@ -452,8 +564,34 @@ export const getRunningStrategiesForUser = async (userId: string) => {
     }));
   } catch (error) {
     console.error('Error getting running strategies for user:', error);
-    const db = readDatabase();
-    return db.running_strategies.filter((r: any) => r.user_id === userId && r.admin_status !== 'disconnected' && r.admin_status !== 'stopped');
+    return [];
+  }
+};
+
+export const getClosedStrategiesForUser = async (userId: string) => {
+  try {
+    try {
+      // Check if deleted_at column exists
+      await pool.execute('SELECT deleted_at FROM running_strategies LIMIT 1');
+      const [rows]: any = await pool.execute(
+        'SELECT * FROM running_strategies WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC',
+        [userId]
+      );
+      return rows.map((r: any) => ({
+        ...r,
+        strategyId: r.strategy_id,
+        userId: r.user_id,
+        mtAccountId: r.mt_account_id,
+        mtAccountPassword: r.mt_account_password,
+        mtAccountServer: r.mt_account_server,
+      }));
+    } catch (e) {
+      console.warn('[dbService] deleted_at column might not exist yet, returning empty closed list');
+      return [];
+    }
+  } catch (error) {
+    console.error('Error getting closed strategies for user:', error);
+    return [];
   }
 };
 
@@ -520,31 +658,29 @@ export const updateRunningStrategyAdminStatus = async (id: string, status: strin
 
 export const deleteRunningStrategy = async (id: string): Promise<boolean> => {
   try {
-    // Delete related records first to maintain referential integrity
-    await pool.execute('DELETE FROM running_strategy_modifications WHERE running_strategy_id = ?', [id]);
-    await pool.execute('DELETE FROM running_periods WHERE running_strategy_id = ?', [id]);
-    await pool.execute('DELETE FROM disconnect_snapshots WHERE running_strategy_id = ?', [id]);
-    
-    // Delete the running strategy itself
-    const [result]: any = await pool.execute('DELETE FROM running_strategies WHERE id = ?', [id]);
+    // Instead of hard deleting, we mark it as closed and deleted_at for archiving
+    const [result]: any = await pool.execute(
+      'UPDATE running_strategies SET status = "stopped", admin_status = "disconnected", closed_at = CURRENT_TIMESTAMP, deleted_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [id]
+    );
     return result.affectedRows > 0;
   } catch (error) {
     console.error('Error deleting running strategy:', error);
-    // Fallback to JSON database
-    const db: any = readDatabase();
-    const index = db.running_strategies.findIndex((r: any) => r.id === id);
-    if (index !== -1) {
-      // Remove related records
-      db.running_strategy_modifications = db.running_strategy_modifications.filter((m: any) => m.running_strategy_id !== id);
-      db.running_periods = db.running_periods.filter((p: any) => p.running_strategy_id !== id);
-      db.disconnect_snapshots = db.disconnect_snapshots.filter((s: any) => s.running_strategy_id !== id);
-      
-      // Remove the strategy
-      db.running_strategies.splice(index, 1);
-      writeDatabase(db);
-      return true;
-    }
     return false;
+  }
+};
+
+export const purgeOldStrategies = async () => {
+  try {
+    // Permanently delete strategies closed more than 30 days ago
+    const [result]: any = await pool.execute(
+      'DELETE FROM running_strategies WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(NOW(), INTERVAL 30 DAY)'
+    );
+    console.log(`[Purge] Permanently deleted ${result.affectedRows} old closed strategies`);
+    return result.affectedRows;
+  } catch (error) {
+    console.error('Error purging old strategies:', error);
+    return 0;
   }
 };
 
@@ -836,15 +972,36 @@ export const getRunningStrategyModifications = async (rsId: string) => {
   }
 };
 
-export const createUser = async (name: string, email: string, passwordPlain: string) => {
+export const createUser = async (nameOrConfig: string | any, email?: string, passwordPlain?: string) => {
   try {
+    // Support both object and positional arguments
+    let name: string;
+    let userEmail: string;
+    let password: string;
+    
+    if (typeof nameOrConfig === 'object') {
+      // Object format: { name, email, password, country_code?, country? }
+      name = nameOrConfig.name;
+      userEmail = nameOrConfig.email;
+      password = nameOrConfig.password;
+    } else {
+      // Positional arguments: (name, email, password)
+      name = nameOrConfig;
+      userEmail = email!;
+      password = passwordPlain!;
+    }
+    
+    if (!name || !userEmail || !password) {
+      return { success: false, error: 'Missing required fields: name, email, password' };
+    }
+    
     const id = `user_${Date.now()}`;
-    const hashedPassword = await bcrypt.hash(passwordPlain, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
     await pool.execute(
       'INSERT INTO users (id, name, email, password, role, created_at) VALUES (?, ?, ?, ?, "USER", CURRENT_TIMESTAMP)',
-      [id, name, email.toLowerCase(), hashedPassword]
+      [id, name, userEmail.toLowerCase(), hashedPassword]
     );
-    return { success: true, user: { id, name, email: email.toLowerCase(), role: 'USER' } };
+    return { success: true, user: { id, name, email: userEmail.toLowerCase(), role: 'USER' } };
   } catch (error: any) {
     console.error('createUser failed:', error);
     return { success: false, error: error.message };
@@ -1110,49 +1267,54 @@ export const getAllTransactions = async () => {
   }
 };
 
-export const createRunningStrategy = async (userId: string, strategyId: string, plan: string, capital: number, slaveDetails: any) => {
+export const createRunningStrategy = async (userId: string, strategyId: string, plan: string, capital: number, lotSize: number, slaveDetails: any) => {
   try {
-    console.log('[dbService.createRunningStrategy] Starting for user:', userId, 'strategy:', strategyId, 'capital:', capital);
-
-    // First check if a running_strategy already exists for this user-strategy combo
-    const [existing]: any = await pool.execute(
-      'SELECT id, admin_status, status FROM running_strategies WHERE user_id = ? AND strategy_id = ?',
-      [userId, strategyId]
-    );
-
-    if (existing && existing.length > 0) {
-      const existingRecord = existing[0];
-      const rsId = existingRecord.id;
-      const existingAdminStatus = String(existingRecord.admin_status || '').toLowerCase();
-      const existingStatus = String(existingRecord.status || '').toLowerCase();
-
-      if (['disconnected', 'stopped'].includes(existingAdminStatus) || ['stopped'].includes(existingStatus)) {
-        console.log('[dbService.createRunningStrategy] Existing strategy is disconnected/stopped. Cleaning up old record:', rsId);
-        await deleteRunningStrategy(rsId);
-      } else {
-        console.log('[dbService.createRunningStrategy] Strategy exists, updating:', rsId);
-        const [updateResult]: any = await pool.execute(
-          'UPDATE running_strategies SET capital = ?, plan = ?, status = "in-process", admin_status = "in-process", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [capital, plan, rsId]
-        );
-
-        console.log('[dbService.createRunningStrategy] Update result:', updateResult);
-        const [verifyRows]: any = await pool.execute(
-          'SELECT id, status, admin_status FROM running_strategies WHERE id = ?',
-          [rsId]
-        );
-        console.log('[dbService.createRunningStrategy] Verified after update:', verifyRows[0]);
-        return { success: true, id: rsId };
-      }
-    }
+    console.log('[dbService.createRunningStrategy] Starting for user:', userId, 'strategy:', strategyId, 'capital:', capital, 'lotSize:', lotSize);
 
     // Create a new running_strategy row for fresh subscription
     const id = `rs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     console.log('[dbService.createRunningStrategy] Creating new running strategy:', id);
 
+    // Make insert schema-safe for environments where some columns (e.g. lot_size) may not exist yet.
+    const [columns]: any = await pool.execute(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'running_strategies'
+      ORDER BY ORDINAL_POSITION
+    `);
+    const availableColumns = Array.isArray(columns) ? columns.map((row: any) => row.COLUMN_NAME) : [];
+
+    const insertData: Record<string, any> = {
+      id,
+      user_id: userId,
+      strategy_id: strategyId,
+      plan,
+      capital,
+      lot_size: lotSize,
+      // Some older schemas may use camelCase for lot size; support both.
+      lotSize: lotSize,
+      status: 'in-process',
+      admin_status: 'in-process',
+      platform: slaveDetails?.platform || 'MT5',
+      mt_account_id: slaveDetails?.mt_account_id || null,
+      mt_account_password: slaveDetails?.mt_account_password || null,
+      mt_account_server: slaveDetails?.mt_account_server || null,
+    };
+
+    const validEntries = Object.entries(insertData).filter(
+      ([key, value]) => availableColumns.includes(key) && value !== undefined
+    );
+    if (validEntries.length === 0) {
+      throw new Error('No compatible columns found in running_strategies');
+    }
+
+    const finalFields = validEntries.map(([key]) => key);
+    const finalValues = validEntries.map(([, value]) => value);
+    const placeholders = finalFields.map(() => '?').join(', ');
+
     const [insertResult]: any = await pool.execute(
-      'INSERT INTO running_strategies (id, user_id, strategy_id, plan, capital, status, admin_status, platform, mt_account_id, mt_account_password, mt_account_server, created_at) VALUES (?, ?, ?, ?, ?, "in-process", "in-process", ?, ?, ?, ?, CURRENT_TIMESTAMP)',
-      [id, userId, strategyId, plan, capital, slaveDetails.platform || 'MT5', slaveDetails.mt_account_id || null, slaveDetails.mt_account_password || null, slaveDetails.mt_account_server || null]
+      `INSERT INTO running_strategies (${finalFields.join(', ')}) VALUES (${placeholders})`,
+      finalValues
     );
 
     console.log('[dbService.createRunningStrategy] Insert result:', insertResult);
@@ -1184,13 +1346,24 @@ export const updateTransactionStatus = async (id: string, status: string, adminI
 
 export const getRunningStrategiesAdmin = async (): Promise<any[]> => {
   try {
-    const [rows]: any = await pool.execute(`
+    let query = `
       SELECT rs.*, u.name as user_name, u.email as user_email, s.name as strategy_name
       FROM running_strategies rs
       LEFT JOIN users u ON rs.user_id = u.id
       LEFT JOIN strategies s ON rs.strategy_id = s.id
-      ORDER BY rs.created_at DESC
-    `);
+    `;
+    
+    try {
+      // Check if deleted_at column exists
+      await pool.execute('SELECT deleted_at FROM running_strategies LIMIT 1');
+      query += ' WHERE rs.deleted_at IS NULL';
+    } catch (e) {
+      console.warn('[dbService] deleted_at column might not exist yet, skipping filter in admin view');
+    }
+
+    query += ' ORDER BY rs.created_at DESC';
+
+    const [rows]: any = await pool.execute(query);
     return rows.map((r: any) => ({
       ...r,
       id: r.id,
@@ -1318,10 +1491,10 @@ export const getProfitSharingOverviewAdmin = async (): Promise<any[]> => {
 const parseCommissionPercent = (strategy: any): number => {
   const p = strategy.parameters || {};
   const val = p.commission ?? p.Commission;
-  if (val == null) return 30;
+  if (val == null) return 10; // Default to 10% as per latest requirement
   if (typeof val === 'number') return val;
   const m = String(val).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
-  return m ? Number(m[0]) : 30;
+  return m ? Number(m[0]) : 10;
 };
 
 export const runProfitSettlement = async (strategyId: string, adminId: string, userId?: string) => {
@@ -1339,7 +1512,28 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
       'SELECT settlement_end FROM profit_settlements WHERE strategy_id = ? ORDER BY settlement_end DESC LIMIT 1',
       [strategyId]
     );
-    const settlementStart = lastSettlement[0]?.settlement_end || strategy.created_at;
+
+    // Get user-specific last settlement if userId is provided
+    let userLastSettlementEnd = null;
+    if (userId) {
+      const [userLastItem]: any = await connection.execute(
+        `SELECT ps.settlement_end 
+         FROM profit_settlement_items psi
+         JOIN profit_settlements ps ON psi.settlement_id = ps.id
+         WHERE psi.user_id = ? AND psi.strategy_id = ?
+         ORDER BY ps.settlement_end DESC LIMIT 1`,
+        [userId, strategyId]
+      );
+      userLastSettlementEnd = userLastItem[0]?.settlement_end;
+    }
+
+    // Settlement start logic:
+    // 1. If user-specific, start from their last settlement or strategy creation
+    // 2. If strategy-wide, start from last strategy settlement or strategy creation
+    const settlementStart = userId 
+      ? (userLastSettlementEnd || strategy.created_at) 
+      : (lastSettlement[0]?.settlement_end || strategy.created_at);
+    
     const settlementEnd = new Date();
 
     const [closedTrades]: any = await connection.execute(
@@ -1352,21 +1546,28 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
     const totalProfit = Number(closedTrades[0]?.total_profit || 0);
     const totalSwap = Number(closedTrades[0]?.total_swap || 0);
 
-    if (totalProfit <= 0) {
+    // If it's a general strategy-wide settlement, we might want to skip if no profit.
+    // But if it's a specific user settlement (disconnect), we MUST proceed to return their capital.
+    if (!userId && totalProfit <= 0) {
       await connection.rollback();
       return { success: true, message: 'No positive profit to settle at this time.', settlementId: null };
     }
 
-    const [userRows]: any = await connection.execute(
-      `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital
-       FROM running_strategies rs
-       JOIN users u ON rs.user_id = u.id
-       WHERE rs.strategy_id = ? AND (rs.status = "active" OR rs.admin_status = "running")`,
-      [strategyId]
-    );
+    const userRowsQuery = userId
+      ? `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital
+         FROM running_strategies rs
+         JOIN users u ON rs.user_id = u.id
+         WHERE rs.strategy_id = ? AND rs.user_id = ?`
+      : `SELECT rs.id as rs_id, rs.user_id, u.name, u.email, rs.capital
+         FROM running_strategies rs
+         JOIN users u ON rs.user_id = u.id
+         WHERE rs.strategy_id = ? AND (rs.status = "active" OR rs.admin_status = "running")`;
+
+    const userRowsParams = userId ? [strategyId, userId] : [strategyId];
+    const [userRows]: any = await connection.execute(userRowsQuery, userRowsParams);
 
     if (!Array.isArray(userRows) || userRows.length === 0) {
-      throw new Error('No active users found for strategy settlement.');
+      throw new Error(userId ? 'User not found or not active in this strategy.' : 'No active users found for strategy settlement.');
     }
 
     const allUsers = userRows;
@@ -1401,16 +1602,31 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
     const settledItems: any[] = [];
 
     for (const u of targetUsers) {
-      const invested = Number(u.capital || 0);
+      let invested = Number(u.capital || 0);
+      if (invested <= 0) {
+        // Fallback to wallet_transactions if capital is not set in running_strategies
+        const [depRows]: any = await connection.execute(
+          'SELECT SUM(amount) as invested FROM wallet_transactions WHERE user_id = ? AND strategy_id = ? AND transaction_type = "deposit" AND status IN ("completed", "approved", "settled")',
+          [u.user_id, strategyId]
+        );
+        invested = Number(depRows[0]?.invested || 0);
+      }
+      
       const share = totalDeposit > 0 ? invested / totalDeposit : 0;
       const userGrossProfit = totalProfit * share;
       const userSwap = totalSwap * share;
 
-      if (userGrossProfit <= 0) continue;
-
-      const commission = (userGrossProfit * commissionPercent) / 100;
+      // Formula: Commission = Profit * commissionPercent
+      // System should always use same formula, even for a single trade.
+      const commission = userGrossProfit > 0 ? (userGrossProfit * commissionPercent / 100) : 0;
+      
+      // The amount to be withdrawn to the central wallet is the profit AFTER commission
       const withdrawal = userGrossProfit - commission;
-      const settledBalance = invested + withdrawal + userSwap;
+      // The final balance for the user in this strategy after settlement
+      const settledBalance = invested + userGrossProfit + userSwap - commission;
+
+      // Only skip if the settledBalance is 0 or less AND it's not a user-specific settlement
+      if (settledBalance <= 0 && !userId) continue;
 
       const item = {
         id: `psi_${uuidv4()}`, settlement_id: settlementId, strategy_id: strategyId, user_id: u.user_id, user_name: u.name, user_email: u.email,
@@ -1428,9 +1644,11 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
         ]
       );
 
+      // Update the user's running capital to the new settled balance
+      // This ensures the baseline is correct for the next settlement cycle.
       await connection.execute(
-        'INSERT INTO wallet_transactions (id, user_id, strategy_id, amount, transaction_type, status, admin_message) VALUES (?, ?, ?, ?, "deposit", "settled", ?)',
-        [`txn_${uuidv4()}`, u.user_id, strategyId, settledBalance, 'Profit Settlement Deposit']
+        'UPDATE running_strategies SET capital = ?, updated_at = NOW() WHERE user_id = ? AND strategy_id = ?',
+        [settledBalance, u.user_id, strategyId]
       );
 
       settledTotalProfit += userGrossProfit;

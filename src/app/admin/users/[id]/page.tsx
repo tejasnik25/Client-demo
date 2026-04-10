@@ -19,6 +19,7 @@ export default function UserDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [strategies, setStrategies] = useState<any[]>([]);
+  const [closedStrategies, setClosedStrategies] = useState<any[]>([]);
   const [settlementBusyId, setSettlementBusyId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
@@ -37,7 +38,8 @@ export default function UserDetailsPage() {
       if (!response.ok) throw new Error('Failed to fetch user details');
       const data = await response.json();
       setUser(data.user);
-      setStrategies(data.strategies);
+      setStrategies(data.strategies || []);
+      setClosedStrategies(data.closedStrategies || []);
       setFormData({
         name: data.user.name || '',
         email: data.user.email || '',
@@ -197,6 +199,10 @@ export default function UserDetailsPage() {
                 <FiActivity className="w-4 h-4" />
                 Copying Strategies
               </TabsTrigger>
+              <TabsTrigger value="closed" className="data-[state=active]:bg-gray-800 data-[state=active]:text-white rounded-lg font-black uppercase tracking-wider text-[10px] py-3 px-8 transition-all flex items-center gap-2">
+                <FiActivity className="w-4 h-4" />
+                Closed Strategies
+              </TabsTrigger>
               <TabsTrigger value="settings" className="data-[state=active]:bg-[#00d09c] data-[state=active]:text-white rounded-lg font-black uppercase tracking-wider text-[10px] py-3 px-8 transition-all flex items-center gap-2">
                 <FiSettings className="w-4 h-4" />
                 Account Details
@@ -296,6 +302,64 @@ export default function UserDetailsPage() {
                   ))}
                 </div>
                 </>
+              )}
+            </TabsContent>
+
+            <TabsContent value="closed" className="space-y-6 outline-none">
+              {closedStrategies.length === 0 ? (
+                <div className="text-center py-20 bg-white rounded-[2rem] border border-gray-100 shadow-sm">
+                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <FiActivity className="w-8 h-8 text-gray-300" />
+                  </div>
+                  <h3 className="text-lg font-black text-gray-900">No Closed Strategies</h3>
+                  <p className="text-sm font-medium text-gray-400">No recently closed strategies for this user (last 30 days).</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {closedStrategies.map((rs) => (
+                    <Card key={rs.id} className="bg-white border-gray-100 shadow-sm rounded-[1.5rem] overflow-hidden opacity-80 grayscale-[0.5] hover:grayscale-0 transition-all">
+                      <div className="p-6">
+                        <div className="flex items-center gap-4 mb-6">
+                          <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center overflow-hidden border border-gray-100">
+                            <img src={rs.strategyImage || '/default-strategy.svg'} alt={rs.strategyName} className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="font-black text-gray-900 text-sm">{rs.strategyName}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest bg-gray-100 text-gray-600">
+                                Closed
+                              </span>
+                              <span className="text-[10px] font-bold text-gray-400">Plan: {rs.plan}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-gray-50/50 rounded-2xl p-4 border border-gray-50">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Final Capital</p>
+                            <p className="text-sm font-black text-gray-900">${Number(rs.capital).toFixed(2)}</p>
+                          </div>
+                          <div className="bg-gray-50/50 rounded-2xl p-4 border border-gray-50">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Final Profit</p>
+                            <p className={`text-sm font-black ${(rs.metrics?.realizedProfit) >= 0 ? 'text-[#00d09c]' : 'text-red-500'}`}>
+                              ${(rs.metrics?.realizedProfit).toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-6 pt-6 border-t border-gray-50 flex justify-between items-center">
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-bold text-gray-400 uppercase">Closed On</span>
+                            <span className="text-[11px] font-black text-gray-900">
+                              {new Date(rs.closedAt || rs.deletedAt || Date.now()).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold text-gray-400 italic">Auto-purge in 30 days</span>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
               )}
             </TabsContent>
 

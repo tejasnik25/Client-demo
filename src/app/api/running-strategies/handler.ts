@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
-import { getRunningStrategiesForUser, createRunningStrategy, getStrategyById, updateRunningStrategyAdminStatus, updateWalletTransactionStatus, createWalletTransaction } from '@/db/dbService';
-import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
+import {
+  getRunningStrategiesForUser,
+  createRunningStrategy,
+  getWalletBalance,
+  updateRunningStrategyAdminStatus,
+  createWalletTransaction,
+  deleteRunningStrategyForUserStrategy,
+  startRunningPeriod
+} from '@/db/dbService';
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -38,103 +45,66 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { strategyId, plan, capital, platform, mtAccountId, mtAccountPassword, mtAccountServer } = body;
+    const { strategyId, plan, capital, lotSize } = body;
 
     if (!strategyId || !plan || !capital) {
       return new NextResponse('Missing required fields', { status: 400 });
     }
 
-    // Fetch Strategy for Master Details
-    const strategy = await getStrategyById(strategyId);
-    if (!strategy) {
-       return new NextResponse('Strategy not found', { status: 404 });
+    // Validate available central wallet balance before purchase
+    const availableBalance = await getWalletBalance(session.user.id);
+    if (Number(capital) > availableBalance) {
+      return new NextResponse('Insufficient central wallet balance for this strategy purchase', { status: 400 });
     }
 
-    // Prepare Slave Details
-    const slaveDetails: MtAccountDetails = {
-        id: (mtAccountId || '').toString().trim(),
-        password: (mtAccountPassword || '').toString().trim(),
-        server: (mtAccountServer || '').toString().trim(),
-        platform: platform || 'MT5'
-    };
+    const selectedLotSize = Number(lotSize || 1);
+    if (!Number.isFinite(selectedLotSize) || selectedLotSize <= 0) {
+      return new NextResponse('Invalid lot size', { status: 400 });
+    }
 
-    // Validate Connection
-    const validation = await mt5Service.validateConnection(slaveDetails);
+    // Ensure user has only one active row per strategy before creating a fresh purchase.
+    await deleteRunningStrategyForUserStrategy(session.user.id, strategyId);
 
     const result = await createRunningStrategy(
       session.user.id,
       strategyId,
       plan,
-      capital,
-      {
-        platform,
-        mtAccountId,
-        mtAccountPassword,
-        mtAccountServer
-      }
+      Number(capital),
+      selectedLotSize,
+      {}
     );
 
     if (result.success && result.id) {
-      let finalStatus: 'running' | 'wrong-account-password' | 'wrong-account-id' | 'wrong-account-server-name' = 'running';
-
-      if (!validation.success) {
-         if (validation.error === 'Wrong-Password') finalStatus = 'wrong-account-password';
-         else if (validation.error === 'Wrong-Id') finalStatus = 'wrong-account-id';
-         else if (validation.error === 'Wrong-Server') finalStatus = 'wrong-account-server-name';
-         else finalStatus = 'wrong-account-id'; 
-      }
-
-      // Update status based on validation
-      await updateRunningStrategyAdminStatus(result.id, finalStatus);
-      
-      // Reserve capital in wallet for this running strategy
+      // Deduct wallet balance for strategy purchase as a charge transaction.
       try {
         if (Number(capital) > 0) {
-          await createWalletTransaction({
+          const chargeTxn = await createWalletTransaction({
             user_id: session.user.id,
             amount: Number(capital),
             capital: Number(capital),
             transaction_type: 'charge',
             status: 'completed',
             strategy_id: strategyId,
+            lot_size: selectedLotSize,
+            running_strategy_id: result.id,
             plan_level: plan,
             admin_message: `Reserved capital for running strategy ${strategyId} (${result.id})`
           });
+          if (!chargeTxn) {
+            console.error('[RunningStrategiesAPI] Wallet charge transaction failed');
+            return new NextResponse('Failed to reserve central wallet funds for strategy purchase', { status: 500 });
+          }
         }
       } catch (reserveError) {
         console.error('[RunningStrategiesAPI] Failed to create strategy reservation transaction:', reserveError);
+        return new NextResponse('Failed to reserve central wallet funds for strategy purchase', { status: 500 });
       }
 
-      // Update wallet transaction with rejection reason if any
-      if (!validation.success) {
-          await updateWalletTransactionStatus(
-              (mtAccountId || '').toString().trim(), 
-              'failed', 
-              validation.error || 'Validation Failed'
-          );
-      } else {
-          // If successful, mark as in-process or active? 
-          // Usually 'completed' means payment done, but here we are in the context of strategy creation.
-          // The wallet transaction might have been created earlier.
-          // For now, we only care about setting the error reason if it failed.
-      }
+      // Mark strategy as running immediately for wallet-funded purchase flow.
+      await updateRunningStrategyAdminStatus(result.id, 'running');
+      await startRunningPeriod(result.id);
 
-      // If valid, START Copy Trading
-      if (finalStatus === 'running' && strategy.masterAccountId) {
-         const masterDetails: MtAccountDetails = {
-             id: strategy.masterAccountId,
-             password: strategy.masterAccountPassword || '',
-             server: strategy.masterAccountServer || '',
-             platform: strategy.masterPlatform || 'MT5'
-         };
-         try {
-             await mt5Service.startCopyTrading(masterDetails, slaveDetails, result.id);
-         } catch (e) {
-             console.error('Failed to start copy trading on create:', e);
-         }
-      }
-
-      return NextResponse.json({ success: true, id: result.id, status: finalStatus });
+      return NextResponse.json({ success: true, id: result.id, status: 'running' });
     } else {
       return new NextResponse('Failed to create running strategy', { status: 500 });
     }

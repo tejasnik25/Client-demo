@@ -4,16 +4,18 @@ import { useMemo, useState, useEffect } from 'react';
 import Button from '@/components/ui/Button';
 import { PaymentData } from '@/types';
 import { FiHelpCircle, FiCreditCard } from 'react-icons/fi';
+import { useRouter } from 'next/navigation';
 
 interface Stage0Props {
-  onNext: () => void;
   setPaymentData: React.Dispatch<React.SetStateAction<PaymentData | null>>;
   paymentData: PaymentData | null;
   strategy: any;
 }
 
-const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }: Stage0Props) => {
+const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0Props) => {
+  const router = useRouter();
   const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [purchasing, setPurchasing] = useState(false);
   
   useEffect(() => {
     fetch('/api/profile')
@@ -59,11 +61,42 @@ const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }:
   const hasInsufficientBalance = (paymentData?.payable || 0) > walletBalance;
 
   const handleContinue = () => {
-    if (hasInsufficientBalance) {
-      alert("You don't have enough balance to buy the strategy, please refill your wallet");
-      return;
-    }
-    if (paymentData?.payable != null) onNext();
+    const run = async () => {
+      if (hasInsufficientBalance) {
+        alert("You don't have enough balance to buy the strategy, please refill your wallet");
+        return;
+      }
+      if (!paymentData?.payable || !paymentData?.strategyId) {
+        alert('Please select a valid lot size first.');
+        return;
+      }
+
+      try {
+        setPurchasing(true);
+        const res = await fetch('/api/running-strategies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            strategyId: paymentData.strategyId,
+            plan: paymentData.plan || 'Pro',
+            capital: paymentData.payable,
+            lotSize: paymentData.lotSize || 1,
+          }),
+        });
+
+        if (!res.ok) {
+          const msg = await res.text().catch(() => 'Failed to purchase strategy');
+          throw new Error(msg || 'Failed to purchase strategy');
+        }
+
+        router.push('/strategies?view=deployed');
+      } catch (e: any) {
+        alert(e?.message || 'Failed to purchase strategy');
+      } finally {
+        setPurchasing(false);
+      }
+    };
+    run();
   };
 
   const commission = strategy?.parameters?.commission || strategy?.parameters?.Commission || '30%';
@@ -233,10 +266,10 @@ const Stage0_PlanSelection = ({ onNext, setPaymentData, paymentData, strategy }:
       <div className="mt-4">
         <Button
           onClick={handleContinue}
-          disabled={!paymentData?.payable}
+          disabled={!paymentData?.payable || purchasing}
           className="w-full py-4 rounded-2xl text-base font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition-all disabled:opacity-50"
         >
-          Start copying
+          {purchasing ? 'Purchasing...' : 'Start copying'}
         </Button>
       </div>
     </div>

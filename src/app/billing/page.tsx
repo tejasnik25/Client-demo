@@ -26,6 +26,8 @@ const BillingPageInner: React.FC = () => {
   const { user } = useAuth();
   const [txs, setTxs] = useState<Tx[]>([]);
   const [balance, setBalance] = useState<number>(0);
+  const [totalDeposited, setTotalDeposited] = useState<number>(0);
+  const [totalCharged, setTotalCharged] = useState<number>(0);
   const [strategies, setStrategies] = useState<{ id: string; name: string; enabled?: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'successful' | 'rejected' | 'pending'>('all');
@@ -37,14 +39,16 @@ const BillingPageInner: React.FC = () => {
       try {
         setLoading(true);
         const [txRes, stratRes] = await Promise.all([
-          fetch('/api/wallet/transactions'),
-          fetch('/api/strategies')
+          fetch('/api/wallet/transactions', { cache: 'no-store' }),
+          fetch('/api/strategies', { cache: 'no-store' })
         ]);
         const txData = await txRes.json();
         const stratData = await stratRes.json();
         const list: Tx[] = txData?.transactions || [];
         setTxs(list);
         setBalance(txData?.balance || 0);
+        setTotalDeposited(Number(txData?.total_deposited ?? list.filter((t) => t.transaction_type === 'deposit' && ['completed','approved','settled'].includes(t.status)).reduce((sum, t) => sum + Number(t.amount ?? 0), 0)));
+        setTotalCharged(Number(txData?.total_charged ?? list.filter((t) => t.transaction_type === 'charge' && ['completed','approved','settled'].includes(t.status)).reduce((sum, t) => sum + Number(t.amount ?? 0), 0)));
         const fetched = (stratData?.strategies || []).map((s: { id?: string | number; name?: string; enabled?: boolean }) => ({ id: String(s.id ?? ''), name: String(s.name ?? ''), enabled: s.enabled !== false }));
         setStrategies(fetched.filter((s: { enabled?: boolean }) => s.enabled !== false));
       } catch {
@@ -173,10 +177,10 @@ const BillingPageInner: React.FC = () => {
               <div className="p-2 rounded-lg bg-white/20">
                 <FiDollarSign className="h-5 w-5 text-white" />
               </div>
-              <span className="text-xs text-white/80 uppercase tracking-wider">Funds in wallet</span>
+              <span className="text-xs text-white/80 uppercase tracking-wider">Central Wallet Balance</span>
             </div>
             <div className="text-3xl font-black">{formatUSD(balance)}</div>
-            <div className="text-sm text-white/70 mt-1">Available central balance</div>
+            <div className="text-sm text-white/70 mt-1">Available funds for trading</div>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
@@ -184,10 +188,10 @@ const BillingPageInner: React.FC = () => {
               <div className="p-2 rounded-lg bg-green-100">
                 <FiTrendingUp className="h-5 w-5 text-[#00d09c]" />
               </div>
-              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Spent</span>
+              <span className="text-xs text-gray-600 uppercase tracking-wider">Total Deposited</span>
             </div>
-            <div className="text-2xl font-bold text-gray-900">{formatINR(stats.totalSpent)}</div>
-            <div className="text-sm text-gray-600 mt-1">{stats.successful} successful payments</div>
+            <div className="text-2xl font-bold text-gray-900">{formatINR(totalDeposited)}</div>
+            <div className="text-sm text-gray-600 mt-1">Completed deposit amount</div>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
@@ -195,10 +199,10 @@ const BillingPageInner: React.FC = () => {
               <div className="p-2 rounded-lg bg-yellow-100">
                 <FiClock className="h-5 w-5 text-yellow-600" />
               </div>
-              <span className="text-xs text-gray-600 uppercase tracking-wider">Pending</span>
+              <span className="text-xs text-gray-600 uppercase tracking-wider">Reserved / Charges</span>
             </div>
-            <div className="text-2xl font-bold text-gray-900">{formatINR(stats.pendingAmount)}</div>
-            <div className="text-sm text-gray-600 mt-1">{stats.pending} pending payments</div>
+            <div className="text-2xl font-bold text-gray-900">{formatINR(totalCharged)}</div>
+            <div className="text-sm text-gray-600 mt-1">Capital reserved for strategies</div>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
@@ -220,7 +224,7 @@ const BillingPageInner: React.FC = () => {
               <span className="text-xs text-gray-600 uppercase tracking-wider">Total</span>
             </div>
             <div className="text-2xl font-bold text-gray-900">{stats.totalTransactions}</div>
-            <div className="text-sm text-gray-600 mt-1">All transactions</div>
+            <div className="text-sm text-gray-600 mt-1">All wallet transactions with statuses</div>
           </div>
         </div>
 
@@ -246,6 +250,12 @@ const BillingPageInner: React.FC = () => {
           ))}
         </div>
 
+        {totalDeposited > 0 && balance === 0 && totalCharged > 0 && (
+          <div className="mb-6 rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900">
+            Your deposit payment has been approved, but an equal strategy charge has been applied to reserve capital. The transaction history below still shows the deposit and charge records.
+          </div>
+        )}
+
         {/* Transactions Table */}
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="p-6 border-b border-gray-200">
@@ -266,7 +276,7 @@ const BillingPageInner: React.FC = () => {
                 <FiCreditCard className="h-8 w-8 text-gray-600" />
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions found</h3>
-              <p className="text-gray-600 mb-6">You haven&apos;t made any {filter !== 'all' ? filter : ''} transactions yet.</p>
+              <p className="text-gray-600 mb-6">You haven't made any wallet transactions yet.</p>
               <Link
                 href="/strategies"
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-[#00d09c] to-[#00b085] hover:from-[#00b085] hover:to-[#00d09c] text-white font-medium hover:shadow-lg transition-all duration-200"
