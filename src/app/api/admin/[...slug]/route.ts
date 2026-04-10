@@ -86,6 +86,12 @@ async function handleRequest(req: NextRequest, { params }: { params: Promise<{ s
       if (handler && handler[method]) return (handler[method] as any)(req);
     }
 
+    // 6. /profit-sharing/...
+    if (slug[0] === 'profit-sharing') {
+      handler = await import('../profit-sharing/handler');
+      if (handler && handler[method]) return (handler[method] as any)(req);
+    }
+
     return NextResponse.json({ error: `Route not found: /api/admin/${slug.join('/')}` }, { status: 404 });
   } catch (error: any) {
     console.error(`Error in catch-all admin route (${slug.join('/')}):`, error);

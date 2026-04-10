@@ -4,6 +4,7 @@ import {
   getProfitSharingOverviewAdmin,
   runProfitSharingSettlementAdmin,
   getProfitSharingUserSummaryAdmin,
+  deleteRecentSettlementsAdmin,
 } from '@/db/dbService';
 
 export async function GET(req: NextRequest) {
@@ -14,13 +15,13 @@ export async function GET(req: NextRequest) {
     }
 
     const strategyId = new URL(req.url).searchParams.get('strategyId');
+    const userId = new URL(req.url).searchParams.get('userId');
+
     if (strategyId) {
       const allStrategies = await getProfitSharingOverviewAdmin();
       const strategy = allStrategies.find(s => (s.id === strategyId || s.strategyId === strategyId));
       if (!strategy) return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
       
-      // Also get detailed users list for this strategy if needed
-      // For now, let's just return the strategy overview
       return NextResponse.json({ strategy });
     }
 
@@ -48,9 +49,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const strategyId = String(body?.strategyId || '').trim();
     const userId = body?.userId ? String(body?.userId).trim() : undefined;
+    const action = body?.action || 'settle';
 
     if (!strategyId) {
       return NextResponse.json({ error: 'strategyId is required' }, { status: 400 });
+    }
+
+    if (action === 'reset') {
+      const result = await deleteRecentSettlementsAdmin(strategyId, userId);
+      if (!result.success) {
+        return NextResponse.json({ error: result.error || 'Reset failed' }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, message: result.message });
     }
 
     const result = await runProfitSharingSettlementAdmin(strategyId, session.user.id, userId);
@@ -60,7 +70,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      settlement: result.settlement,
+      settlementId: result.settlementId,
       items: result.items || [],
       message: result.message,
     });
