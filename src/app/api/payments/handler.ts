@@ -101,6 +101,15 @@ export async function GET(req: Request) {
     if (isAdmin) {
       const { getAllTransactions } = await import('@/db/dbService');
       const txs = await getAllTransactions();
+      const toIso = (d: any) => {
+        if (!d) return undefined;
+        try {
+          const dt = d instanceof Date ? d : new Date(d);
+          return isNaN(dt.getTime()) ? String(d) : dt.toISOString();
+        } catch {
+          return String(d);
+        }
+      };
       const payments = txs.map((t: any) => ({
         id: t.id,
         userId: t.user_id,
@@ -114,12 +123,21 @@ export async function GET(req: Request) {
         lotSize: Number(t.lot_size ?? t.lotSize ?? 0),
         proofUrl: t.receipt_path,
         status: t.status,
-        createdAt: t.created_at,
+        createdAt: toIso(t.created_at),
       }));
       return NextResponse.json({ payments });
     } else {
       const { getTransactionsByUser } = await import('@/db/dbService');
       const txs = await getTransactionsByUser(session.user.id);
+      const toIso = (d: any) => {
+        if (!d) return undefined;
+        try {
+          const dt = d instanceof Date ? d : new Date(d);
+          return isNaN(dt.getTime()) ? String(d) : dt.toISOString();
+        } catch {
+          return String(d);
+        }
+      };
       const payments = txs.map((t: any) => ({
         id: t.id,
         userId: t.user_id,
@@ -130,8 +148,9 @@ export async function GET(req: Request) {
         capital: Number(t.capital ?? t.amount ?? 0),
         method: t.payment_method,
         lotSize: Number(t.lot_size ?? t.lotSize ?? 0),
+        admin_message: t.admin_message,
         status: t.status,
-        createdAt: t.created_at,
+        createdAt: toIso(t.created_at),
       }));
       return NextResponse.json({ payments });
     }

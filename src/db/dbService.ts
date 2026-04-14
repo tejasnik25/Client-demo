@@ -90,10 +90,35 @@ export const ensureProfitSharingTables = async () => {
   }
 };
 
+export const ensureInvestmentEventsTable = async (): Promise<void> => {
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS investment_events (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        strategy_id VARCHAR(255) NOT NULL,
+        running_strategy_id VARCHAR(255) NULL,
+        event_ms BIGINT NOT NULL,
+        action ENUM('initial','add','reduce') NOT NULL,
+        delta_amount DECIMAL(18,2) NOT NULL,
+        total_capital DECIMAL(18,2) NOT NULL,
+        lot_size DECIMAL(10,4) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_strategy (user_id, strategy_id),
+        INDEX idx_running_strategy (running_strategy_id),
+        INDEX idx_event_ms (event_ms)
+      )
+    `);
+  } catch (error) {
+    console.error('ensureInvestmentEventsTable failed:', error);
+  }
+};
+
 export const initializeDatabase = async () => {
   try {
     await ensureRunningPeriodsTable();
     await ensureProfitSharingTables();
+    await ensureInvestmentEventsTable();
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS disconnect_snapshots (
         id VARCHAR(255) PRIMARY KEY,
@@ -1638,7 +1663,7 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
         totalDeposit += userCap;
       } else {
         const [depRows]: any = await connection.execute(
-          'SELECT SUM(amount) as invested FROM wallet_transactions WHERE user_id = ? AND strategy_id = ? AND transaction_type = "deposit" AND status IN ("completed", "approved", "settled")',
+          'SELECT SUM(amount) as invested FROM wallet_transactions WHERE user_id = ? AND strategy_id = ? AND transaction_type IN ("deposit","charge") AND status IN ("completed", "approved", "settled")',
           [u.user_id, strategyId]
         );
         totalDeposit += Number(depRows[0]?.invested || 0);
@@ -1664,7 +1689,7 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
       let currentCapital = Number(u.capital || 0);
       if (currentCapital <= 0) {
         const [depRows]: any = await connection.execute(
-          'SELECT SUM(amount) as invested FROM wallet_transactions WHERE user_id = ? AND strategy_id = ? AND transaction_type = "deposit" AND status IN ("completed", "approved", "settled")',
+          'SELECT SUM(amount) as invested FROM wallet_transactions WHERE user_id = ? AND strategy_id = ? AND transaction_type IN ("deposit","charge") AND status IN ("completed", "approved", "settled")',
           [u.user_id, strategyId]
         );
         currentCapital = Number(depRows[0]?.invested || 0);

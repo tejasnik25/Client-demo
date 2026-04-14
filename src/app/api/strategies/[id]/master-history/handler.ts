@@ -8,6 +8,55 @@ export const maxDuration = 25;
 const PYTHON_SERVICE_TIMEOUT_MS = 20000;
 const DEFAULT_COPY_TRADING_API_KEY = '9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad';
 
+function toEpochMs(v: any): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return null;
+    return v < 1e12 ? Math.floor(v * 1000) : Math.floor(v);
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // If it looks like a number string.
+  const asNum = Number(s);
+  if (Number.isFinite(asNum)) return toEpochMs(asNum);
+
+  // ISO / RFC.
+  const t = new Date(s).getTime();
+  if (Number.isFinite(t)) return t;
+
+  // MT5-like: "13 Apr 17:58:47" or "13 Apr 17:58:47 UTC"
+  const m = s.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2}):(\d{2}):(\d{2})(?:\s*(UTC))?$/);
+  if (m) {
+    const day = Number(m[1]);
+    const monStr = m[2].toLowerCase();
+    const hh = Number(m[3]);
+    const mm = Number(m[4]);
+    const ss = Number(m[5]);
+    const months: Record<string, number> = {
+      jan: 0,
+      feb: 1,
+      mar: 2,
+      apr: 3,
+      may: 4,
+      jun: 5,
+      jul: 6,
+      aug: 7,
+      sep: 8,
+      oct: 9,
+      nov: 10,
+      dec: 11,
+    };
+    const mon = months[monStr];
+    if (mon != null && Number.isFinite(day) && Number.isFinite(hh) && Number.isFinite(mm) && Number.isFinite(ss)) {
+      const year = new Date().getUTCFullYear();
+      return Date.UTC(year, mon, day, hh, mm, ss);
+    }
+  }
+
+  return null;
+}
+
 function getTradingServiceBaseUrls(): string[] {
   const envUrl =
     process.env.COPY_TRADING_API_URL ||
@@ -77,6 +126,8 @@ export async function GET(
     time_close: trade.time_close || trade.server_time_close || null,
     server_time_open: trade.server_time_open || trade.time_open || trade.server_time || null,
     server_time_close: trade.server_time_close || trade.time_close || null,
+    time_open_ms: toEpochMs(trade.time_open || trade.server_time_open || trade.time || null),
+    time_close_ms: toEpochMs(trade.time_close || trade.server_time_close || null),
   });
 
   const fallbackFromCache = async (reason?: string) => {
@@ -189,6 +240,8 @@ export async function GET(
         ...p,
         server_time_open: p.server_time_open ?? p.server_time ?? null,
         price_current: p.price_current ?? p.price ?? p.price_open ?? null,
+        time_open_ms: toEpochMs(p.time_open ?? p.server_time_open ?? p.server_time ?? p.time ?? null),
+        time_close_ms: toEpochMs(p.time_close ?? p.server_time_close ?? null),
       })
     );
 
@@ -220,7 +273,13 @@ export async function GET(
       console.warn('[MasterHistory] Failed to merge cached trades with live data (non-fatal):', mergeErr);
     }
 
-    const finalHistory = [...mergedHistory].sort((a, b) => {
+    const finalHistory = [...mergedHistory]
+      .map((t: any) => ({
+        ...t,
+        time_open_ms: toEpochMs(t.time_open ?? t.server_time_open ?? t.server_time ?? t.time ?? null),
+        time_close_ms: toEpochMs(t.time_close ?? t.server_time_close ?? null),
+      }))
+      .sort((a, b) => {
       const getTime = (t: any) => {
         if (t == null) return 0;
         if (typeof t === 'number') return t < 1e12 ? t * 1000 : t;

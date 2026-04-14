@@ -18,6 +18,14 @@ export async function GET(request: NextRequest) {
 
     const strategyId = strategies[0].id;
     const strategyFullName = strategies[0].name;
+    const [strategyRows]: any = await pool.execute('SELECT id, name, parameters FROM strategies WHERE id = ? LIMIT 1', [strategyId]);
+    const strategyRow = strategyRows?.[0] || null;
+    let strategyParams: any = null;
+    try {
+      strategyParams = strategyRow?.parameters ? (typeof strategyRow.parameters === 'string' ? JSON.parse(strategyRow.parameters) : strategyRow.parameters) : null;
+    } catch {
+      strategyParams = null;
+    }
 
     console.log(`[Diagnostic] Checking userId=${userId}, strategyId=${strategyId}`);
 
@@ -126,6 +134,12 @@ export async function GET(request: NextRequest) {
         userId,
         strategyId,
         strategyName: strategyFullName
+      },
+      strategy: {
+        id: strategyRow?.id || strategyId,
+        name: strategyRow?.name || strategyFullName,
+        min_capital: strategyParams?.minCapital ?? strategyParams?.min_capital ?? null,
+        lotPricing: strategyParams?.lotPricing ?? null,
       },
       data: {
         runningStrategies: runningStrategies.map((r: any) => ({

@@ -86,8 +86,52 @@ type BalanceOp = {
 };
 
 type Plan = "Pro" | "Expert" | "Premium";
-const LOT_SIZE_USER_OVERRIDES: Record<string, number> = {
-  user_1775738809201: 2,
+const LOT_SIZE_USER_OVERRIDES: Record<string, number> = {};
+
+const extractLotFromAdminMessage = (msg: any): number => {
+  const s = String(msg ?? '').toLowerCase();
+  if (!s) return 0;
+  const m1 = s.match(/(?:equal\s*x|x|lot\s*[:=])\s*(\d+(?:\.\d+)?)/i);
+  if (m1) {
+    const n = Number(m1[1]);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+  return 0;
+};
+
+const parseLotPricingRows = (lotPricing: any): Array<{ lot: number; amountUSD: number }> => {
+  try {
+    if (!lotPricing) return [];
+    const parsed = typeof lotPricing === 'string' ? JSON.parse(lotPricing) : lotPricing;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x: any) => ({ lot: Number(x?.lot), amountUSD: Number(x?.amountUSD) }))
+      .filter((x: any) => Number.isFinite(x.lot) && x.lot > 0 && Number.isFinite(x.amountUSD) && x.amountUSD > 0)
+      .sort((a, b) => a.amountUSD - b.amountUSD);
+  } catch {
+    return [];
+  }
+};
+
+const deriveLotFromPricingTiers = (capital: number, lotPricing: any, fallbackUnitPrice: number): number => {
+  const cap = Number(capital || 0);
+  if (!Number.isFinite(cap) || cap <= 0) return 1;
+  const rows = parseLotPricingRows(lotPricing);
+  // If pricing is missing/invalid, fallback to per-strategy unit price.
+  if (rows.length === 0) return Math.max(1, Math.floor(cap / Math.max(1, fallbackUnitPrice)));
+  const one = rows.find((x) => Number(x.lot) === 1);
+  if (one && Number.isFinite(one.amountUSD) && one.amountUSD > 0) {
+    const derived = Math.floor(cap / Number(one.amountUSD));
+    const lot = Math.max(1, derived);
+    // IMPORTANT: do not clamp to preset tiers; lot can exceed examples in lotPricing.
+    return lot;
+  }
+  let best = rows[0];
+  for (const r of rows) {
+    if (r.amountUSD <= cap) best = r;
+    else break;
+  }
+  return Number.isFinite(best?.lot) && best.lot > 0 ? best.lot : 1;
 };
 
 const toTradeSide = (row: any): 'BUY' | 'SELL' => {
@@ -125,6 +169,71 @@ const toDisplaySymbol = (value: any): string => {
   return cleaned;
 };
 
+const parsePaymentMs = (p: any, toMs: (v: any) => number): number => {
+  return toMs(p?.createdAt ?? p?.created_at ?? p?.time ?? p?.created_at);
+};
+
+const parseUnitPrice = (strategy: any): number => {
+  // Prefer lotPricing 1-lot price; fallback to smallest amountUSD/lot; last resort 1000.
+  try {
+    const lp = strategy?.parameters?.lotPricing;
+    const rows = parseLotPricingRows(lp);
+    const one = rows.find((r) => Number(r.lot) === 1);
+    if (one && Number.isFinite(one.amountUSD) && one.amountUSD > 0) return Number(one.amountUSD);
+    if (rows.length > 0) {
+      const unit = Number(rows[0].amountUSD) / Number(rows[0].lot || 1);
+      if (Number.isFinite(unit) && unit > 0) return unit;
+    }
+  } catch {}
+  const minCap = Number(strategy?.parameters?.minCapital ?? strategy?.parameters?.min_capital ?? 1000);
+  return Number.isFinite(minCap) && minCap > 0 ? minCap : 1000;
+};
+
+const buildLotTimeline = (payments: any[], toMs: (v: any) => number, unitPrice: number) => {
+  const events = payments
+    .map((p) => {
+      const t = parsePaymentMs(p, toMs);
+      const type = String(p?.transaction_type || p?.transactionType || '').toLowerCase();
+      const status = String(p?.status || '').toLowerCase();
+      const msg = String(p?.admin_message || '').toLowerCase();
+      const ok = status === 'completed' || status === 'approved' || status === 'settled';
+      if (!ok) return null;
+
+      const rawAmount = Number(p?.capital ?? p?.amount ?? p?.payable ?? 0);
+      if (!Number.isFinite(rawAmount) || rawAmount <= 0) return null;
+
+      // Reduce investment is stored as settled + admin_message contains "investment reduction"
+      const isReduction = type === 'settled' && msg.includes('investment reduction');
+      const isIncrease = type === 'charge' || type === 'deposit' || (type === 'settled' && !isReduction);
+      if (!isReduction && !isIncrease) return null;
+
+      const delta = isReduction ? -rawAmount : rawAmount;
+      return { ms: t, delta };
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => a.ms - b.ms);
+
+  let cumulative = 0;
+  const timeline: Array<{ ms: number; lot: number }> = [];
+  for (const e of events as any[]) {
+    if (!Number.isFinite(e.ms) || e.ms <= 0) continue;
+    cumulative += Number(e.delta || 0);
+    const lot = Math.max(1, Math.floor(cumulative / Math.max(1, unitPrice)));
+    timeline.push({ ms: e.ms, lot });
+  }
+  return timeline;
+};
+
+const getLotForTime = (ms: number, timeline: Array<{ ms: number; lot: number }>, fallbackLot: number): number => {
+  let chosen = 0;
+  for (const r of timeline) {
+    if (r.ms <= ms) chosen = r.lot;
+    else break;
+  }
+  const lot = Number(chosen || 0);
+  return Number.isFinite(lot) && lot > 0 ? lot : (fallbackLot > 0 ? fallbackLot : 1);
+};
+
 export default function CopierHistoryPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -135,6 +244,8 @@ export default function CopierHistoryPage() {
   const [openPositions, setOpenPositions] = useState<OpenItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [investmentTimeline, setInvestmentTimeline] = useState<Array<{ event_ms: number; lot_size: number; total_capital: number }>>([]);
+  const [investmentTimelineUnitPrice, setInvestmentTimelineUnitPrice] = useState<number | null>(null);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyInfo, setHistoryInfo] = useState<string | null>(null);
@@ -159,6 +270,10 @@ export default function CopierHistoryPage() {
   const [runningCapital, setRunningCapital] = useState<number>(0);
   const [isStopRequesting, setIsStopRequesting] = useState<boolean>(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [investmentModal, setInvestmentModal] = useState<{ open: boolean; action: 'add' | 'reduce' | null }>({ open: false, action: null });
+  const [investmentAmount, setInvestmentAmount] = useState<string>('');
+  const [investmentBusy, setInvestmentBusy] = useState<boolean>(false);
+  const [investmentError, setInvestmentError] = useState<string | null>(null);
 
   const strategyStatus = useMemo(() => {
     const raw = `${adminStatus || ""} ${mtStatus || ""}`.toLowerCase();
@@ -189,6 +304,21 @@ export default function CopierHistoryPage() {
           t = d.getTime();
         }
       }
+      if (!Number.isFinite(t)) {
+        // MT5 sometimes provides "13 Apr 17:58:47" (no year). Assume current year.
+        const m = v.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2}):(\d{2}):(\d{2})$/);
+        if (m) {
+          const day = Number(m[1]);
+          const mon = m[2].toLowerCase();
+          const months: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+          const monthIdx = months[mon];
+          if (monthIdx !== undefined) {
+            const now = new Date();
+            // The UI labels these times as UTC. Parse them as UTC to compare correctly with ISO timestamps.
+            t = Date.UTC(now.getFullYear(), monthIdx, day, Number(m[3]), Number(m[4]), Number(m[5]));
+          }
+        }
+      }
       return Number.isFinite(t) ? t : NaN;
     }
     const num = Number(v);
@@ -197,70 +327,16 @@ export default function CopierHistoryPage() {
   };
 
   const selectedLotSize = useMemo(() => {
-    const normalizeId = (v: any) => String(v ?? '').trim();
-    const currentStrategyId = normalizeId(params.id);
-    const currentRsId = normalizeId(rsId);
-
-    const candidatePaymentLot = payments
-      .filter((p) => {
-        const pStrategyId = normalizeId((p as any).strategyId ?? (p as any).strategy_id);
-        const pRsId = normalizeId((p as any).runningStrategyId ?? (p as any).running_strategy_id);
-        return (
-          (pStrategyId && pStrategyId === currentStrategyId) ||
-          (currentRsId && pRsId && pRsId === currentRsId)
-        );
-      })
-      .map((p) => Number(p.lotSize ?? 0))
-      .filter((lot) => Number.isFinite(lot) && lot > 0)
-      .sort((a, b) => b - a)[0];
-
-    // 1. Derive from running capital and strategy lotPricing (hard fallback when lot columns are missing)
-    let derivedLot = 0;
-    try {
-      const rawPricing = strategy?.parameters?.lotPricing;
-      if (rawPricing && Number(runningCapital) > 0) {
-        const parsed = typeof rawPricing === 'string' ? JSON.parse(rawPricing) : rawPricing;
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const rows = parsed
-            .map((x: any) => ({ lot: Number(x?.lot), amountUSD: Number(x?.amountUSD) }))
-            .filter((x: any) => Number.isFinite(x.lot) && x.lot > 0 && Number.isFinite(x.amountUSD) && x.amountUSD > 0);
-          if (rows.length > 0) {
-            const one = rows.find((x: any) => x.lot === 1);
-            const unitPrice = one ? one.amountUSD : (rows[0].amountUSD / rows[0].lot);
-            if (Number.isFinite(unitPrice) && unitPrice > 0) {
-              const derived = Number(runningCapital) / unitPrice;
-              if (Number.isFinite(derived) && derived > 0) {
-                const rounded = Math.round(derived);
-                derivedLot = Math.abs(derived - rounded) < 0.12 && rounded > 0 ? rounded : Number(derived.toFixed(2));
-              }
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore and continue fallback chain
-    }
-
-    // 2. Hardcoded per-user override for legacy inconsistent rows
-    const forcedLot = sessionUserId ? Number(LOT_SIZE_USER_OVERRIDES[sessionUserId] || 0) : 0;
-    const rowLot = Number(runningLotSize || 0);
-    const txLot = Number(candidatePaymentLot || 0);
-    const drvLot = Number(derivedLot || 0);
-
-    // Treat row lot 1 as weak default; prefer stronger (>1) evidence.
-    if (forcedLot > 1) return forcedLot;
-    if (txLot > 1) return txLot;
-    if (drvLot > 1) return drvLot;
-    if (rowLot > 1) return rowLot;
-
-    if (forcedLot > 0) return forcedLot;
-    if (txLot > 0) return txLot;
-    if (drvLot > 0) return drvLot;
-    if (rowLot > 0) return rowLot;
-
-    // 3. Fallback: Strategy default lot size
-    const strategyLot = Number(strategy?.parameters?.lotSize ?? strategy?.parameters?.lot_size ?? strategy?.parameters?.lot_mode?.match(/\d+/)?.[0] ?? 1);
-    return Number.isFinite(strategyLot) && strategyLot > 0 ? strategyLot : 1;
+    const cap = Number(runningCapital || 0);
+    const minCap = Number(
+      (strategy as any)?.minCapital ??
+      (strategy as any)?.min_capital ??
+      (strategy as any)?.parameters?.minCapital ??
+      (strategy as any)?.parameters?.min_capital ??
+      1000
+    );
+    const lotPricing = strategy?.parameters?.lotPricing;
+    return deriveLotFromPricingTiers(cap, lotPricing, Number.isFinite(minCap) && minCap > 0 ? minCap : 1000);
   }, [strategy, payments, params.id, rsId, runningLotSize, sessionUserId, runningCapital]);
 
   const loadHistory = useCallback(async () => {
@@ -317,6 +393,22 @@ export default function CopierHistoryPage() {
         setModifications(me.modifications || []);
         setSnapshots(me.snapshots || []);
         setRunningCapital(Number(me.capital || 0));
+
+        // Hardcore fix: use a server-derived investment timeline (epoch ms) to avoid timezone parsing issues.
+        try {
+          const tlRes = await fetch(`/api/strategies/running/${me.rsId || me.id}/investment-timeline?t=${Date.now()}`, { cache: "no-store" });
+          const tlJson = await tlRes.json().catch(() => null);
+          if (tlRes.ok && tlJson?.success) {
+            setInvestmentTimeline(Array.isArray(tlJson.timeline) ? tlJson.timeline : []);
+            setInvestmentTimelineUnitPrice(Number(tlJson.unitPrice) || null);
+          } else {
+            setInvestmentTimeline([]);
+            setInvestmentTimelineUnitPrice(null);
+          }
+        } catch {
+          setInvestmentTimeline([]);
+          setInvestmentTimelineUnitPrice(null);
+        }
 
         if (me.rsId || me.id) {
           try {
@@ -417,9 +509,31 @@ export default function CopierHistoryPage() {
       return true;
     };
 
+    // Prefer DB/Server-derived investment timeline (epoch ms) for lot changes.
+    const normalizeId = (v: any) => String(v ?? '').trim();
+    const currentStrategyId = normalizeId(params.id);
+    const currentRsId = normalizeId(rsId);
+    const strategyPayments = payments.filter((p: any) => {
+      const pStrategyId = normalizeId((p as any).strategyId ?? (p as any).strategy_id);
+      const pRsId = normalizeId((p as any).runningStrategyId ?? (p as any).running_strategy_id);
+      return (pStrategyId && pStrategyId === currentStrategyId) || (currentRsId && pRsId && pRsId === currentRsId);
+    });
+    const unitPrice = (investmentTimelineUnitPrice && investmentTimelineUnitPrice > 0) ? investmentTimelineUnitPrice : parseUnitPrice(strategy);
+    const lotTimeline =
+      investmentTimeline.length > 0
+        ? investmentTimeline
+          .filter((e: any) => Number.isFinite(Number(e.event_ms)) && Number.isFinite(Number(e.lot_size)))
+          .map((e: any) => ({ ms: Number(e.event_ms), lot: Number(e.lot_size) }))
+          .sort((a: any, b: any) => a.ms - b.ms)
+        : buildLotTimeline(strategyPayments, toMs, unitPrice);
+
     return history.filter(h => {
-      const openMs = toMs((h.server_time_open ?? h.time_open) ?? (h.open_time ?? h.time));
-      const closeMs = toMs((h.server_time_close ?? h.time_close) ?? (h.close_time ?? h.time));
+      const openMs = Number.isFinite(Number((h as any).time_open_ms))
+        ? Number((h as any).time_open_ms)
+        : toMs((h.server_time_open ?? h.time_open) ?? (h.open_time ?? h.time));
+      const closeMs = Number.isFinite(Number((h as any).time_close_ms))
+        ? Number((h as any).time_close_ms)
+        : toMs((h.server_time_close ?? h.time_close) ?? (h.close_time ?? h.time));
       if (!Number.isFinite(openMs) && !Number.isFinite(closeMs)) return true;
       const effectiveMs = Number.isFinite(openMs) ? openMs : closeMs;
 
@@ -428,16 +542,24 @@ export default function CopierHistoryPage() {
 
       if (runningPeriods.length === 0) {
         const connectTs = connectAt ? toMs(connectAt) : NaN;
-        return !Number.isFinite(connectTs) || effectiveMs >= connectTs;
+        // IMPORTANT: Use closeMs for connectAt filter to ensure trades that were open before 
+        // connection but closed after connection are included if they are relevant.
+        // However, standard copy-trading usually filters by open time >= connect time.
+        return !Number.isFinite(connectTs) || openMs >= connectTs;
       }
       return runningPeriods.some(p => {
         const start = toMs(p.start_time);
         const end = p.end_time ? toMs(p.end_time) : Infinity;
-        return effectiveMs >= start && effectiveMs <= end;
+        return openMs >= start && openMs <= end;
       });
     }).map(h => {
       const normalizedType = toTradeSide(h);
       const normalizedSymbol = toDisplaySymbol(h.symbol ?? (h as any).Symbol ?? (h as any).instrument ?? (h as any).Instrument);
+      // Apply lot changes based on trade OPEN time.
+      const openMs = Number.isFinite(Number((h as any).time_open_ms))
+        ? Number((h as any).time_open_ms)
+        : toMs((h.server_time_open ?? h.time_open) ?? (h.open_time ?? h.time));
+      const lotAtTrade = Number.isFinite(openMs) ? getLotForTime(openMs, lotTimeline, selectedLotSize) : selectedLotSize;
 
       return {
       isOpen: false,
@@ -445,14 +567,14 @@ export default function CopierHistoryPage() {
       closeTimeStr: String(((h.server_time_close ?? h.time_close) ?? (h.close_time ?? h.time)) || ""),
       symbol: normalizedSymbol,
       type: normalizedType,
-      volume: Number(h.volume || 0) * selectedLotSize,
+      volume: Number(h.volume || 0) * lotAtTrade,
       openPrice: h.price_open,
       closeOrCurrentPrice: h.price_close,
-      profit: Number(h.profit) * selectedLotSize,
-      swap: Number(h.swap || 0) * selectedLotSize,
+      profit: Number(h.profit) * lotAtTrade,
+      swap: Number(h.swap || 0) * lotAtTrade,
       };
     });
-  }, [history, connectAt, runningPeriods, sessionUserId, strategyStatus.isActive, selectedLotSize]);
+  }, [history, connectAt, runningPeriods, sessionUserId, strategyStatus.isActive, selectedLotSize, payments, params.id, rsId, strategy, investmentTimeline, investmentTimelineUnitPrice]);
 
   const filteredOpen = useMemo(() => {
     // If status is not running/copying, don't show open trades
@@ -466,10 +588,30 @@ export default function CopierHistoryPage() {
       return true;
     };
 
-    const lotMultiplier = selectedLotSize;
+    // Use lot changes based on trade OPEN time for open positions as well.
+
+    // Prefer DB/Server-derived investment timeline (epoch ms) for lot changes.
+    const normalizeId = (v: any) => String(v ?? '').trim();
+    const currentStrategyId = normalizeId(params.id);
+    const currentRsId = normalizeId(rsId);
+    const strategyPayments = payments.filter((p: any) => {
+      const pStrategyId = normalizeId((p as any).strategyId ?? (p as any).strategy_id);
+      const pRsId = normalizeId((p as any).runningStrategyId ?? (p as any).running_strategy_id);
+      return (pStrategyId && pStrategyId === currentStrategyId) || (currentRsId && pRsId && pRsId === currentRsId);
+    });
+    const unitPrice = (investmentTimelineUnitPrice && investmentTimelineUnitPrice > 0) ? investmentTimelineUnitPrice : parseUnitPrice(strategy);
+    const lotTimeline =
+      investmentTimeline.length > 0
+        ? investmentTimeline
+          .filter((e: any) => Number.isFinite(Number(e.event_ms)) && Number.isFinite(Number(e.lot_size)))
+          .map((e: any) => ({ ms: Number(e.event_ms), lot: Number(e.lot_size) }))
+          .sort((a: any, b: any) => a.ms - b.ms)
+        : buildLotTimeline(strategyPayments, toMs, unitPrice);
 
     return openPositions.filter(p => {
-      const openMs = toMs((p.server_time || p.server_time_open) || (p.time_open || (p.open_time || p.time)));
+      const openMs = Number.isFinite(Number((p as any).time_open_ms))
+        ? Number((p as any).time_open_ms)
+        : toMs((p.server_time || p.server_time_open) || (p.time_open || (p.open_time || p.time)));
       if (!Number.isFinite(openMs)) return true;
 
       // Apply user-specific filter
@@ -486,6 +628,11 @@ export default function CopierHistoryPage() {
       });
     }).map(p => {
       const mt5Lot = Number(p.volume || 0);
+      const openMs = Number.isFinite(Number((p as any).time_open_ms))
+        ? Number((p as any).time_open_ms)
+        : toMs((p.server_time || p.server_time_open) || (p.time_open || (p.open_time || p.time)));
+      // Sync logic with closed trades: Apply lot changes based on trade OPEN time.
+      const lotMultiplier = Number.isFinite(openMs) ? getLotForTime(openMs, lotTimeline, selectedLotSize) : selectedLotSize;
       const calculatedLot = mt5Lot * lotMultiplier;
 
       const tradeType = toTradeSide(p);
@@ -511,31 +658,46 @@ export default function CopierHistoryPage() {
         swap: Number(p.swap ?? p.swap_amount ?? p.swapAmount ?? 0) * lotMultiplier,
       };
     });
-  }, [openPositions, connectAt, runningPeriods, sessionUserId, strategyStatus.isActive, selectedLotSize]);
+  }, [openPositions, connectAt, runningPeriods, sessionUserId, strategyStatus.isActive, selectedLotSize, payments, params.id, rsId, strategy, investmentTimeline, investmentTimelineUnitPrice]);
 
   const stats = useMemo(() => {
     const normalizeId = (v: any) => String(v ?? '').trim();
     const currentStrategyId = normalizeId(params.id);
     const currentRsId = normalizeId(rsId);
 
-    // 1. Total Deposit = Sum of all approved deposits for this strategy
+    // 1. Total Deposit (current invested capital) derived from strategy-related wallet ledger:
+    // - Add investment: transaction_type=charge (money moved from wallet -> investment)
+    // - Reduce investment: transaction_type=settled with admin_message="Investment Reduction" (money moved from investment -> wallet)
+    // - Legacy: transaction_type=deposit for initial subscription in some environments
     let totalDeposit = payments.filter(p => {
       const type = String(p.transaction_type || p.transactionType || '').toLowerCase();
       const status = String(p.status || '').toLowerCase();
+      const msg = String((p as any).admin_message || (p as any).adminMessage || '').toLowerCase();
       
       const pStrategyId = normalizeId((p as any).strategyId ?? (p as any).strategy_id);
       const pRsId = normalizeId((p as any).runningStrategyId ?? (p as any).running_strategy_id);
       const isThisStrategy = (pStrategyId && pStrategyId === currentStrategyId) || 
                             (currentRsId && pRsId && pRsId === currentRsId);
       
-      return isThisStrategy && (type === 'deposit' || type === 'settled' || type === 'charge') && 
-             (status === 'completed' || status === 'approved' || status === 'settled');
+      // Treat "settled" as investment reduction ONLY when admin_message indicates so.
+      const isReduction = type === 'settled' && msg.includes('investment reduction');
+      const isInvestIncrease = type === 'charge' || type === 'deposit' || (type === 'settled' && !isReduction);
+      const ok = (status === 'completed' || status === 'approved' || status === 'settled');
+      return isThisStrategy && ok && (isInvestIncrease || isReduction);
     }).reduce((sum, p) => {
-      // Prioritize the amount paid by the user. 
-      // Often 'amount' or 'payable' is the gross paid, while 'capital' might be net.
-      const val = Number(p.amount || p.payable || p.payable_amount || p.capital || 0);
-      return sum + val;
+      const type = String(p.transaction_type || p.transactionType || '').toLowerCase();
+      const msg = String((p as any).admin_message || (p as any).adminMessage || '').toLowerCase();
+      const val = Number(p.capital || p.amount || p.payable || p.payable_amount || 0);
+      const isReduction = type === 'settled' && msg.includes('investment reduction');
+      return sum + (isReduction ? -val : val);
     }, 0);
+
+    // Hardcore: if we have a server-derived investment timeline, use it as the source of truth for deposit.
+    if (investmentTimeline.length > 0) {
+      const last = investmentTimeline[investmentTimeline.length - 1] as any;
+      const tlTotal = Number(last?.total_capital);
+      if (Number.isFinite(tlTotal) && tlTotal > 0) totalDeposit = tlTotal;
+    }
 
     // If totalDeposit is very close to a round number (like 2000), it might be a floating point issue.
     // However, the user specifically mentioned $1999.88, which is exactly $0.12 off.
@@ -546,7 +708,8 @@ export default function CopierHistoryPage() {
       totalDeposit = Number(runningCapital);
     }
 
-    // 2. Real-time summary stats (ALL closed trades since connectAt)
+    // 2. Real-time summary stats (all closed orders shown in table)
+    // Profit/Swap are computed from the same `filteredClosed` list (already adjusted by lot multiplier).
     const totalRealizedProfit = filteredClosed.reduce((sum, r) => sum + r.profit, 0);
     const totalRealizedSwap = filteredClosed.reduce((sum, r) => sum + r.swap, 0);
 
@@ -557,9 +720,7 @@ export default function CopierHistoryPage() {
     // 4. Withdrawal: Sum of profit - commission for all historical settlements
     const totalWithdrawal = totalRealizedProfit > 0 ? (totalRealizedProfit - totalCommission) : 0;
 
-    // 5. Balance = Deposit + Profit + Swap – Commission
-    // The "Locked Balance" should represent the total account value after accounting for accrued profit and commission,
-    // but before the actual withdrawal of the net profit is finalized or if it's meant to show the running equity.
+    // 5. Locked Balance = Deposit + Profit + Swap – Commission (Octa-style display)
     const calculatedLockedBalance = totalDeposit + totalRealizedProfit + totalRealizedSwap - totalCommission;
 
     // 6. FP/L: Sum of all open trade profits
@@ -582,14 +743,17 @@ export default function CopierHistoryPage() {
     const paymentOps: BalanceOp[] = strategyPayments.filter(p => {
       const type = String(p.transaction_type || p.transactionType || '').toLowerCase();
       const status = String(p.status || '').toLowerCase();
-      return (type === 'deposit' || type === 'charge') && (status === 'completed' || status === 'approved');
+      return (type === 'deposit' || type === 'charge' || type === 'settled') && (status === 'completed' || status === 'approved' || status === 'settled');
     }).map(p => {
+      const type = String(p.transaction_type || p.transactionType || '').toLowerCase();
+      const msg = String((p as any).admin_message || (p as any).adminMessage || '');
+      const isReduction = type === 'settled' && msg.toLowerCase().includes('investment reduction');
       const isInitial = connectAt ? Math.abs(toMs(p.createdAt || p.created_at) - toMs(connectAt)) < 300000 : true; // 5 minute window
       return {
-        type: 'DEPOSIT' as const,
+        type: (isReduction ? 'WITHDRAWAL' : 'DEPOSIT') as BalanceOp["type"],
         amount: Number(p.capital || p.amount || 0),
         time: String(p.createdAt || p.created_at || ""),
-        comment: isInitial ? 'Initial Investment' : (p.admin_message || 'Top-up Investment')
+        comment: isReduction ? (msg || 'Reduce Investment') : (isInitial ? 'Initial Investment' : ((p as any).admin_message || 'Top-up Investment'))
       };
     });
 
@@ -641,7 +805,54 @@ export default function CopierHistoryPage() {
       floatPL: currentFloatPL.toFixed(2),
       balanceOperations,
     };
-  }, [filteredClosed, filteredOpen, settlements, payments, params.id, connectAt, rsId, runningCapital]);
+  }, [filteredClosed, filteredOpen, settlements, payments, params.id, connectAt, rsId, runningCapital, investmentTimeline]);
+
+  const openInvestmentModal = (action: 'add' | 'reduce') => {
+    setInvestmentError(null);
+    setInvestmentAmount('');
+    setInvestmentModal({ open: true, action });
+  };
+
+  const closeInvestmentModal = () => {
+    if (investmentBusy) return;
+    setInvestmentModal({ open: false, action: null });
+    setInvestmentError(null);
+    setInvestmentAmount('');
+  };
+
+  const submitInvestmentChange = async () => {
+    if (!rsId || !investmentModal.action) return;
+    const amt = Number(investmentAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setInvestmentError('Please enter a valid amount.');
+      return;
+    }
+    setInvestmentBusy(true);
+    setInvestmentError(null);
+    try {
+      const res = await fetch(`/api/strategies/running/${rsId}/investment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: investmentModal.action, amount: amt }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to update investment.');
+      }
+      // refresh wallet/payments + running strategy snapshot
+      const payRes = await fetch('/api/payments', { cache: 'no-store' });
+      if (payRes.ok) {
+        const payJson = await payRes.json();
+        setPayments(payJson.payments || []);
+      }
+      await loadHistory();
+      closeInvestmentModal();
+    } catch (e: any) {
+      setInvestmentError(e?.message || 'Failed to update investment.');
+    } finally {
+      setInvestmentBusy(false);
+    }
+  };
 
   const displayRows = useMemo(() => {
     if (filter === "opened") return filteredOpen;
@@ -691,11 +902,17 @@ export default function CopierHistoryPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-6 md:gap-10">
-              <button className="flex items-center gap-2 text-[#00d09c] text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity">
+              <button
+                onClick={() => openInvestmentModal('add')}
+                className="flex items-center gap-2 text-[#00d09c] text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity"
+              >
                 <FiPlusCircle className="w-4 h-4" />
                 Add Investment
               </button>
-              <button className="flex items-center gap-2 text-gray-700 text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity">
+              <button
+                onClick={() => openInvestmentModal('reduce')}
+                className="flex items-center gap-2 text-gray-700 text-xs font-bold uppercase tracking-tight hover:opacity-80 transition-opacity"
+              >
                 <FiMinusCircle className="w-4 h-4" />
                 Reduce Investment
               </button>
@@ -1041,6 +1258,67 @@ export default function CopierHistoryPage() {
           </div>
         </div>
       </div>
+
+      {/* Investment Modal */}
+      {investmentModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/40" onClick={closeInvestmentModal} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-gray-400">
+                  {investmentModal.action === 'add' ? 'Add Investment' : 'Reduce Investment'}
+                </p>
+                <p className="text-sm font-bold text-gray-900 mt-1">
+                  {strategy?.name || 'Strategy'}
+                </p>
+              </div>
+              <button className="text-gray-400 hover:text-gray-600" onClick={closeInvestmentModal} disabled={investmentBusy}>
+                <FiXCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-6 space-y-4">
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                  Amount (USD)
+                </label>
+                <input
+                  value={investmentAmount}
+                  onChange={(e) => setInvestmentAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="Enter amount"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00d09c]/30 focus:border-[#00d09c] text-sm font-bold text-gray-900"
+                  disabled={investmentBusy}
+                />
+              </div>
+
+              {investmentError && (
+                <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-[12px] font-bold">
+                  {investmentError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <button
+                  onClick={closeInvestmentModal}
+                  disabled={investmentBusy}
+                  className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-gray-700 text-xs font-black uppercase tracking-widest hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitInvestmentChange}
+                  disabled={investmentBusy}
+                  className="flex-1 px-4 py-3 rounded-xl bg-[#00d09c] text-white text-xs font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
+                >
+                  {investmentBusy ? 'Processing…' : (investmentModal.action === 'add' ? 'Confirm Add' : 'Confirm Reduce')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </UserLayout>
   );
 }

@@ -38,6 +38,7 @@ type RunningItem = {
   equity?: number;
   floatProfit?: number;
   capital?: number;
+  deposit?: number;
 };
 
 type Strategy = {
@@ -217,7 +218,9 @@ const RunningStrategiesPageInner: React.FC = () => {
               paginatedRunning.map(r => {
                 const s = stratById.get(r.id);
                 if (!s) return null;
-                const investedAmount = (r as any).capital || 47.00;
+                const depositAmount = Number((r as any).deposit ?? (r as any).capital ?? 0);
+                const balanceAmount = Number((r as any).balance ?? depositAmount);
+                const equityAmount = Number((r as any).equity ?? balanceAmount);
                 
                 const isExpanded = expandedIds.has(r.id);
                 
@@ -261,12 +264,16 @@ const RunningStrategiesPageInner: React.FC = () => {
                             <span className="text-white font-bold bg-[#00d09c] px-4 py-1.5 rounded-full text-[11px]">Copying</span>
                           </div>
                           <div className="flex flex-col items-center">
+                            <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Deposit</p>
+                            <p className="text-lg font-bold text-gray-900">{formatCurrency(depositAmount)}</p>
+                          </div>
+                          <div className="flex flex-col items-center">
                             <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Balance</p>
-                            <p className="text-lg font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
+                            <p className="text-lg font-bold text-gray-900">{formatCurrency(balanceAmount)}</p>
                           </div>
                           <div className="flex flex-col items-center">
                             <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Equity</p>
-                            <p className="text-lg font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
+                            <p className="text-lg font-bold text-gray-900">{formatCurrency(equityAmount)}</p>
                           </div>
                           <div className="flex flex-col items-center">
                             <p className="text-[11px] font-bold text-gray-300 uppercase mb-2">Float profit</p>
@@ -387,7 +394,9 @@ const RunningStrategiesPageInner: React.FC = () => {
               const s = stratById.get(r.id);
               if (!s) return null;
               
-              const investedAmount = Number(r.capital) || 0;
+              const depositAmount = Number((r as any).deposit ?? (r as any).capital ?? 0);
+              const balanceAmount = Number((r as any).balance ?? depositAmount);
+              const equityAmount = Number((r as any).equity ?? balanceAmount);
 
               if (viewMode === 'list') {
                 return (
@@ -418,16 +427,22 @@ const RunningStrategiesPageInner: React.FC = () => {
                          {renderStatus(r.adminStatus || r.status)}
                       </div>
 
+                      {/* Deposit */}
+                      <div className="flex flex-col items-center md:w-1/6">
+                         <span className="text-[11px] font-bold text-gray-300 uppercase mb-2">Deposit</span>
+                         <span className="text-base font-bold text-gray-900">{formatCurrency(depositAmount)}</span>
+                      </div>
+
                       {/* Balance */}
                       <div className="flex flex-col items-center md:w-1/6">
                          <span className="text-[11px] font-bold text-gray-300 uppercase mb-2">Balance</span>
-                         <span className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
+                         <span className="text-base font-bold text-gray-900">{formatCurrency(balanceAmount)}</span>
                       </div>
 
                       {/* Equity */}
                       <div className="flex flex-col items-center md:w-1/6">
                          <span className="text-[11px] font-bold text-gray-300 uppercase mb-2">Equity</span>
-                         <span className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</span>
+                         <span className="text-base font-bold text-gray-900">{formatCurrency(equityAmount)}</span>
                       </div>
 
                       {/* Float Profit */}
@@ -465,12 +480,16 @@ const RunningStrategiesPageInner: React.FC = () => {
 
                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50">
                       <div>
-                        <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Balance</p>
-                        <p className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
+                        <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Deposit</p>
+                        <p className="text-base font-bold text-gray-900">{formatCurrency(depositAmount)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Equity</p>
-                        <p className="text-base font-bold text-gray-900">{formatCurrency(investedAmount)}</p>
+                        <p className="text-base font-bold text-gray-900">{formatCurrency(equityAmount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Balance</p>
+                        <p className="text-base font-bold text-gray-900">{formatCurrency(balanceAmount)}</p>
                       </div>
                       <div className="col-span-2">
                         <p className="text-[10px] font-bold text-gray-300 uppercase mb-1">Float Profit</p>

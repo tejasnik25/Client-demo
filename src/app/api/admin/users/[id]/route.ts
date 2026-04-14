@@ -89,6 +89,7 @@ export async function GET(
           openTrades: 0,
           equity: Number(rs.capital) || 0,
           balance: Number(rs.capital) || 0,
+          invested: 0,
         };
 
         if (strategy?.masterAccountId) {
