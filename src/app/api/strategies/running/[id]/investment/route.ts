@@ -18,6 +18,8 @@ import {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+const DEFAULT_MIN_INVESTMENT = 1000;
+
 type Action = 'add' | 'reduce';
 
 const safeNumber = (v: any): number => {
@@ -47,12 +49,12 @@ const parseUnitPriceFromLotPricing = (lotPricing: any): number | null => {
   return Number.isFinite(unit) && unit > 0 ? unit : null;
 };
 
-const deriveLotSize = (capital: number, lotPricing: any, fallbackUnitPrice: number = 1000): number => {
+const deriveLotSize = (capital: number, lotPricing: any, fallbackUnitPrice: number = DEFAULT_MIN_INVESTMENT): number => {
   const cap = Number(capital || 0);
   if (!Number.isFinite(cap) || cap <= 0) return 1;
   const rows = parseLotPricingRows(lotPricing);
   if (rows.length === 0) {
-    return Math.max(1, Math.floor(cap / Math.max(1, fallbackUnitPrice)));
+    return Math.max(0.01, Number((cap / Math.max(10, fallbackUnitPrice)).toFixed(2)));
   }
   const one = rows.find((x) => Number(x.lot) === 1);
   if (one && Number.isFinite(one.amountUSD) && one.amountUSD > 0) {
@@ -170,13 +172,31 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!strategy) {
     return NextResponse.json({ success: false, error: 'Strategy not found' }, { status: 404 });
   }
-  const minCapital = Number(
-    (strategy as any)?.minCapital ??
-    (strategy as any)?.min_capital ??
-    (strategy as any)?.parameters?.minCapital ??
-    (strategy as any)?.parameters?.min_capital ??
-    0
-  );
+
+  let minCapital = DEFAULT_MIN_INVESTMENT; 
+     const s = strategy as any;
+     const p = s?.parameters || {};
+     const candidates = [
+       s?.minCapital,
+       s?.min_capital,
+       p?.minCapital,
+       p?.min_capital,
+       p?.min_investment,
+       s?.min_investment
+     ];
+     let foundMin = false;
+     for (const cand of candidates) {
+       const n = Number(cand);
+       if (Number.isFinite(n) && n > 0) {
+         minCapital = n;
+         foundMin = true;
+         break;
+       }
+     }
+     if (!foundMin) {
+       console.warn(`[InvestmentGET] No minCapital found for strategy ${rs.strategyId}, using fallback ${DEFAULT_MIN_INVESTMENT}`);
+     }
+
   const lotPricing = (strategy as any)?.parameters?.lotPricing;
   const masterId = (strategy as any)?.masterAccountId;
 
@@ -241,13 +261,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ success: false, error: 'Strategy not found' }, { status: 404 });
   }
 
-  const minCapital = Number(
-    (strategy as any)?.minCapital ??
-      (strategy as any)?.min_capital ??
-      (strategy as any)?.parameters?.minCapital ??
-      (strategy as any)?.parameters?.min_capital ??
-      0
-  );
+  let minCapital = DEFAULT_MIN_INVESTMENT; 
+     const stratObj = strategy as any;
+     const stratParams = stratObj?.parameters || {};
+     const minCandidates = [
+       stratObj?.minCapital,
+       stratObj?.min_capital,
+       stratParams?.minCapital,
+       stratParams?.min_capital,
+       stratParams?.min_investment,
+       stratObj?.min_investment
+     ];
+     let foundMinInPost = false;
+     for (const cand of minCandidates) {
+       const n = Number(cand);
+       if (Number.isFinite(n) && n > 0) {
+         minCapital = n;
+         foundMinInPost = true;
+         break;
+       }
+     }
+     if (!foundMinInPost) {
+       console.warn(`[InvestmentPOST] No minCapital found for strategy ${rs.strategyId}, using fallback ${DEFAULT_MIN_INVESTMENT}`);
+     }
+
   const lotPricing = (strategy as any)?.parameters?.lotPricing;
   const unitPrice = parseUnitPriceFromLotPricing(lotPricing);
 
@@ -262,9 +299,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const nextCapital = action === 'add' ? currentCapital + amount : currentCapital - amount;
 
-  if (action === 'add' && Number.isFinite(minCapital) && minCapital > 0 && nextCapital < minCapital) {
+  // HARDCORE MINIMUM CHECK: The remaining deposit (nextCapital) must NEVER fall below minCapital.
+  if (Number.isFinite(minCapital) && minCapital > 0 && nextCapital < minCapital) {
     return NextResponse.json(
-      { success: false, error: `You must maintain minimum investment of $${minCapital.toFixed(2)} for this strategy.` },
+      { 
+        success: false, 
+        error: `You must maintain a minimum investment of $${minCapital.toFixed(2)} for this strategy. Your remaining investment would be $${nextCapital.toFixed(2)}.` 
+      },
       { status: 400 }
     );
   }
@@ -288,30 +329,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       minCapital,
     });
 
-    if (Number.isFinite(minCapital) && minCapital > 0 && equityNow <= minCapital) {
+    if (minCapital > 0 && equityNow <= minCapital) {
       return NextResponse.json(
         {
           success: false,
           error: `Reduce investment not allowed. Your current equity ($${Number(equityNow || 0).toFixed(
             2
-          )}) must be greater than the minimum investment ($${minCapital.toFixed(2)}).`,
+          )}) is already at or below the minimum investment ($${minCapital.toFixed(2)}).`,
         },
         { status: 400 }
       );
     }
 
-    const maxByEquity = Number.isFinite(minCapital) ? Math.max(0, equityNow - minCapital) : equityNow;
+    const maxByEquity = minCapital > 0 ? Math.max(0, equityNow - minCapital) : equityNow;
     const maxReduce = Math.min(currentCapital, maxByEquity);
 
     if (amount > maxReduce) {
+      let reason = `You can reduce your investment by a maximum of $${maxReduce.toFixed(2)}.`;
+      if (maxByEquity < currentCapital) {
+        reason += ` This limit is based on your current Equity ($${equityNow.toFixed(2)}) to ensure it stays above the strategy minimum of $${minCapital.toFixed(2)}.`;
+      } else {
+        reason += ` This limit is based on your total Deposit ($${currentCapital.toFixed(2)}).`;
+      }
+
       return NextResponse.json(
         {
           success: false,
-          error: `You can reduce up to $${maxReduce.toFixed(
-            2
-          )}. That keeps your equity at least $${Number(minCapital || 0).toFixed(
-            2
-          )} (current equity: $${Number(equityNow || 0).toFixed(2)}).`,
+          error: reason,
         },
         { status: 400 }
       );

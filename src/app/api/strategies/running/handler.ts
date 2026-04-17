@@ -161,14 +161,18 @@ export async function GET() {
             : [];
           const openPositions = Array.isArray(trades?.open_positions) ? trades.open_positions : [];
           
-          const minCap = Number(
+          const strategyParams = (s as any)?.parameters || {};
+          const minCapRaw = Number(
             (s as any)?.minCapital ??
               (s as any)?.min_capital ??
-              (s as any)?.parameters?.minCapital ??
-              (s as any)?.parameters?.min_capital ??
+              strategyParams?.minCapital ??
+              strategyParams?.min_capital ??
+              strategyParams?.min_investment ??
+              (s as any)?.min_investment ??
               1000
           );
-          const unitFallback = Number.isFinite(minCap) && minCap > 0 ? minCap : 1000;
+          const minCap = minCapRaw;
+          const unitFallback = minCap;
           const userLotMultiplier = deriveLotFromPricingTiers(Number(r.capital || 0), (s as any)?.parameters?.lotPricing, unitFallback);
 
           // HARDCORE: Build investment timeline to apply historical lot sizes to realized profit
