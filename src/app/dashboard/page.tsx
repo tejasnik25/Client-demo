@@ -67,7 +67,7 @@ function DashboardPageContent() {
   useEffect(() => {
     const fetchRunning = async () => {
       try {
-        const response = await fetch("/api/strategies/running");
+        const response = await fetch(`/api/strategies/running?t=${Date.now()}`, { cache: 'no-store' });
         const data = await response.json();
         setRunning(data.strategies || []);
       } catch (error) {
@@ -176,11 +176,11 @@ function DashboardPageContent() {
                         </div>
                         <div className="flex flex-col items-center">
                           <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Balance</span>
-                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.capital || 47.00)}</span>
+                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.balance || base.capital || 0)}</span>
                         </div>
                         <div className="flex flex-col items-center hidden md:flex">
                           <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Equity</span>
-                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.capital || 47.00)}</span>
+                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.equity || base.capital || 0)}</span>
                         </div>
                         <div className="flex flex-col items-center">
                           <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Float Profit</span>

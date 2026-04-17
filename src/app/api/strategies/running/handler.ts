@@ -12,9 +12,13 @@ import {
   getRunningStrategyTotalCapital,
   getCachedMasterTrades,
   getUserStrategyDeposit,
+  getEffectiveStrategyCapital,
   getSettlementsByUserAndStrategy,
   createWalletTransaction,
-  getLatestLotSizeForUserStrategy
+  getLatestLotSizeForUserStrategy,
+  getLotTimelineForUser,
+  getLotForTime,
+  parseMt5DateToMs
 } from '@/db/dbService';
 import { mt5Service, MtAccountDetails } from '@/lib/mt5-service';
 
@@ -122,6 +126,15 @@ export async function GET() {
       }
 
       let deposit = Number(r.capital || 0);
+      try {
+        const ledgerCapital = await getEffectiveStrategyCapital(userId, id, r.id);
+        // Prefer ledger-derived capital as the source of truth for invested amount.
+        if (Number.isFinite(ledgerCapital) && ledgerCapital > 0) {
+          deposit = ledgerCapital;
+        }
+      } catch (err) {
+        console.warn('[RunningStrategiesAPI] Failed to derive capital from wallet ledger for', r.id, err);
+      }
       // IMPORTANT: Do NOT fallback to getUserStrategyDeposit() because it sums ALL wallet_transactions
       // for the user+strategy, including old payments from when strategy was previously stopped.
       // The deposit should always come from the current running_strategy.capital field ONLY.
@@ -158,13 +171,25 @@ export async function GET() {
           const unitFallback = Number.isFinite(minCap) && minCap > 0 ? minCap : 1000;
           const userLotMultiplier = deriveLotFromPricingTiers(Number(r.capital || 0), (s as any)?.parameters?.lotPricing, unitFallback);
 
-          const masterRealizedProfit = unsettledHistory.reduce((sum: number, t: any) => sum + (Number(t.profit) || 0), 0);
-          const masterRealizedSwap = unsettledHistory.reduce((sum: number, t: any) => sum + (Number(t.swap) || 0), 0);
+          // HARDCORE: Build investment timeline to apply historical lot sizes to realized profit
+          const timeline = await getLotTimelineForUser(userId, id, unitFallback, r.id);
+
+          const masterRealizedProfit = unsettledHistory.reduce((sum: number, t: any) => {
+             const openTs = parseMt5DateToMs(t.time_open || t.open_time || t.time);
+             const lotAtOpen = getLotForTime(openTs, timeline, userLotMultiplier);
+             return sum + ((Number(t.profit) || 0) * lotAtOpen);
+           }, 0);
+           const masterRealizedSwap = unsettledHistory.reduce((sum: number, t: any) => {
+             const openTs = parseMt5DateToMs(t.time_open || t.open_time || t.time);
+             const lotAtOpen = getLotForTime(openTs, timeline, userLotMultiplier);
+             return sum + ((Number(t.swap) || 0) * lotAtOpen);
+           }, 0);
+
           const masterFloatingProfit = openPositions.reduce((sum: number, t: any) => sum + (Number(t.profit) || 0), 0);
           const masterFloatingSwap = openPositions.reduce((sum: number, t: any) => sum + (Number(t.swap) || 0), 0);
           
-          const realizedProfit = masterRealizedProfit * userLotMultiplier;
-          const realizedSwap = masterRealizedSwap * userLotMultiplier;
+          const realizedProfit = masterRealizedProfit; // Already multiplied by historical lots
+          const realizedSwap = masterRealizedSwap; // Already multiplied by historical lots
           let floatingProfit = masterFloatingProfit * userLotMultiplier;
           let floatingSwap = masterFloatingSwap * userLotMultiplier;
 
@@ -188,33 +213,37 @@ export async function GET() {
               floatingSwap = 0;
             }
 
-            // Real-time calculation: Use current realized profit * commission percent instead of settled commission
+            // Hardcore real-time calculation: Use current realized profit * commission percent instead of settled commission
             // to ensure UI consistency before and after settlement.
             const currentRealizedProfit = realizedProfit; 
             const realTimeCommission = currentRealizedProfit > 0 ? (currentRealizedProfit * commissionPercent / 100) : 0;
+            const netProfit = currentRealizedProfit - realTimeCommission;
 
-            metrics.balance = deposit + currentRealizedProfit + realizedSwap - realTimeCommission;
-            metrics.equity = metrics.balance + floatingProfit + floatingSwap;
+            // Balance card shows Principal + Realized Swap + Net Profit
+            const totalRealizedBalance = deposit + realizedSwap + netProfit;
+
+            metrics.balance = totalRealizedBalance; 
+            // Equity should only reflect principal + floating P/L.
+            // Requirement: if no open trades => equity = deposit.
+            // If open trades exist => equity = deposit + F P/L.
+            metrics.equity = deposit + floatingProfit + floatingSwap;
             metrics.realizedProfit = currentRealizedProfit;
             metrics.floatingProfit = floatingProfit;
-            metrics.openTrades = openTradesCount;
-            metrics.totalTrades = unsettledHistory.length + openTradesCount;
+            metrics.openTrades = openPositions.length;
+            metrics.totalTrades = unsettledHistory.length + openPositions.length;
           } else {
-            const openTradesCount = openPositions.length;
-            if (openTradesCount === 0) {
-              floatingProfit = 0;
-              floatingSwap = 0;
-            }
-
             const realTimeCommission = realizedProfit > 0 ? (realizedProfit * commissionPercent / 100) : 0;
+            const netProfit = realizedProfit - realTimeCommission;
+            const totalRealizedBalance = deposit + realizedSwap + netProfit;
 
             metrics = {
               floatingProfit,
               realizedProfit,
-              totalTrades: unsettledHistory.length + openTradesCount,
-              openTrades: openTradesCount,
-              balance: deposit + realizedProfit + realizedSwap - realTimeCommission,
-              equity: deposit + realizedProfit + realizedSwap + floatingProfit + floatingSwap - realTimeCommission,
+              totalTrades: unsettledHistory.length + openPositions.length,
+              openTrades: openPositions.length,
+              balance: totalRealizedBalance,
+              // Equity should only reflect principal + floating P/L.
+              equity: deposit + floatingProfit + floatingSwap,
             };
           }
         } catch (err) {

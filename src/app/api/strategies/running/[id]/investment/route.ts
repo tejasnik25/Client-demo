@@ -3,7 +3,17 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth-options';
 import pool from '@/db/db';
 import { v4 as uuidv4 } from 'uuid';
-import { ensureInvestmentEventsTable, getRunningStrategyById, getStrategyById, getWalletBalance } from '@/db/dbService';
+import {
+  ensureInvestmentEventsTable,
+  getRunningStrategyById,
+  getStrategyById,
+  getWalletBalance,
+  getCachedMasterTrades,
+  getUnifiedLotTimeline,
+  getLotForTime,
+  getEffectiveStrategyCapital,
+  parseMt5DateToMs,
+} from '@/db/dbService';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -23,7 +33,7 @@ const parseLotPricingRows = (lotPricing: any): Array<{ lot: number; amountUSD: n
     return parsed
       .map((x: any) => ({ lot: Number(x?.lot), amountUSD: Number(x?.amountUSD) }))
       .filter((x: any) => Number.isFinite(x.lot) && x.lot > 0 && Number.isFinite(x.amountUSD) && x.amountUSD > 0)
-      .sort((a, b) => a.amountUSD - b.amountUSD);
+      .sort((a: any, b: any) => a.amountUSD - b.amountUSD);
   } catch {
     return [];
   }
@@ -37,12 +47,12 @@ const parseUnitPriceFromLotPricing = (lotPricing: any): number | null => {
   return Number.isFinite(unit) && unit > 0 ? unit : null;
 };
 
-const deriveLotSize = (capital: number, lotPricing: any): number => {
+const deriveLotSize = (capital: number, lotPricing: any, fallbackUnitPrice: number = 1000): number => {
   const cap = Number(capital || 0);
   if (!Number.isFinite(cap) || cap <= 0) return 1;
   const rows = parseLotPricingRows(lotPricing);
   if (rows.length === 0) {
-    return Math.max(1, Math.floor(cap / 1000));
+    return Math.max(1, Math.floor(cap / Math.max(1, fallbackUnitPrice)));
   }
   const one = rows.find((x) => Number(x.lot) === 1);
   if (one && Number.isFinite(one.amountUSD) && one.amountUSD > 0) {
@@ -56,6 +66,77 @@ const deriveLotSize = (capital: number, lotPricing: any): number => {
     else break;
   }
   return Number.isFinite(best?.lot) && best.lot > 0 ? best.lot : 1;
+};
+
+const computeUserEquity = async (args: {
+  userId: string;
+  strategyId: string;
+  runningStrategyId: string;
+  masterId: string;
+  currentCapital: number;
+  lotPricing: any;
+  minCapital: number;
+}): Promise<number> => {
+  try {
+    const { userId, strategyId, runningStrategyId, masterId, currentCapital, lotPricing, minCapital } = args;
+
+    const unitFallback = Number.isFinite(minCapital) && minCapital > 0 ? minCapital : 1000;
+    const userLotMultiplierFallback = deriveLotSize(currentCapital, lotPricing, unitFallback);
+
+    const timeline = await getUnifiedLotTimeline(userId, strategyId, runningStrategyId);
+    const cached = await getCachedMasterTrades(masterId);
+    const history = Array.isArray(cached?.history) ? cached.history : [];
+    const openPositions = Array.isArray(cached?.open_positions) ? cached.open_positions : [];
+
+    const unsettledHistory = history.filter(
+      (t: any) => (t?.settlement_id == null) || String(t?.settlement_id || '').trim() === ''
+    );
+
+    const lotForNow = getLotForTime(Date.now(), timeline, userLotMultiplierFallback);
+
+    const masterRealizedProfit = unsettledHistory.reduce((sum: number, t: any) => {
+      const closeTs = parseMt5DateToMs(t.time_close ?? t.server_time_close ?? t.time_close_ms ?? null);
+      const openTs = parseMt5DateToMs(t.time_open ?? t.server_time_open ?? t.time_open_ms ?? null);
+      const eventTs = Number.isFinite(closeTs) ? closeTs : openTs;
+      const lotAtEvent = Number.isFinite(eventTs)
+        ? getLotForTime(eventTs, timeline, userLotMultiplierFallback)
+        : userLotMultiplierFallback;
+      return sum + (Number(t.profit) || 0) * lotAtEvent;
+    }, 0);
+
+    const masterRealizedSwap = unsettledHistory.reduce((sum: number, t: any) => {
+      const closeTs = parseMt5DateToMs(t.time_close ?? t.server_time_close ?? t.time_close_ms ?? null);
+      const openTs = parseMt5DateToMs(t.time_open ?? t.server_time_open ?? t.time_open_ms ?? null);
+      const eventTs = Number.isFinite(closeTs) ? closeTs : openTs;
+      const lotAtEvent = Number.isFinite(eventTs)
+        ? getLotForTime(eventTs, timeline, userLotMultiplierFallback)
+        : userLotMultiplierFallback;
+      return sum + (Number(t.swap) || 0) * lotAtEvent;
+    }, 0);
+
+    const masterFloatingProfit = openPositions.reduce((sum: number, t: any) => sum + (Number(t.profit) || 0), 0);
+    const masterFloatingSwap = openPositions.reduce((sum: number, t: any) => sum + (Number(t.swap) || 0), 0);
+
+    // Commission handling matches running-strategies equity logic:
+    // apply commission only on positive realized profit.
+    const realizedProfit = masterRealizedProfit;
+    const realizedSwap = masterRealizedSwap;
+    const commissionPercent = 30;
+    const realTimeCommission = realizedProfit > 0 ? (realizedProfit * commissionPercent / 100) : 0;
+    const netProfit = realizedProfit - realTimeCommission;
+
+    const totalRealizedBalance = currentCapital + realizedSwap + netProfit;
+
+    const floatingProfit = masterFloatingProfit * lotForNow;
+    const floatingSwap = masterFloatingSwap * lotForNow;
+
+    // Equity formula: Equity = Deposit + Floating P/L
+    const equity = currentCapital + floatingProfit + floatingSwap;
+    return Number.isFinite(equity) ? equity : currentCapital;
+  } catch (e) {
+    console.warn('[InvestmentAdjust] computeUserEquity failed:', e);
+    return args.currentCapital ?? 0;
+  }
 };
 
 const getWalletTransactionsColumns = async (connection: any): Promise<string[]> => {
@@ -73,6 +154,57 @@ const getWalletTransactionsColumns = async (connection: any): Promise<string[]> 
     return [];
   }
 };
+
+// --- New: GET endpoint to fetch backend-calculated equity for robust UI sync ---
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+  const { id: rsId } = await params;
+  const rs = await getRunningStrategyById(rsId);
+  if (!rs) {
+    return NextResponse.json({ success: false, error: 'Running strategy not found' }, { status: 404 });
+  }
+  const strategy = await getStrategyById(rs.strategyId);
+  if (!strategy) {
+    return NextResponse.json({ success: false, error: 'Strategy not found' }, { status: 404 });
+  }
+  const minCapital = Number(
+    (strategy as any)?.minCapital ??
+    (strategy as any)?.min_capital ??
+    (strategy as any)?.parameters?.minCapital ??
+    (strategy as any)?.parameters?.min_capital ??
+    0
+  );
+  const lotPricing = (strategy as any)?.parameters?.lotPricing;
+  const masterId = (strategy as any)?.masterAccountId;
+
+  // Derive accurate deposit from wallet ledger instead of stale capital field
+  let deposit = Number((rs as any)?.capital ?? 0);
+  try {
+    const ledgerCapital = await getEffectiveStrategyCapital(session.user.id, rs.strategyId, rsId);
+    if (Number.isFinite(ledgerCapital) && ledgerCapital > 0) {
+      deposit = ledgerCapital;
+    }
+  } catch (err) {
+    console.warn('[InvestmentGET] Failed to derive deposit from ledger:', err);
+  }
+
+  let equityNow = deposit;
+  if (masterId) {
+    equityNow = await computeUserEquity({
+      userId: session.user.id,
+      strategyId: rs.strategyId,
+      runningStrategyId: rsId,
+      masterId,
+      currentCapital: deposit,
+      lotPricing,
+      minCapital,
+    });
+  }
+  return NextResponse.json({ success: true, equity: equityNow, deposit });
+}
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -119,14 +251,71 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const lotPricing = (strategy as any)?.parameters?.lotPricing;
   const unitPrice = parseUnitPriceFromLotPricing(lotPricing);
 
-  const currentCapital = Number((rs as any)?.capital ?? 0);
+  // Derive accurate current deposit from wallet ledger
+  let currentCapital = Number((rs as any)?.capital ?? 0);
+  try {
+    const ledgerCapital = await getEffectiveStrategyCapital(session.user.id, rs.strategyId, rsId);
+    if (Number.isFinite(ledgerCapital) && ledgerCapital > 0) {
+      currentCapital = ledgerCapital;
+    }
+  } catch {}
+
   const nextCapital = action === 'add' ? currentCapital + amount : currentCapital - amount;
 
-  if (Number.isFinite(minCapital) && minCapital > 0 && nextCapital < minCapital) {
+  if (action === 'add' && Number.isFinite(minCapital) && minCapital > 0 && nextCapital < minCapital) {
     return NextResponse.json(
       { success: false, error: `You must maintain minimum investment of $${minCapital.toFixed(2)} for this strategy.` },
       { status: 400 }
     );
+  }
+
+  if (action === 'reduce') {
+    const masterId = (strategy as any)?.masterAccountId;
+    if (!masterId) {
+      return NextResponse.json(
+        { success: false, error: 'Cannot compute equity for this strategy at the moment.' },
+        { status: 400 }
+      );
+    }
+
+    const equityNow = await computeUserEquity({
+      userId: session.user.id,
+      strategyId: rs.strategyId,
+      runningStrategyId: rsId,
+      masterId,
+      currentCapital,
+      lotPricing,
+      minCapital,
+    });
+
+    if (Number.isFinite(minCapital) && minCapital > 0 && equityNow <= minCapital) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Reduce investment not allowed. Your current equity ($${Number(equityNow || 0).toFixed(
+            2
+          )}) must be greater than the minimum investment ($${minCapital.toFixed(2)}).`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const maxByEquity = Number.isFinite(minCapital) ? Math.max(0, equityNow - minCapital) : equityNow;
+    const maxReduce = Math.min(currentCapital, maxByEquity);
+
+    if (amount > maxReduce) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `You can reduce up to $${maxReduce.toFixed(
+            2
+          )}. That keeps your equity at least $${Number(minCapital || 0).toFixed(
+            2
+          )} (current equity: $${Number(equityNow || 0).toFixed(2)}).`,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   if (action === 'add') {
@@ -139,7 +328,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
-  const nextLotSize = deriveLotSize(nextCapital, lotPricing);
+  const unitFallbackForLot = Number.isFinite(minCapital) && minCapital > 0 ? minCapital : 1000;
+  const nextLotSize = deriveLotSize(nextCapital, lotPricing, unitFallbackForLot);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();

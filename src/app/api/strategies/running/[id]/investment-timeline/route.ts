@@ -57,19 +57,70 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   // Backfill: build from wallet_transactions (works even if running_strategy_id column missing)
-  const [txRows]: any = await pool.execute(
-    `SELECT
-       UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
-       transaction_type,
-       amount,
-       capital,
-       status,
-       admin_message
-     FROM wallet_transactions
-     WHERE user_id = ? AND strategy_id = ?
-     ORDER BY created_at ASC`,
-    [rs.userId, rs.strategyId]
-  );
+  const queryVariants: Array<{ query: string; params: any[] }> = [
+    {
+      query: `SELECT
+                UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                transaction_type,
+                amount,
+                capital,
+                lot_size,
+                status,
+                admin_message
+              FROM wallet_transactions
+              WHERE user_id = ? AND strategy_id = ? AND (running_strategy_id = ? OR running_strategy_id IS NULL)
+              ORDER BY created_at ASC`,
+      params: [rs.userId, rs.strategyId, rsId],
+    },
+    {
+      query: `SELECT
+                UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                transaction_type,
+                amount,
+                capital,
+                0 AS lot_size,
+                status,
+                admin_message
+              FROM wallet_transactions
+              WHERE user_id = ? AND strategy_id = ? AND (running_strategy_id = ? OR running_strategy_id IS NULL)
+              ORDER BY created_at ASC`,
+      params: [rs.userId, rs.strategyId, rsId],
+    },
+    {
+      query: `SELECT
+                UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                transaction_type,
+                amount,
+                capital,
+                0 AS lot_size,
+                status,
+                admin_message
+              FROM wallet_transactions
+              WHERE user_id = ? AND strategy_id = ?
+              ORDER BY created_at ASC`,
+      params: [rs.userId, rs.strategyId],
+    },
+  ];
+
+  let txRows: any[] = [];
+  let lastErr: any = null;
+  for (const variant of queryVariants) {
+    try {
+      const [rows]: any = await pool.execute(variant.query, variant.params);
+      txRows = Array.isArray(rows) ? rows : [];
+      lastErr = null;
+      break;
+    } catch (err: any) {
+      lastErr = err;
+    }
+  }
+  if (lastErr) throw lastErr;
+
+  const extractLotFromMsg = (msg: string): number => {
+    const s = String(msg ?? '').toLowerCase();
+    const m = s.match(/(?:equal\s*x|x|lot\s*[:=])\s*(\d+(?:\.\d+)?)/i);
+    return m ? Number(m[1]) : 0;
+  };
 
   let total = 0;
   const timeline: any[] = [];
@@ -81,13 +132,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const amt = Number(t.capital ?? t.amount ?? 0);
     if (!Number.isFinite(amt) || amt <= 0) continue;
 
-    const isReduction = type === 'settled' && msg.includes('investment reduction');
-    const isIncrease = type === 'deposit' || type === 'charge' || (type === 'settled' && !isReduction);
+    const isReduction = (type === 'settled' || type === 'withdrawal') && msg.includes('investment reduction');
+    const isIncrease = type === 'deposit' || type === 'charge';
     if (!isIncrease && !isReduction) continue;
 
     const delta = isReduction ? -amt : amt;
     total += delta;
-    const lot = Math.max(1, Math.floor(total / Math.max(1, unitPrice)));
+
+    // Use recorded lot size if present, else fallback to admin message parsing, then recalculation
+    const pLot = Number(t.lot_size || 0);
+    const msgLot = extractLotFromMsg(msg);
+    const lot = pLot > 0 ? pLot : (msgLot > 0 ? msgLot : Math.max(1, Math.floor(total / Math.max(1, unitPrice))));
+
     timeline.push({
       event_ms: Number(t.event_ms),
       action: isReduction ? 'reduce' : 'add',

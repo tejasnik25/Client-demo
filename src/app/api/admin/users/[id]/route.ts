@@ -10,6 +10,7 @@ import {
   getRunningStrategyTotalCapital,
   getSettlementsByUserAndStrategy,
   getUserStrategyDeposit,
+  getEffectiveStrategyCapital,
   getLatestLotSizeForUserStrategy,
 } from '@/db/dbService';
 
@@ -81,14 +82,23 @@ export async function GET(
     const enrich = async (rs: any) => {
         const strategy = await getStrategyById(rs.strategyId);
         
+        // Derive accurate deposit from wallet ledger instead of stale capital field
+        let deposit = Number(rs.capital || 0);
+        try {
+          const ledgerCapital = await getEffectiveStrategyCapital(userId, rs.strategyId, rs.id);
+          if (Number.isFinite(ledgerCapital) && ledgerCapital > 0) {
+            deposit = ledgerCapital;
+          }
+        } catch {}
+
         // Get metrics from master account trades if available
         let metrics = {
           floatingProfit: 0,
           realizedProfit: 0,
           totalTrades: 0,
           openTrades: 0,
-          equity: Number(rs.capital) || 0,
-          balance: Number(rs.capital) || 0,
+          equity: deposit,
+          balance: deposit,
           invested: 0,
         };
 
@@ -97,6 +107,7 @@ export async function GET(
 
           const masterRealizedProfit = trades.history.reduce((sum: number, t: any): number => sum + (Number(t.profit) || 0), 0);
           const masterFloatingProfit = trades.open_positions.reduce((sum: number, t: any): number => sum + (Number(t.profit) || 0), 0);
+          const masterFloatingSwap = trades.open_positions.reduce((sum: number, t: any): number => sum + (Number(t.swap) || 0), 0);
 
           // FIX: Use user's lot size multiplier for profit calculation instead of pool share
           const resolvedLotSize = await getLatestLotSizeForUserStrategy(userId, rs.strategyId, rs.id);
@@ -116,7 +127,7 @@ export async function GET(
               const unitPrice = oneLot ? Number(oneLot.amountUSD) : Number(rows[0].amountUSD / rows[0].lot);
               if (!Number.isFinite(unitPrice) || unitPrice <= 0) return 1;
 
-              const cap = Number(rs.capital || 0);
+              const cap = Number(deposit);
               if (!Number.isFinite(cap) || cap <= 0) return 1;
 
               const derived = cap / unitPrice;
@@ -172,20 +183,24 @@ export async function GET(
 
             const currentRealizedProfit = masterRealizedProfit * userLotMultiplier;
             const realTimeCommission = currentRealizedProfit > 0 ? (currentRealizedProfit * commissionPercent / 100) : 0;
+            const floatingProfit = masterFloatingProfit * userLotMultiplier;
+            const floatingSwap = masterFloatingSwap * userLotMultiplier;
 
             metrics = {
-              floatingProfit: masterFloatingProfit * userLotMultiplier,
+              floatingProfit,
               realizedProfit: currentRealizedProfit,
               totalTrades: trades.history.length + trades.open_positions.length,
               openTrades: trades.open_positions.length,
-              balance: Number(rs.capital || 0) + currentRealizedProfit - realTimeCommission,
-              equity: Number(rs.capital || 0) + currentRealizedProfit - realTimeCommission + (masterFloatingProfit * userLotMultiplier),
+              balance: deposit + currentRealizedProfit - realTimeCommission,
+              // Equity = Deposit + FP/L (including swap)
+              equity: deposit + floatingProfit + floatingSwap,
               invested: investedAmount,
             };
           } else {
             // Use raw master profit calculation (before settlement)
             const realizedProfit = masterRealizedProfit * userLotMultiplier;
             const floatingProfit = masterFloatingProfit * userLotMultiplier;
+            const floatingSwap = masterFloatingSwap * userLotMultiplier;
             const realTimeCommission = realizedProfit > 0 ? (realizedProfit * commissionPercent / 100) : 0;
 
             metrics = {
@@ -193,8 +208,9 @@ export async function GET(
               realizedProfit,
               totalTrades: trades.history.length + trades.open_positions.length,
               openTrades: trades.open_positions.length,
-              balance: Number(rs.capital || 0) + realizedProfit - realTimeCommission,
-              equity: Number(rs.capital || 0) + realizedProfit + floatingProfit - realTimeCommission,
+              balance: deposit + realizedProfit - realTimeCommission,
+              // Equity = Deposit + FP/L (including swap)
+              equity: deposit + floatingProfit + floatingSwap,
               invested: investedAmount,
             };
           }
@@ -202,13 +218,13 @@ export async function GET(
 
         const normalizedCreatedAt = rs.created_at || rs.createdAt || rs.start_date || null;
         const normalizedUpdatedAt = rs.updated_at || rs.updatedAt || null;
-        const normalizedCapital = Number(metrics?.invested || rs.capital || 0);
+        const normalizedCapital = Number(metrics?.invested || deposit || 0);
 
         return {
           ...rs,
           strategyName: strategy?.name || 'Unknown Strategy',
           strategyImage: strategy?.parameters?.image || strategy?.imageUrl,
-          capital: Number(rs.capital || 0), // Current running capital
+          capital: deposit, // Use accurate deposit
           invested: normalizedCapital, // Original invested capital
           plan: rs.plan || rs.planName || strategy?.parameters?.plan || 'N/A',
           adminStatus: rs.admin_status || rs.adminStatus || 'unknown',
@@ -222,8 +238,8 @@ export async function GET(
             realizedProfit: Number(metrics?.realizedProfit || 0),
             totalTrades: Number(metrics?.totalTrades || 0),
             openTrades: Number(metrics?.openTrades || 0),
-            balance: Number(metrics?.balance || Number(rs.capital || 0)),
-            equity: Number(metrics?.equity || Number(rs.capital || 0)),
+            balance: Number(metrics?.balance || deposit),
+            equity: Number(metrics?.equity || deposit),
           },
         };
     };

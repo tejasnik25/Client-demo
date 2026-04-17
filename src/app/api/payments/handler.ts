@@ -101,15 +101,6 @@ export async function GET(req: Request) {
     if (isAdmin) {
       const { getAllTransactions } = await import('@/db/dbService');
       const txs = await getAllTransactions();
-      const toIso = (d: any) => {
-        if (!d) return undefined;
-        try {
-          const dt = d instanceof Date ? d : new Date(d);
-          return isNaN(dt.getTime()) ? String(d) : dt.toISOString();
-        } catch {
-          return String(d);
-        }
-      };
       const payments = txs.map((t: any) => ({
         id: t.id,
         userId: t.user_id,
@@ -123,21 +114,13 @@ export async function GET(req: Request) {
         lotSize: Number(t.lot_size ?? t.lotSize ?? 0),
         proofUrl: t.receipt_path,
         status: t.status,
-        createdAt: toIso(t.created_at),
+        admin_message: t.admin_message || t.adminMessage || '',
+        createdAt: t.created_at,
       }));
       return NextResponse.json({ payments });
     } else {
       const { getTransactionsByUser } = await import('@/db/dbService');
       const txs = await getTransactionsByUser(session.user.id);
-      const toIso = (d: any) => {
-        if (!d) return undefined;
-        try {
-          const dt = d instanceof Date ? d : new Date(d);
-          return isNaN(dt.getTime()) ? String(d) : dt.toISOString();
-        } catch {
-          return String(d);
-        }
-      };
       const payments = txs.map((t: any) => ({
         id: t.id,
         userId: t.user_id,
@@ -148,9 +131,9 @@ export async function GET(req: Request) {
         capital: Number(t.capital ?? t.amount ?? 0),
         method: t.payment_method,
         lotSize: Number(t.lot_size ?? t.lotSize ?? 0),
-        admin_message: t.admin_message,
         status: t.status,
-        createdAt: toIso(t.created_at),
+        admin_message: t.admin_message || t.adminMessage || '',
+        createdAt: t.created_at,
       }));
       return NextResponse.json({ payments });
     }
@@ -190,14 +173,14 @@ export async function PATCH(req: Request) {
         // Get the payment to find the running strategy
         const [paymentRows] = await db.query('SELECT * FROM wallet_transactions WHERE id = ? AND transaction_type = ?', [paymentId, 'deposit']);
         if (Array.isArray(paymentRows) && paymentRows.length > 0) {
-          const payment = paymentRows[0];
+          const payment = paymentRows[0] as any;
           // Find the running strategy by userId and strategyId
           const [runRows] = await db.query(
             'SELECT id FROM running_strategies WHERE user_id = ? AND strategy_id = ? ORDER BY created_at DESC LIMIT 1',
             [payment.user_id, payment.strategy_id]
           );
           if (Array.isArray(runRows) && runRows.length > 0) {
-            const runningStrategyId = runRows[0].id;
+            const runningStrategyId = (runRows[0] as any).id;
             // Update running strategy status to "in-process"
             await db.execute(
               'UPDATE running_strategies SET status = ? WHERE id = ?',
@@ -225,7 +208,7 @@ export async function PATCH(req: Request) {
         // Get the payment details to find the corresponding wallet transaction
         const [paymentRows] = await db.query('SELECT * FROM wallet_transactions WHERE id = ? AND transaction_type = ?', [paymentId, 'deposit']);
         if (Array.isArray(paymentRows) && paymentRows.length > 0) {
-          const payment = paymentRows[0];
+          const payment = paymentRows[0] as any;
           
           // Find wallet transaction by user_id, strategy_id, and amount (since transaction_id might not match)
           const [walletTxRows] = await db.query(
@@ -234,7 +217,7 @@ export async function PATCH(req: Request) {
           );
           
           if (Array.isArray(walletTxRows) && walletTxRows.length > 0) {
-            const walletTxId = walletTxRows[0].id;
+            const walletTxId = (walletTxRows[0] as any).id;
             await updateWalletTransactionStatus(walletTxId, 'completed');
           }
         }

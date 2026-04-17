@@ -72,9 +72,9 @@ const RunningStrategiesPageInner: React.FC = () => {
     try {
       if (showLoading) setLoading(true);
       const [runRes, stratRes, profileRes] = await Promise.all([
-        fetch('/api/strategies/running', { cache: 'no-store' }),
-        fetch('/api/strategies', { cache: 'no-store' }),
-        fetch('/api/profile', { cache: 'no-store' })
+        fetch(`/api/strategies/running?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(`/api/strategies?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(`/api/profile?t=${Date.now()}`, { cache: 'no-store' })
       ]);
       
       const runData = await runRes.json();

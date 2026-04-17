@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStrategyById, getCachedMasterTrades, upsertMasterTrades, reconcileMasterOpenPositions } from '@/db/dbService';
+import { 
+  getStrategyById, 
+  getCachedMasterTrades, 
+  upsertMasterTrades, 
+  reconcileMasterOpenPositions, 
+  getTradeLotRecords,
+  getUnifiedLotTimeline,
+  getLotForTime,
+  getLatestLotSizeForUserStrategy,
+  saveTradeLotRecord
+} from '@/db/dbService';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -95,15 +105,20 @@ function getTradingServiceBaseUrl(): string {
  * - Never crash / never show connection errors to end users when we have old data
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const { searchParams } = new URL(req.url);
+  const userId = searchParams.get('userId');
   const strategy = await getStrategyById(id);
 
   if (!strategy) {
     return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
   }
+
+  // Fetch persisted lot records for this user if available
+  const tradeLots = userId ? await getTradeLotRecords(userId, id) : {};
 
   const masterId = strategy.masterAccountId;
   if (!masterId) {
@@ -130,15 +145,49 @@ export async function GET(
     time_close_ms: toEpochMs(trade.time_close || trade.server_time_close || null),
   });
 
+  const autoCaptureLots = async (trades: any[], existingLots: Record<string, number>) => {
+    if (!userId) return existingLots;
+    try {
+      const timeline = await getUnifiedLotTimeline(userId, id);
+      const currentMultiplier = await getLatestLotSizeForUserStrategy(userId, id);
+      let needsRefresh = false;
+      const updatedLots = { ...existingLots };
+
+      for (const t of trades) {
+        const ticket = String(t.position_id ?? t.ticket ?? t.id ?? '');
+        if (ticket && !updatedLots[ticket]) {
+          const openMs = toEpochMs(t.time_open ?? t.server_time_open ?? t.time_open_ms ?? t.time ?? null);
+          const multiplier = openMs 
+            ? getLotForTime(openMs, timeline, currentMultiplier) 
+            : currentMultiplier;
+          
+          if (multiplier > 0) {
+            await saveTradeLotRecord(ticket, userId, id, multiplier);
+            updatedLots[ticket] = multiplier;
+            needsRefresh = true;
+          }
+        }
+      }
+      return needsRefresh ? await getTradeLotRecords(userId, id) : updatedLots;
+    } catch (e) {
+      console.warn('[MasterHistory] autoCaptureLots failed:', e);
+      return existingLots;
+    }
+  };
+
   const fallbackFromCache = async (reason?: string) => {
     try {
       const cached = await getCachedMasterTrades(masterId);
       const hist = Array.isArray(cached.history) ? cached.history.map(normalizeCachedTrade) : [];
       const open = Array.isArray(cached.open_positions) ? cached.open_positions.map(normalizeCachedTrade) : [];
+      
+      const finalLots = await autoCaptureLots([...open, ...hist], tradeLots);
+
       if (hist.length === 0 && open.length === 0) {
         return NextResponse.json({
           history: [],
           open_positions: [],
+          trade_lots: finalLots,
           error: reason || 'No trading data available yet.',
           last_updated: cached.last_updated,
           info: 'No cached data available',
@@ -147,6 +196,7 @@ export async function GET(
       return NextResponse.json({
         history: hist,
         open_positions: open,
+        trade_lots: finalLots,
         cached: true,
         error: undefined,
         last_updated: cached.last_updated,
@@ -156,6 +206,7 @@ export async function GET(
       return NextResponse.json({
         history: [],
         open_positions: [],
+        trade_lots: tradeLots,
         error: reason || 'Failed to load trading data.',
         last_updated: new Date().toISOString(),
         info: 'Cache and live fetch failed',
@@ -213,9 +264,11 @@ export async function GET(
 
   if (!liveResponse) {
     if (cachedHist.length > 0 || cachedOpen.length > 0) {
+      const finalLots = await autoCaptureLots([...cachedOpen, ...cachedHist], tradeLots);
       return NextResponse.json({
         history: cachedHist,
         open_positions: cachedOpen,
+        trade_lots: finalLots,
         cached: true,
         error: liveErrorMessage || 'Live fetch failed; serving cached data.',
         last_updated: cached.last_updated,
@@ -295,6 +348,9 @@ export async function GET(
     // Always ensure open positions list is in sync with any merged/cached data.
     const finalOpenPositions = mergedOpen;
 
+    // --- Backend Lot Locking & Auto-Capture ---
+    const finalTradeLots = await autoCaptureLots([...finalOpenPositions, ...finalHistory], tradeLots);
+
     let errorStr: string | undefined;
     if (data.error && String(data.error).trim()) errorStr = data.error;
     else if (finalHistory.length === 0 && finalOpenPositions.length === 0)
@@ -315,6 +371,7 @@ export async function GET(
     return NextResponse.json({
       history: finalHistory,
       open_positions: finalOpenPositions,
+      trade_lots: finalTradeLots,
       cached: false,
       error: errorStr,
       last_updated: new Date().toISOString(),

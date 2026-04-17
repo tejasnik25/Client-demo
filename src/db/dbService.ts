@@ -140,6 +140,17 @@ export const initializeDatabase = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS trade_lot_records (
+        ticket_id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        strategy_id VARCHAR(255) NOT NULL,
+        lot_multiplier DECIMAL(10,4) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_strategy (user_id, strategy_id)
+      )
+    `);
     
     // Add missing columns to running_strategy_modifications if they don't exist (idempotent attempt)
     try {
@@ -288,6 +299,196 @@ export const getTransactionsByUser = async (userId: string) => {
   } catch (error) {
     console.error('getTransactionsByUser failed:', error);
     return [];
+  }
+};
+
+export const getTradeLotRecords = async (userId: string, strategyId: string) => {
+  try {
+    const [rows]: any = await pool.execute(
+      'SELECT ticket_id, lot_multiplier FROM trade_lot_records WHERE user_id = ? AND strategy_id = ?',
+      [userId, strategyId]
+    );
+    const map: Record<string, number> = {};
+    for (const r of rows) {
+      map[String(r.ticket_id)] = Number(r.lot_multiplier);
+    }
+    return map;
+  } catch (error) {
+    console.error('getTradeLotRecords failed:', error);
+    return {};
+  }
+};
+
+export const getUnifiedLotTimeline = async (userId: string, strategyId: string, rsId?: string) => {
+  try {
+    const strategy = await getStrategyById(strategyId);
+    if (!strategy) return [];
+    
+    // Parse lot pricing to get unit price
+    const parseLotPricingUnit = (lotPricing: any): number => {
+      try {
+        if (!lotPricing) return 1000;
+        const parsed = typeof lotPricing === 'string' ? JSON.parse(lotPricing) : lotPricing;
+        if (!Array.isArray(parsed) || parsed.length === 0) return 1000;
+        const rows = parsed
+          .map((x: any) => ({ lot: Number(x?.lot), amountUSD: Number(x?.amountUSD) }))
+          .filter((x: any) => Number.isFinite(x.lot) && x.lot > 0 && Number.isFinite(x.amountUSD) && x.amountUSD > 0);
+        const one = rows.find((r: any) => Number(r.lot) === 1);
+        if (one) return Number(one.amountUSD);
+        const unit = rows[0].amountUSD / rows[0].lot;
+        return Number.isFinite(unit) && unit > 0 ? unit : 1000;
+      } catch {
+        return 1000;
+      }
+    };
+    const unitPrice = parseLotPricingUnit((strategy as any)?.parameters?.lotPricing);
+
+    // Prefer investment_events if present
+    const [evRows]: any = await pool.execute(
+      `SELECT event_ms, action, delta_amount, total_capital, lot_size
+       FROM investment_events
+       WHERE user_id = ? AND strategy_id = ?
+       ORDER BY event_ms ASC`,
+      [userId, strategyId]
+    );
+
+    if (Array.isArray(evRows) && evRows.length > 0) {
+      return evRows.map((r: any) => ({ ms: Number(r.event_ms), lot: Number(r.lot_size), action: String(r.action || 'add') }));
+    }
+
+    // Backfill from wallet_transactions
+    const queryVariants: Array<{ query: string; params: any[] }> = [];
+    if (rsId) {
+      queryVariants.push({
+        query: `SELECT
+                  UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                  transaction_type,
+                  amount,
+                  capital,
+                  lot_size,
+                  status,
+                  admin_message
+                FROM wallet_transactions
+                WHERE user_id = ? AND strategy_id = ? AND (running_strategy_id = ? OR running_strategy_id IS NULL)
+                ORDER BY created_at ASC`,
+        params: [userId, strategyId, rsId],
+      });
+      queryVariants.push({
+        query: `SELECT
+                  UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                  transaction_type,
+                  amount,
+                  capital,
+                  0 AS lot_size,
+                  status,
+                  admin_message
+                FROM wallet_transactions
+                WHERE user_id = ? AND strategy_id = ? AND (running_strategy_id = ? OR running_strategy_id IS NULL)
+                ORDER BY created_at ASC`,
+        params: [userId, strategyId, rsId],
+      });
+    }
+    queryVariants.push({
+      query: `SELECT
+                UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                transaction_type,
+                amount,
+                capital,
+                0 AS lot_size,
+                status,
+                admin_message
+              FROM wallet_transactions
+              WHERE user_id = ? AND strategy_id = ?
+              ORDER BY created_at ASC`,
+      params: [userId, strategyId],
+    });
+
+    let txRows: any[] = [];
+    let lastErr: any = null;
+    for (const variant of queryVariants) {
+      try {
+        const [rows]: any = await pool.execute(variant.query, variant.params);
+        txRows = Array.isArray(rows) ? rows : [];
+        lastErr = null;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+      }
+    }
+    if (lastErr) throw lastErr;
+
+    const extractLotFromMsg = (msg: string): number => {
+      const s = String(msg ?? '').toLowerCase();
+      const m = s.match(/(?:equal\s*x|x|lot\s*[:=])\s*(\d+(?:\.\d+)?)/i);
+      return m ? Number(m[1]) : 0;
+    };
+
+    let total = 0;
+    const timeline: any[] = [];
+    for (const t of Array.isArray(txRows) ? txRows : []) {
+      const status = String(t.status || '').toLowerCase();
+      if (!['completed', 'approved', 'settled'].includes(status)) continue;
+      const type = String(t.transaction_type || '').toLowerCase();
+      const msg = String(t.admin_message || '').toLowerCase();
+      const amt = Number(t.capital ?? t.amount ?? 0);
+      if (!Number.isFinite(amt) || amt <= 0) continue;
+
+      const isReduction = (type === 'settled' || type === 'withdrawal') && msg.includes('investment reduction');
+      const isIncrease = type === 'deposit' || type === 'charge';
+      if (!isIncrease && !isReduction) continue;
+
+      const delta = isReduction ? -amt : amt;
+      total += delta;
+
+      const pLot = Number(t.lot_size || 0);
+      const msgLot = extractLotFromMsg(msg);
+      const lot = pLot > 0 ? pLot : (msgLot > 0 ? msgLot : Math.max(1, Math.floor(total / Math.max(1, unitPrice))));
+
+      timeline.push({
+        ms: Number(t.event_ms),
+        lot,
+        action: isReduction ? 'reduce' : 'add',
+      });
+    }
+    return timeline;
+  } catch (error) {
+    console.error('getUnifiedLotTimeline failed:', error);
+    return [];
+  }
+};
+
+export const getLotForTime = (ms: number, timeline: Array<{ ms: number; lot: number; action: string }>, fallbackLot: number): number => {
+  if (!timeline || timeline.length === 0) return fallbackLot;
+  
+  // Sort timeline DESCENDING to find the most recent state
+  const sorted = [...timeline].sort((a, b) => b.ms - a.ms);
+  
+  const INCREASE_PENALTY_MS = 10 * 60 * 1000;
+  const REDUCTION_BUFFER_MS = 30 * 1000;
+  
+  for (const r of sorted) {
+    const isIncrease = r.action === 'add' || r.action === 'initial';
+    const effectiveEventMs = isIncrease ? (r.ms + INCREASE_PENALTY_MS) : (r.ms - REDUCTION_BUFFER_MS);
+
+    if (ms >= effectiveEventMs) {
+      return r.lot;
+    }
+  }
+  
+  const oldest = [...timeline].sort((a, b) => a.ms - b.ms)[0];
+  return oldest ? oldest.lot : (fallbackLot || 1);
+};
+
+export const saveTradeLotRecord = async (ticketId: string, userId: string, strategyId: string, lotMultiplier: number) => {
+  try {
+    await pool.execute(
+      'INSERT IGNORE INTO trade_lot_records (ticket_id, user_id, strategy_id, lot_multiplier) VALUES (?, ?, ?, ?)',
+      [String(ticketId), userId, strategyId, lotMultiplier]
+    );
+    return true;
+  } catch (error) {
+    console.error('saveTradeLotRecord failed:', error);
+    return false;
   }
 };
 
@@ -544,7 +745,8 @@ export const getAllStrategies = async () => {
 
 export const getRunningStrategyById = async (id: string) => {
   try {
-    const [rows]: any = await pool.execute('SELECT * FROM running_strategies WHERE id = ?', [id]);
+    // Attempt lookup by UUID (id) OR strategy_id (slug)
+    const [rows]: any = await pool.execute('SELECT * FROM running_strategies WHERE id = ? OR strategy_id = ?', [id, id]);
     if (!rows[0]) return null;
     const r = rows[0];
     return {
@@ -558,7 +760,7 @@ export const getRunningStrategyById = async (id: string) => {
   } catch (error) {
     console.error('Error getting running strategy by ID:', error);
     const db = readDatabase();
-    return db.running_strategies.find((r: any) => r.id === id) || null;
+    return db.running_strategies.find((r: any) => r.id === id || r.strategy_id === id) || null;
   }
 };
 
@@ -648,6 +850,69 @@ export const getUserStrategyDeposit = async (userId: string, strategyId: string)
     return Number(rows[0]?.total_deposit || 0);
   } catch (error) {
     console.error('Error getting user strategy deposit:', error);
+    return 0;
+  }
+};
+
+export const getEffectiveStrategyCapital = async (
+  userId: string,
+  strategyId: string,
+  runningStrategyId?: string
+): Promise<number> => {
+  try {
+    const [columns]: any = await pool.execute(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wallet_transactions'`
+    );
+    const colSet = new Set(
+      (Array.isArray(columns) ? columns : []).map((c: any) => String(c.COLUMN_NAME || '').toLowerCase())
+    );
+    const hasRunningStrategyId = colSet.has('running_strategy_id');
+    const hasCapital = colSet.has('capital');
+    const hasAdminMessage = colSet.has('admin_message');
+
+    const whereSql =
+      hasRunningStrategyId && runningStrategyId
+        ? 'user_id = ? AND strategy_id = ? AND (running_strategy_id = ? OR running_strategy_id IS NULL)'
+        : 'user_id = ? AND strategy_id = ?';
+    const params = hasRunningStrategyId && runningStrategyId
+      ? [userId, strategyId, runningStrategyId]
+      : [userId, strategyId];
+
+    const [rows]: any = await pool.execute(
+      `SELECT
+         transaction_type,
+         amount,
+         ${hasCapital ? 'capital' : 'amount AS capital'},
+         status,
+         ${hasAdminMessage ? 'admin_message' : "'' AS admin_message"},
+         created_at
+       FROM wallet_transactions
+       WHERE ${whereSql}
+       ORDER BY created_at ASC`,
+      params
+    );
+
+    let total = 0;
+    for (const t of Array.isArray(rows) ? rows : []) {
+      const status = String(t?.status || '').toLowerCase();
+      if (!['completed', 'approved', 'settled'].includes(status)) continue;
+
+      const type = String(t?.transaction_type || '').toLowerCase();
+      const msg = String(t?.admin_message || '').toLowerCase();
+      const amount = Number(t?.capital ?? t?.amount ?? 0);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+
+      const isReduction = (type === 'settled' || type === 'withdrawal') && msg.includes('investment reduction');
+      const isIncrease = type === 'deposit' || type === 'charge';
+      if (!isIncrease && !isReduction) continue;
+
+      total += isReduction ? -amount : amount;
+    }
+    return Number(Math.max(0, total).toFixed(2));
+  } catch (error) {
+    console.error('getEffectiveStrategyCapital failed:', error);
     return 0;
   }
 };
@@ -1730,9 +1995,20 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
         ]
       );
 
+      // DO NOT update running_strategies capital with profit. 
+      // The capital column should only represent the invested amount (Deposit/Add/Reduce).
+      // Profit is tracked via profit_settlement_items and wallet_transactions.
+      /*
       await connection.execute(
         'UPDATE running_strategies SET capital = ?, updated_at = NOW() WHERE user_id = ? AND strategy_id = ?',
         [settledBalance, u.user_id, strategyId]
+      );
+      */
+      
+      // Update only the timestamp to indicate activity
+      await connection.execute(
+        'UPDATE running_strategies SET updated_at = NOW() WHERE user_id = ? AND strategy_id = ?',
+        [u.user_id, strategyId]
       );
 
       if (commission > 0) {
@@ -1794,6 +2070,150 @@ export const runProfitSettlement = async (strategyId: string, adminId: string, u
   } finally {
     connection.release();
   }
+};
+
+export const getLotTimelineForUser = async (
+  userId: string,
+  strategyId: string,
+  unitPrice: number,
+  runningStrategyId?: string
+): Promise<Array<{ ms: number; lot: number; action: string }>> => {
+  try {
+    const queryVariants: Array<{ query: string; params: any[] }> = [];
+    if (runningStrategyId) {
+      queryVariants.push({
+        query: `SELECT
+                  UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                  transaction_type,
+                  amount,
+                  capital,
+                  lot_size,
+                  status,
+                  admin_message
+                FROM wallet_transactions
+                WHERE user_id = ? AND strategy_id = ? AND (running_strategy_id = ? OR running_strategy_id IS NULL)
+                ORDER BY created_at ASC`,
+        params: [userId, strategyId, runningStrategyId],
+      });
+      queryVariants.push({
+        query: `SELECT
+                  UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                  transaction_type,
+                  amount,
+                  capital,
+                  0 AS lot_size,
+                  status,
+                  admin_message
+                FROM wallet_transactions
+                WHERE user_id = ? AND strategy_id = ? AND (running_strategy_id = ? OR running_strategy_id IS NULL)
+                ORDER BY created_at ASC`,
+        params: [userId, strategyId, runningStrategyId],
+      });
+    }
+    queryVariants.push({
+      query: `SELECT
+                UNIX_TIMESTAMP(created_at) * 1000 AS event_ms,
+                transaction_type,
+                amount,
+                capital,
+                0 AS lot_size,
+                status,
+                admin_message
+              FROM wallet_transactions
+              WHERE user_id = ? AND strategy_id = ?
+              ORDER BY created_at ASC`,
+      params: [userId, strategyId],
+    });
+
+    let txRows: any[] = [];
+    let lastErr: any = null;
+    for (const variant of queryVariants) {
+      try {
+        const [rows]: any = await pool.execute(variant.query, variant.params);
+        txRows = Array.isArray(rows) ? rows : [];
+        lastErr = null;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+      }
+    }
+    if (lastErr) throw lastErr;
+
+    const extractLotFromMsg = (msg: string): number => {
+      const s = String(msg ?? '').toLowerCase();
+      const m = s.match(/(?:equal\s*x|x|lot\s*[:=])\s*(\d+(?:\.\d+)?)/i);
+      return m ? Number(m[1]) : 0;
+    };
+
+    let total = 0;
+    const timeline: Array<{ ms: number; lot: number; action: string }> = [];
+    for (const t of Array.isArray(txRows) ? txRows : []) {
+      const status = String(t.status || '').toLowerCase();
+      if (!['completed', 'approved', 'settled'].includes(status)) continue;
+      const type = String(t.transaction_type || '').toLowerCase();
+      const msg = String(t.admin_message || '').toLowerCase();
+      const amt = Number(t.capital ?? t.amount ?? 0);
+      if (!Number.isFinite(amt) || amt <= 0) continue;
+
+      const isReduction = (type === 'settled' || type === 'withdrawal') && msg.includes('investment reduction');
+      const isIncrease = type === 'deposit' || type === 'charge' || (type === 'settled' && !isReduction);
+      if (!isIncrease && !isReduction) continue;
+
+      const delta = isReduction ? -amt : amt;
+      total += delta;
+
+      const pLot = Number(t.lot_size || 0);
+      const msgLot = extractLotFromMsg(msg);
+      const lot = pLot > 0 ? pLot : (msgLot > 0 ? msgLot : Math.max(1, Math.floor(total / Math.max(1, unitPrice))));
+
+      timeline.push({
+        ms: Number(t.event_ms),
+        lot: lot,
+        action: isReduction ? 'reduce' : 'add',
+      });
+    }
+    return timeline;
+  } catch (error) {
+    console.error('[getLotTimelineForUser] Error:', error);
+    return [];
+  }
+};
+
+export const parseMt5DateToMs = (v: string | number | null | undefined): number => {
+  if (v == null || v === "") return NaN;
+  if (typeof v === "string") {
+    // If it's already an ISO string with Z or Offset, use Date.parse
+    if (v.includes('T') || v.includes('Z')) {
+       const t = Date.parse(v);
+       if (Number.isFinite(t)) return t;
+    }
+    
+    // MT5 format: "2026.04.14 13:00:00" or "2026-04-14 13:00:00"
+    const m = v.match(/^(\d{4})[\.\-/](\d{2})[\.\-/](\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+    if (m) {
+      const [_, yy, MM, dd, hh, mm, ss] = m;
+      // Force UTC
+      return Date.UTC(Number(yy), Number(MM) - 1, Number(dd), Number(hh), Number(mm), Number(ss));
+    }
+    
+    // MT5 format: "13 Apr 17:58:47" (no year). Assume current year and UTC.
+    const m2 = v.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2}):(\d{2}):(\d{2})$/);
+    if (m2) {
+      const day = Number(m2[1]);
+      const mon = m2[2].toLowerCase();
+      const months: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+      const monthIdx = months[mon];
+      if (monthIdx !== undefined) {
+        const now = new Date();
+        return Date.UTC(now.getFullYear(), monthIdx, day, Number(m2[3]), Number(m2[4]), Number(m2[5]));
+      }
+    }
+    
+    return Date.parse(v);
+  }
+  const num = Number(v);
+  if (!Number.isFinite(num)) return NaN;
+  return num < 10000000000 ? num * 1000 : num;
 };
 
 export const runProfitSharingSettlementAdmin = runProfitSettlement;
