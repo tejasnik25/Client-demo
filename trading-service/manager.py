@@ -656,8 +656,8 @@ def launch_terminal(exe_path, login, password, server):
         # Actually /portable makes it look in the dir where exe is located.
         subprocess.Popen(cmd, cwd=instance_dir)
         
-        # Wait a bit for it to start
-        time.sleep(5)
+        # Give MT5 enough time to boot on Windows Server before worker IPC initialize.
+        time.sleep(15)
         return True
     except Exception as e:
         print(f"❌ Failed to launch terminal for {login}: {e}")

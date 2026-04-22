@@ -110,6 +110,30 @@ def get_script_fingerprint():
     except Exception as e:
         return script_path, f"unavailable ({e})"
 
+def ensure_instance_terminal_running(mt5_exe_path: str):
+    """
+    Best-effort: make sure the *specific* portable MT5 instance is running.
+    On Windows Server the MT5 GUI can take a while to be ready; launching it
+    here helps `mt5.initialize(path=...)` attach reliably.
+    """
+    try:
+        if not mt5_exe_path or not os.path.exists(mt5_exe_path):
+            return False
+
+        instance_dir = os.path.dirname(mt5_exe_path)
+        cmd = [mt5_exe_path, "/portable"]
+
+        startup_cfg = os.path.join(instance_dir, "config", "startup.ini")
+        if os.path.exists(startup_cfg):
+            cmd.append("/config:config\\startup.ini")
+
+        # If already running, spawning another process is usually ignored by MT5.
+        subprocess.Popen(cmd, cwd=instance_dir)
+        return True
+    except Exception as e:
+        log_print(f"⚠ Failed to ensure MT5 instance launch: {e}")
+        return False
+
 # GLOBAL VARS
 STATUS_FILE_PREFIX = "status_"
 PERSISTENCE_FILE = "subscriptions_v2.json"
@@ -1843,9 +1867,13 @@ def copy_trade_worker():
                         path_arg['path'] = MT5_PATH
                         log_print(f"   -> Using path: {MT5_PATH}")
 
-                    # Attempt 1: Connect to existing terminal (or launch)
-                    # We loop here to aggressively close popups if init fails
-                    for attempt in range(5):
+                    # Ensure the *specific* instance terminal is running before IPC attach.
+                    if MT5_PATH:
+                        ensure_instance_terminal_running(MT5_PATH)
+
+                    # Try short initialize attempts with progress logs.
+                    # This avoids silent long hangs on Windows Server/RDP.
+                    for attempt in range(12):  # ~60-90s total with sleeps
                         try:
                             # Pre-emptive popup closing
                             close_popup_windows()
@@ -1853,8 +1881,9 @@ def copy_trade_worker():
                             # Increased timeout for IPC
                             # IMPORTANT: Must shutdown first to clear stale handles
                             mt5.shutdown()
-                            
-                            if mt5.initialize(timeout=60000, **path_arg):
+
+                            log_print(f"   -> initialize() attempt {attempt+1}/12 ...")
+                            if mt5.initialize(timeout=5000, **path_arg):
                                 init_success = True
                                 log_print("   ✓ mt5.initialize() Success")
                                 break
@@ -1862,22 +1891,13 @@ def copy_trade_worker():
                                 err = mt5.last_error()
                                 log_print(f"   ✗ mt5.initialize() Failed (Attempt {attempt+1}): {err}")
                                 
-                                # FAIL-SAFE: Try connecting without path (Active Terminal)
-                                if err[0] in [-10005, -10004]:
-                                     log_print("     ⚠ IPC Error. Trying fallback: Connect to ANY active terminal...")
-                                     if mt5.initialize(timeout=60000):
-                                          log_print("     ✅ Fallback Success: Connected to active terminal!")
-                                          init_success = True
-                                          break
-                                
                                 # If IPC timeout (-10005), terminal might be hung or busy
                                 if err[0] == -10005:
-                                    log_print("     -> IPC Timeout detected. Skipping aggressive kill to protect other instances...")
+                                    log_print("     -> IPC Timeout detected. Relaunching instance + waiting...")
                                     try:
-                                        import os
-                                        # DANGEROUS IN MULTI-INSTANCE: os.system("taskkill /F /IM terminal64.exe")
-                                        log_print("     -> Waiting 5s before retry...")
-                                        time.sleep(5) 
+                                        if MT5_PATH:
+                                            ensure_instance_terminal_running(MT5_PATH)
+                                        time.sleep(6)
                                         
                                         # Robust Recovery: Manual Launch + Wait + Popup Kill
                                         # This prevents 'initialize' from getting stuck on the wizard
@@ -1907,6 +1927,11 @@ def copy_trade_worker():
                                             
                                             if "MT5_Instances" in launch_path or "/portable" in str(sys.argv):
                                                 cmd.append("/portable")
+                                            
+                                            # If instance startup config exists, force it to ensure auto-login on restart.
+                                            startup_cfg = os.path.join(launch_cwd, "config", "startup.ini")
+                                            if os.path.exists(startup_cfg):
+                                                cmd.append("/config:config\\startup.ini")
 
                                             if current_subs:
                                                 m_launch = current_subs[0]['master']
@@ -1928,8 +1953,8 @@ def copy_trade_worker():
                                             subprocess.Popen(cmd, cwd=launch_cwd)
                                             log_print(f"     -> Process launched with CWD: {launch_cwd}")
                                             
-                                            log_print("     -> Waiting 20s for GUI to load and popups to appear...")
-                                            time.sleep(20) # Increased to 20s for slow servers
+                                            log_print("     -> Waiting 25s for GUI to load and popups to appear...")
+                                            time.sleep(25) # Extra buffer for slower Windows Server/RDP sessions
                                             close_popup_windows()
                                             log_print("     -> Popups closed. Ready for connection attempt.")
                                         else:
@@ -1973,7 +1998,10 @@ def copy_trade_worker():
                              p_masked = f"{p_debug[:2]}***{p_debug[-2:]}" if len(p_debug) > 4 else "***"
                              log_print(f"   🔑 Credentials: ID={m_init.get('id')} Server={m_init.get('server')} Pass={p_masked} (Len={len(p_debug)})")
                              
-                             if mt5.login(login=int(m_init['id']), password=m_init['password'], server=m_init['server']):
+                             m_login = str(m_init.get('id', '')).replace('\u200e', '').strip()
+                             m_server_clean = str(m_init.get('server', '')).replace('\u200e', '').strip()
+                             m_password = m_init.get('password')
+                             if mt5.login(login=int(m_login), password=m_password, server=m_server_clean):
                                  log_print(f"✅ Login Successful: {m_init['id']}")
                                  # Allow time for server connection
                                  time.sleep(0.5)
