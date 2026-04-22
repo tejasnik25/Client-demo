@@ -44,13 +44,13 @@ function DashboardPageContent() {
     return <span className="text-gray-500 font-bold bg-gray-100 px-2 py-0.5 rounded-full text-[9px] uppercase">{s}</span>;
   };
 
-  const formatCurrency = (val: number | undefined) => {
-    if (val === undefined || val === null) return "$0.00";
+  const formatCurrency = (amount: number, currency: string = 'USD') => {
+    if (amount === undefined || amount === null) return currency === 'USC' ? 'USC 0.00' : '$0.00';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency: currency === 'USC' ? 'USD' : currency, // USC is displayed as USD symbol but labeled USC
       minimumFractionDigits: 2
-    }).format(val);
+    }).format(amount).replace('$', currency === 'USC' ? 'USC ' : '$');
   };
 
   const stratById = useMemo(() => {
@@ -176,16 +176,16 @@ function DashboardPageContent() {
                         </div>
                         <div className="flex flex-col items-center">
                           <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Balance</span>
-                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.balance || base.capital || 0)}</span>
+                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.balance || base.capital || 0, base.currency || 'USD')}</span>
                         </div>
                         <div className="flex flex-col items-center hidden md:flex">
                           <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Equity</span>
-                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.equity || base.capital || 0)}</span>
+                          <span className="text-sm font-bold text-gray-900">{formatCurrency(base.equity || base.capital || 0, base.currency || 'USD')}</span>
                         </div>
                         <div className="flex flex-col items-center">
                           <span className="text-[10px] font-bold text-gray-300 uppercase mb-1">Float Profit</span>
                           <span className={`text-sm font-bold ${(base.floatProfit || 0) > 0 ? 'text-green-500' : (base.floatProfit || 0) < 0 ? 'text-red-500' : 'text-gray-900'}`}>
-                            {formatCurrency(base.floatProfit || 0.00)}
+                            {formatCurrency(base.floatProfit || 0.00, base.currency || 'USD')}
                           </span>
                         </div>
                       </div>

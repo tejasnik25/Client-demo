@@ -7,6 +7,7 @@ import json
 import glob
 import urllib.request
 import ssl
+import hashlib
 try:
     import mysql.connector
 except ImportError:
@@ -67,6 +68,18 @@ processes = {} # {master_id: subprocess.Popen}
 api_process = None
 last_db_mtime = 0
 
+def get_script_fingerprint():
+    """
+    Returns the absolute script path and SHA-256 hash for runtime verification.
+    """
+    script_path = os.path.abspath(__file__)
+    try:
+        with open(script_path, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        return script_path, digest
+    except Exception as e:
+        return script_path, f"unavailable ({e})"
+
 def get_subscriptions_from_db():
     """
     Reads subscriptions.
@@ -81,10 +94,8 @@ def get_subscriptions_from_db():
 
     # -1. Try MySQL Database (Ultimate Source of Truth)
     try:
-        # INCREASED TIMEOUT: Added connection_timeout to prevent hanging if RDS is slow or unreachable
         conn = mysql.connector.connect(
-            host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME,
-            connection_timeout=10
+            host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME
         )
         cursor = conn.cursor(dictionary=True)
         
@@ -96,7 +107,6 @@ def get_subscriptions_from_db():
             rs.strategy_id,
             rs.plan,
             rs.status,
-            rs.created_at AS rs_created_at,
             s.master_account_id,
             s.master_account_password,
             s.master_account_server,
@@ -118,7 +128,6 @@ def get_subscriptions_from_db():
              ORDER BY created_at DESC LIMIT 1
         )
         WHERE rs.status IN ('in-process', 'active') 
-        AND (rs.admin_status IS NULL OR rs.admin_status IN ('running', 'active', 'in-process'))
         AND s.master_account_id IS NOT NULL
         """
         
@@ -135,6 +144,8 @@ def get_subscriptions_from_db():
                 row['slave_id'] = str(row['slave_id']).replace('\u200e', '').strip()
             if row['master_account_id']:
                 row['master_account_id'] = str(row['master_account_id']).replace('\u200e', '').strip()
+            if row['master_account_server']:
+                row['master_account_server'] = row['master_account_server'].replace('\u200e', '').strip()
             if row['slave_server']:
                 row['slave_server'] = row['slave_server'].replace('\u200e', '').strip()
 
@@ -148,14 +159,15 @@ def get_subscriptions_from_db():
                  print(f"⚠ Skipping Subscription with Invalid Non-Numeric Master ID: {master_id_str}")
                  continue
             
+            # HOTFIX: Correct Server for Slave 25285165 (Database has wrong 'Tickmill-Demo' value)
             slave_server = (row['slave_server'] or 'MetaQuotes-Demo').replace('\u200e', '').strip()
+            if str(row['slave_id']) == '25285165' and 'Tickmill' in slave_server:
+                print(f"🔧 HOTFIX: Overriding incorrect server '{slave_server}' for Slave 25285165 -> 'RoboForex-Pro'")
+                slave_server = 'RoboForex-Pro'
 
             sub = {
                 "id": f"sub_{row['user_id']}_{row['strategy_id']}_{row['slave_id']}",
                 "externalId": row['rs_id'],
-                "userId": row['user_id'],
-                "strategyId": row['strategy_id'],
-                "createdAt": str(row.get('rs_created_at', '')),
                 "master": {
                     "id": str(row['master_account_id']),
                     "password": row['master_account_password'],
@@ -572,6 +584,8 @@ def launch_terminal(exe_path, login, password, server):
     """
     try:
         instance_dir = os.path.dirname(exe_path)
+        login = str(login).replace('\u200e', '').strip()
+        server = str(server).replace('\u200e', '').strip()
         
         # 0. Sync Server Definitions (Critical for "Unknown Server" errors)
         # We need to find the Base MT5 path. We can infer it or search again.
@@ -668,9 +682,12 @@ def start_worker(master_id, exe_path):
 
 def main():
     global APP_ENV
+    script_path, script_hash = get_script_fingerprint()
     print("════════════════════════════════════════════════════════════")
     print("🚀 MULTI-TERMINAL MANAGER (ROLLBACK)")
     print(f"🌍 ENVIRONMENT: {APP_ENV.upper()}")
+    print(f"📄 Manager Script: {script_path}")
+    print(f"🔐 Manager SHA256: {script_hash}")
     print("════════════════════════════════════════════════════════════")
     
     # 1. Locate MT5

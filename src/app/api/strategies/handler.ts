@@ -50,8 +50,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { 
       name, description, imageUrl, details, enabled, contentType, contentUrl, 
-      roi, profit, maxDdi, copiers, riskScore, tag, planPrices,
-      masterAccountId, masterAccountPassword, masterAccountServer, masterPlatform
+        roi, profit, maxDdi, copiers, riskScore, tag, planPrices,
+      masterAccountId, masterAccountPassword, masterAccountServer, masterPlatform,
+      currency
     } = body;
 
     // Validate required fields
@@ -83,7 +84,9 @@ export async function POST(req: NextRequest) {
       name,
       description,
       performance: 0,
-      parameters: {},
+      parameters: {
+        currency: currency || 'USD'
+      },
       riskLevel: 'Medium',
       category: 'Value',
       imageUrl: imageUrl || '/default-strategy.svg',
@@ -104,16 +107,16 @@ export async function POST(req: NextRequest) {
       masterPlatform
     });
 
-    if (!result.success) {
+    if (!(result as any).success) {
       return NextResponse.json(
-        { error: result.error || 'Failed to create strategy' },
+        { error: (result as any).error || 'Failed to create strategy' },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ 
       success: true as const, 
-      strategy: result.strategy 
+      id: (result as any).id 
     });
   } catch (error) {
     console.error('Error creating strategy:', error);
@@ -143,7 +146,8 @@ export async function PUT(req: NextRequest) {
     const { 
       id, name, description, imageUrl, details, enabled, contentType, contentUrl, 
       roi, profit, maxDdi, copiers, riskScore, tag, planPrices,
-      masterAccountId, masterAccountPassword, masterAccountServer, masterPlatform
+      masterAccountId, masterAccountPassword, masterAccountServer, masterPlatform,
+      currency
     } = body;
 
     // Validate required fields
@@ -154,10 +158,12 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    // Fetch existing to handle parameters
+    const existing = await getStrategyById(id);
+    const existingParams = existing?.parameters || {};
+
     // Validate Master Account if updating
     if (masterAccountId || masterAccountPassword || masterAccountServer) {
-        // Fetch existing to fill gaps
-        const existing = await getStrategyById(id);
         if (existing) {
              const mId = masterAccountId || existing.masterAccountId;
              const mPwd = masterAccountPassword || existing.masterAccountPassword;
@@ -200,19 +206,23 @@ export async function PUT(req: NextRequest) {
       masterAccountId,
       masterAccountPassword,
       masterAccountServer,
-      masterPlatform
+      masterPlatform,
+      parameters: {
+        ...existingParams,
+        ...(currency ? { currency } : {})
+      }
     });
 
-    if (!result.success) {
+    if (!result) {
       return NextResponse.json(
-        { error: result.error || 'Failed to update strategy' },
+        { error: 'Failed to update strategy' },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ 
       success: true as const, 
-      strategy: result.strategy 
+      id 
     });
   } catch (error) {
     console.error('Error updating strategy:', error);
@@ -250,9 +260,9 @@ export async function DELETE(req: NextRequest) {
 
     const result = await deleteStrategy(id);
 
-    if (!result.success) {
+    if (!result) {
       return NextResponse.json(
-        { error: result.error || 'Failed to delete strategy' },
+        { error: 'Failed to delete strategy' },
         { status: 500 }
       );
     }

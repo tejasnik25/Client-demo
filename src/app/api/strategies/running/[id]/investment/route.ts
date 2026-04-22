@@ -20,6 +20,12 @@ export const revalidate = 0;
 
 const DEFAULT_MIN_INVESTMENT = 1000;
 
+// Conversion factor: 1 USD = 100 USC
+const USD_TO_USC = 100;
+
+const convertToUSC = (usd: number) => Number((usd * USD_TO_USC).toFixed(2));
+const convertToUSD = (usc: number) => Number((usc / USD_TO_USC).toFixed(2));
+
 type Action = 'add' | 'reduce';
 
 const safeNumber = (v: any): number => {
@@ -199,6 +205,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const lotPricing = (strategy as any)?.parameters?.lotPricing;
   const masterId = (strategy as any)?.masterAccountId;
+  const currency = (strategy as any)?.parameters?.currency || 'USD';
+  const isUSC = currency === 'USC';
 
   // Derive accurate deposit from wallet ledger instead of stale capital field
   let deposit = Number((rs as any)?.capital ?? 0);
@@ -223,7 +231,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       minCapital,
     });
   }
-  return NextResponse.json({ success: true, equity: equityNow, deposit });
+  return NextResponse.json({ success: true, equity: equityNow, deposit, currency, isUSC });
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -287,6 +295,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const lotPricing = (strategy as any)?.parameters?.lotPricing;
   const unitPrice = parseUnitPriceFromLotPricing(lotPricing);
+  const currency = (strategy as any)?.parameters?.currency || 'USD';
+  const isUSC = currency === 'USC';
 
   // Derive accurate current deposit from wallet ledger
   let currentCapital = Number((rs as any)?.capital ?? 0);
@@ -363,10 +373,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   if (action === 'add') {
-    const walletBalance = await getWalletBalance(session.user.id);
-    if (walletBalance < amount) {
+    const walletBalanceUSD = await getWalletBalance(session.user.id);
+    const requiredAmountUSD = isUSC ? convertToUSD(amount) : amount;
+
+    if (walletBalanceUSD < requiredAmountUSD) {
       return NextResponse.json(
-        { success: false, error: `Insufficient wallet balance. Available: $${walletBalance.toFixed(2)}` },
+        { success: false, error: `Insufficient wallet balance. Available: $${walletBalanceUSD.toFixed(2)} USD (Required: $${requiredAmountUSD.toFixed(2)} USD for ${amount} ${currency})` },
         { status: 400 }
       );
     }
@@ -379,7 +391,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await connection.beginTransaction();
     await ensureInvestmentEventsTable();
 
-    // Update running strategy capital + lot_size (schema may differ; attempt both columns safely)
+    // Update running strategy capital + lot_size
     try {
       await connection.execute(
         'UPDATE running_strategies SET capital = ?, lot_size = ?, updated_at = NOW() WHERE id = ?',
@@ -389,21 +401,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await connection.execute('UPDATE running_strategies SET capital = ?, updated_at = NOW() WHERE id = ?', [nextCapital, rsId]);
     }
 
-    // Ledger entry to support UI “Balance Operations” and lot-size recovery:
-    // - Add: create a "charge" (deduct from wallet, treated as DEPOSIT on history page)
-    // - Reduce: create a "settled" credit (adds to wallet, treated as WITHDRAWAL on history page)
+    // Ledger entry
     const now = new Date();
     const txId = `txn_inv_${uuidv4()}`;
     const isAdd = action === 'add';
     const transactionType = isAdd ? 'charge' : 'settled';
-    const adminMessage = `${isAdd ? 'Investment Increase' : 'Investment Reduction'} (Equal x${nextLotSize})`;
+    const amountInUSD = isUSC ? convertToUSD(amount) : amount;
+    const adminMessage = `${isAdd ? 'Investment Increase' : 'Investment Reduction'} (${amount} ${currency}${isUSC ? ` = $${amountInUSD.toFixed(2)} USD` : ''}) (Equal x${nextLotSize})`;
 
     const availableColumns = await getWalletTransactionsColumns(connection);
     const insertData: Record<string, any> = {
       id: txId,
       user_id: session.user.id,
-      amount,
-      capital: amount,
+      amount: amountInUSD, // DEDUCT/ADD in USD to wallet
+      capital: amount,     // Store strategy-currency amount in capital column for history logic
       transaction_type: transactionType,
       payment_method: 'internal',
       transaction_id: `INV_${Date.now()}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
@@ -466,6 +477,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         minCapital,
         action,
         amount,
+        currency,
+        amountInUSD,
       },
       { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
     );

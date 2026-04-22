@@ -304,16 +304,23 @@ export default function CopierHistoryPage() {
   const [investmentError, setInvestmentError] = useState<string | null>(null);
 
   const strategyStatus = useMemo(() => {
-    const raw = `${adminStatus || ""} ${mtStatus || ""}`.toLowerCase();
-    if (raw.includes("in-process") || raw.includes("in process")) {
-      return { label: "In-Process", isActive: false };
-    }
-    if (raw.includes("running") || raw.includes("copying") || raw.includes("active")) {
+    const rawAdmin = String(adminStatus || "").toLowerCase();
+    const rawMt = String(mtStatus || "").toLowerCase();
+    
+    if (rawAdmin.includes("running") || rawAdmin.includes("copying") || rawAdmin.includes("active") || 
+        rawMt.includes("running") || rawMt.includes("active")) {
       return { label: "Running/Copying", isActive: true };
     }
-    if (raw.includes("stopped") || raw.includes("idle") || raw.includes("offline") || raw.includes("disconnected")) {
+    
+    if (rawAdmin.includes("in-process") || rawAdmin.includes("in process")) {
+      return { label: "In-Process", isActive: false };
+    }
+    
+    if (rawAdmin.includes("stopped") || rawAdmin.includes("idle") || rawAdmin.includes("offline") || rawAdmin.includes("disconnected") ||
+        rawMt.includes("stopped") || rawMt.includes("disconnected")) {
       return { label: "Stopped", isActive: false };
     }
+    
     return { label: "Stopped", isActive: false };
   }, [adminStatus, mtStatus]);
 
@@ -426,11 +433,11 @@ export default function CopierHistoryPage() {
       const data = await hRes.json();
       if (!data.cached) {
         setRealtimeFetchFailed(false);
-        setOpenPositions(data.open_positions || []);
       } else {
         setRealtimeFetchFailed(true);
-        setOpenPositions([]);
       }
+      
+      setOpenPositions(data.open_positions || []);
       setHistory(data.history || []);
       if (data.trade_lots) {
         setTradeLots(data.trade_lots);
@@ -464,57 +471,55 @@ export default function CopierHistoryPage() {
       setHistoryError(data.error || null);
       setUsingCachedData(Boolean(data.cached));
       const runData = await runRes.json().catch(() => null);
-      const strategiesList = Array.isArray(runData?.strategies) ? runData.strategies : (Array.isArray(runData) ? runData : []);
-      const me = strategiesList.find((x: any) => (x.id === params.id || x.rsId === params.id || x.strategyId === params.id));
+      if (runRes.ok && runData) {
+        const strategiesList = Array.isArray(runData?.strategies) ? runData.strategies : (Array.isArray(runData) ? runData : []);
+        const me = strategiesList.find((x: any) => (x.id === params.id || x.rsId === params.id || x.strategyId === params.id));
 
-      if (me) {
-        setAdminStatus(me.adminStatus || me.admin_status || null);
-        setMtStatus(me.status || null);
-        setSelectedPlan((me.plan as Plan | undefined) ?? null);
-        const connectedAt = me.createdAt || me.created_at || null;
-        setConnectAt(connectedAt);
-        setUpdatedAt(me.updatedAt || me.updated_at || null);
-        setRsId(me.rsId || me.id || null);
-        setRunningLotSize(Number(me.lotSize || me.lot_size || 0));
-        setRunningPeriods(me.periods || []);
-        setModifications(me.modifications || []);
-        setSnapshots(me.snapshots || []);
-        setRunningCapital(Number(me.capital || 0));
+        if (me) {
+          setAdminStatus(me.adminStatus || me.admin_status || null);
+          setMtStatus(me.status || null);
+          setSelectedPlan((me.plan as Plan | undefined) ?? null);
+          const connectedAt = me.createdAt || me.created_at || null;
+          setConnectAt(connectedAt);
+          setUpdatedAt(me.updatedAt || me.updated_at || null);
+          setRsId(me.rsId || me.id || null);
+          setRunningLotSize(Number(me.lotSize || me.lot_size || 0));
+          setRunningPeriods(me.periods || []);
+          setModifications(me.modifications || []);
+          setSnapshots(me.snapshots || []);
+          setRunningCapital(Number(me.capital || 0));
 
-        // Hardcore fix: use a server-derived investment timeline (epoch ms) to avoid timezone parsing issues.
-        try {
-          const tlRes = await fetch(`/api/strategies/running/${me.rsId || me.id}/investment-timeline?t=${Date.now()}`, { cache: "no-store" });
-          const tlJson = await tlRes.json().catch(() => null);
-          if (tlRes.ok && tlJson?.success) {
-            setInvestmentTimeline(Array.isArray(tlJson.timeline) ? tlJson.timeline : []);
-            setInvestmentTimelineUnitPrice(Number(tlJson.unitPrice) || null);
-          } else {
-            setInvestmentTimeline([]);
-            setInvestmentTimelineUnitPrice(null);
-          }
-        } catch {
-          setInvestmentTimeline([]);
-          setInvestmentTimelineUnitPrice(null);
-        }
-
-        if (me.rsId || me.id) {
+          // Hardcore fix: use a server-derived investment timeline (epoch ms) to avoid timezone parsing issues.
           try {
-            const sRes = await fetch(`/api/strategies/running/${me.rsId || me.id}/settlements`);
-            if (sRes.ok) {
-              const sData = await sRes.json();
-              const settlementsData = Array.isArray(sData.settlements) ? sData.settlements : [];
-              settlementsData.sort((a: any, b: any) => {
-                const aEnd = toMs(a.settlementEnd || a.settlement_end || a.settlementEnd || 0);
-                const bEnd = toMs(b.settlementEnd || b.settlement_end || b.settlementEnd || 0);
-                if (aEnd !== bEnd) return bEnd - aEnd;
-                const aCreated = toMs(a.createdAt || a.created_at || a.settlement_created_at || 0);
-                const bCreated = toMs(b.createdAt || b.created_at || b.settlement_created_at || 0);
-                return bCreated - aCreated;
-              });
-              setSettlements(settlementsData);
+            const tlRes = await fetch(`/api/strategies/running/${me.rsId || me.id}/investment-timeline?t=${Date.now()}`, { cache: "no-store" });
+            const tlJson = await tlRes.json().catch(() => null);
+            if (tlRes.ok && tlJson?.success) {
+              setInvestmentTimeline(Array.isArray(tlJson.timeline) ? tlJson.timeline : []);
+              setInvestmentTimelineUnitPrice(Number(tlJson.unitPrice) || null);
             }
-          } catch (err) {
-            console.error('Error fetching settlements:', err);
+          } catch {
+            // Keep existing timeline if fetch fails
+          }
+
+          if (me.rsId || me.id) {
+            try {
+              const sRes = await fetch(`/api/strategies/running/${me.rsId || me.id}/settlements`);
+              if (sRes.ok) {
+                const sData = await sRes.json();
+                const settlementsData = Array.isArray(sData.settlements) ? sData.settlements : [];
+                settlementsData.sort((a: any, b: any) => {
+                  const aEnd = toMs(a.settlementEnd || a.settlement_end || a.settlementEnd || 0);
+                  const bEnd = toMs(b.settlementEnd || b.settlement_end || b.settlementEnd || 0);
+                  if (aEnd !== bEnd) return bEnd - aEnd;
+                  const aCreated = toMs(a.createdAt || a.created_at || a.settlement_created_at || 0);
+                  const bCreated = toMs(b.createdAt || b.created_at || b.settlement_created_at || 0);
+                  return bCreated - aCreated;
+                });
+                setSettlements(settlementsData);
+              }
+            } catch (err) {
+              console.error('Error fetching settlements:', err);
+            }
           }
         }
       }
@@ -662,7 +667,8 @@ export default function CopierHistoryPage() {
 
   const filteredOpen = useMemo(() => {
     // If status is not running/copying, don't show open trades
-    if (!strategyStatus.isActive) return [];
+    // EXCEPTION: If we are using cached data because of a connection loss, show them anyway.
+    if (!strategyStatus.isActive && !usingCachedData) return [];
 
       // Custom filter for specific user "user_1772105441338" and start date April 2nd 2026
       const filterBySpecificUserDate = (effectiveMs: number) => {
@@ -726,6 +732,9 @@ export default function CopierHistoryPage() {
   // --- Use backendEquity if available for all equity displays ---
   const [backendEquity, setBackendEquity] = useState<number | null>(null);
   const [backendDeposit, setBackendDeposit] = useState<number | null>(null);
+  const [strategyCurrency, setStrategyCurrency] = useState<string>('USD');
+  const [isUSC, setIsUSC] = useState<boolean>(false);
+
   useEffect(() => {
     if (!rsId) return;
     let mounted = true;
@@ -735,6 +744,8 @@ export default function CopierHistoryPage() {
         if (mounted && data?.success) {
           if (typeof data.equity === 'number') setBackendEquity(data.equity);
           if (typeof data.deposit === 'number') setBackendDeposit(data.deposit);
+          if (data.currency) setStrategyCurrency(data.currency);
+          if (typeof data.isUSC === 'boolean') setIsUSC(data.isUSC);
         }
       })
       .catch(() => {});
@@ -854,17 +865,17 @@ export default function CopierHistoryPage() {
       .sort((a, b) => toMs(b.time) - toMs(a.time));
 
     return {
-      deposit: finalDeposit.toFixed(2),
-      withdrawal: totalWithdrawal.toFixed(2),
-      profit: totalRealizedProfit.toFixed(2), 
-      swap: (totalRealizedSwap + currentOpenSwap).toFixed(2),
-      commission: totalCommission.toFixed(2),
-      balance: calculatedLockedBalance.toFixed(2), 
-      equity: finalEquity.toFixed(2),
-      floatPL: currentFloatPL.toFixed(2),
+      deposit: `${finalDeposit.toFixed(2)} ${strategyCurrency}`,
+      withdrawal: `${totalWithdrawal.toFixed(2)} ${strategyCurrency}`,
+      profit: `${totalRealizedProfit.toFixed(2)} ${strategyCurrency}`, 
+      swap: `${(totalRealizedSwap + currentOpenSwap).toFixed(2)} ${strategyCurrency}`,
+      commission: `${totalCommission.toFixed(2)} ${strategyCurrency}`,
+      balance: `${calculatedLockedBalance.toFixed(2)} ${strategyCurrency}`, 
+      equity: `${finalEquity.toFixed(2)} ${strategyCurrency}`,
+      floatPL: `${currentFloatPL.toFixed(2)} ${strategyCurrency}`,
       balanceOperations,
     };
-  }, [filteredClosed, filteredOpen, settlements, payments, params.id, connectAt, rsId, runningCapital, investmentTimeline, backendEquity, backendDeposit]);
+  }, [filteredClosed, filteredOpen, settlements, payments, params.id, connectAt, rsId, runningCapital, investmentTimeline, backendEquity, backendDeposit, strategyCurrency]);
 
   const openInvestmentModal = (action: 'add' | 'reduce') => {
     setInvestmentError(null);
@@ -1099,109 +1110,109 @@ export default function CopierHistoryPage() {
               {filter === 'closed' ? (
                 <>
                   <div className="flex flex-col items-center">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.deposit}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.deposit}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">DEPOSIT</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.withdrawal}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.withdrawal}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">WITHDRAWAL</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.profit}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.profit}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">PROFIT</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.swap}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.swap}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">SWAP</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.commission}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.commission}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">COMMISSION</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.balance}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.balance}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">LOCKED BALANCE</p>
                   </div>
                 </>
               ) : filter === 'opened' ? (
                 <>
                   <div className="flex flex-col items-center">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.deposit}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.deposit}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">DEPOSIT</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.withdrawal}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.withdrawal}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">WITHDRAWAL</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.profit}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.profit}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">PROFIT</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.swap}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.swap}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">SWAP</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.equity}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.equity}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">EQUITY</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.floatPL}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.floatPL}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">FP/L</p>
                   </div>
                 </>
               ) : (
                 <>
                   <div className="flex flex-col items-center">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.deposit}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.deposit}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">DEPOSIT</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.withdrawal}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.withdrawal}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">WITHDRAWAL</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.profit}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.profit}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">PROFIT</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100 lg:border-l-0">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.swap}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.swap}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">SWAP</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.commission}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.commission}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">COMMISSION</p>
                   </div>
                   <div className="flex flex-col items-center border-l border-gray-100">
-                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">${stats.balance}</p>
+                    <p className="text-[20px] sm:text-[24px] font-bold text-gray-900 tracking-tight">{stats.balance}</p>
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-1.5 text-center">LOCKED BALANCE</p>
                   </div>
                 </>
               )}
             </div>
 
-            <div className="w-full">
-              <table className="w-full text-left border-collapse table-auto">
+            <div className="w-full overflow-x-auto overflow-y-hidden">
+              <table className="w-full text-left border-collapse table-fixed min-w-[1000px] lg:min-w-0">
                 <thead>
                   <tr className="bg-gray-50/50 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50">
                     {filter === 'balance' ? (
                       <>
-                        <th className="px-8 py-5">OPERATION TYPE</th>
-                        <th className="px-8 py-5">DATE & TIME</th>
-                        <th className="px-8 py-5">DESCRIPTION</th>
-                        <th className="px-8 py-5 text-right">AMOUNT (USD)</th>
+                        <th className="px-4 py-5 w-[20%]">OPERATION TYPE</th>
+                        <th className="px-4 py-5 w-[20%]">DATE & TIME</th>
+                        <th className="px-4 py-5 w-[40%]">DESCRIPTION</th>
+                        <th className="px-4 py-5 text-right w-[20%]">AMOUNT (USD)</th>
                       </>
                     ) : (
                       <>
-                        <th className="px-8 py-5">SYMBOL</th>
-                        <th className="px-8 py-5">TYPE</th>
-                        <th className="px-8 py-5">OPENING TIME, UTC</th>
-                        {filter !== 'opened' && <th className="px-8 py-5">CLOSING TIME, UTC {sortOrder === 'desc' ? '↓' : '↑'}</th>}
-                        <th className="px-8 py-5">LOTS</th>
-                        <th className="px-8 py-5">OPENING PRICE</th>
-                        <th className="px-8 py-5">CLOSING PRICE</th>
-                        <th className="px-8 py-5">SWAP, USD</th>
-                        <th className="px-8 py-5 text-right">PROFIT, USD</th>
+                        <th className="px-4 py-5 w-[12%]">SYMBOL</th>
+                        <th className="px-4 py-5 w-[8%]">TYPE</th>
+                        <th className="px-4 py-5 w-[14%]">OPENING TIME</th>
+                        {filter !== 'opened' && <th className="px-4 py-5 w-[14%]">CLOSING TIME {sortOrder === 'desc' ? '↓' : '↑'}</th>}
+                        <th className="px-4 py-5 w-[8%]">LOTS</th>
+                        <th className="px-4 py-5 w-[10%]">OPEN PRICE</th>
+                        <th className="px-4 py-5 w-[10%]">CLOSE PRICE</th>
+                        <th className="px-4 py-5 w-[12%]">SWAP</th>
+                        <th className="px-4 py-5 text-right w-[12%]">PROFIT</th>
                       </>
                     )}
                   </tr>
@@ -1220,76 +1231,76 @@ export default function CopierHistoryPage() {
                     <tr key={idx} className="hover:bg-gray-50/50 transition-all group">
                       {filter === 'balance' ? (
                         <>
-                          <td className="px-8 py-6">
-                            <div className="flex items-center gap-4">
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border transition-all ${row.type === 'DEPOSIT' ? 'bg-green-50 text-green-600 border-green-100' :
+                          <td className="px-4 py-6">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs border transition-all ${row.type === 'DEPOSIT' ? 'bg-green-50 text-green-600 border-green-100' :
                                   row.type === 'WITHDRAWAL' ? 'bg-red-50 text-red-600 border-red-100' :
                                     'bg-blue-50 text-blue-600 border-blue-100'
                                 }`}>
                                 {row.type === 'DEPOSIT' ? <FiPlusCircle /> : row.type === 'WITHDRAWAL' ? <FiMinusCircle /> : <FiDollarSign />}
                               </div>
-                              <span className="text-[11px] font-black text-gray-900 uppercase tracking-tight">{row.type}</span>
+                              <span className="text-[10px] font-black text-gray-900 uppercase tracking-tight">{row.type}</span>
                             </div>
                           </td>
-                          <td className="px-8 py-6">
-                            <p className="text-[11px] font-black text-gray-900">{formatDateShort(row.time)}</p>
+                          <td className="px-4 py-6">
+                            <p className="text-[10px] font-black text-gray-900">{formatDateShort(row.time)}</p>
                           </td>
-                          <td className="px-8 py-6">
-                            <p className="text-[11px] font-bold text-gray-400">{row.comment}</p>
+                          <td className="px-4 py-6">
+                            <p className="text-[10px] font-bold text-gray-400 truncate" title={row.comment}>{row.comment}</p>
                           </td>
-                          <td className="px-8 py-6 text-right">
-                            <span className={`text-sm font-black ${row.type === 'DEPOSIT' ? 'text-[#00d09c]' : 'text-red-500'}`}>
+                          <td className="px-4 py-6 text-right">
+                            <span className={`text-xs font-black ${row.type === 'DEPOSIT' ? 'text-[#00d09c]' : 'text-red-500'}`}>
                               {row.type === 'DEPOSIT' ? '+' : '-'}${Number(row.amount).toFixed(2)}
                             </span>
                           </td>
                         </>
                       ) : (
                         <>
-                          <td className="px-8 py-6">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center overflow-hidden">
+                          <td className="px-4 py-6">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center overflow-hidden flex-shrink-0">
                                 {row.symbol?.toLowerCase().includes('xau') ? (
-                                  <div className="w-full h-full bg-yellow-500 flex items-center justify-center text-white text-[10px] font-black">AU</div>
+                                  <div className="w-full h-full bg-yellow-500 flex items-center justify-center text-white text-[8px] font-black">AU</div>
                                 ) : row.symbol?.toLowerCase().includes('btc') ? (
-                                  <div className="w-full h-full bg-orange-500 flex items-center justify-center text-white text-[10px] font-black">BT</div>
+                                  <div className="w-full h-full bg-orange-500 flex items-center justify-center text-white text-[8px] font-black">BT</div>
                                 ) : (
-                                  <div className="w-full h-full bg-blue-500 flex items-center justify-center text-white text-[10px] font-black">{row.symbol?.slice(0, 2).toUpperCase()}</div>
+                                  <div className="w-full h-full bg-blue-500 flex items-center justify-center text-white text-[8px] font-black">{row.symbol?.slice(0, 2).toUpperCase()}</div>
                                 )}
                               </div>
-                              <span className="text-[11px] font-black text-gray-900">{row.symbol}</span>
+                              <span className="text-[10px] font-black text-gray-900 truncate">{row.symbol}</span>
                             </div>
                           </td>
-                          <td className="px-8 py-6">
-                            <span className={`inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${String(row.type).toLowerCase().includes('buy')
+                          <td className="px-4 py-6">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${String(row.type).toLowerCase().includes('buy')
                                 ? 'bg-blue-50 text-blue-500 border-blue-100'
                                 : 'bg-red-50 text-red-500 border-red-100'
                               }`}>
                               {row.type}
                             </span>
                           </td>
-                          <td className="px-8 py-6">
-                            <p className="text-[11px] font-bold text-gray-600">{formatDateShort(row.openTimeStr)}</p>
+                          <td className="px-4 py-6">
+                            <p className="text-[10px] font-bold text-gray-600 whitespace-nowrap">{formatDateShort(row.openTimeStr)}</p>
                           </td>
                           {filter !== 'opened' && (
-                            <td className="px-8 py-6">
-                              <p className="text-[11px] font-bold text-gray-600">{row.closeTimeStr ? formatDateShort(row.closeTimeStr) : "Current"}</p>
+                            <td className="px-4 py-6">
+                              <p className="text-[10px] font-bold text-gray-600 whitespace-nowrap">{row.closeTimeStr ? formatDateShort(row.closeTimeStr) : "Current"}</p>
                             </td>
                           )}
-                          <td className="px-8 py-6">
-                            <p className="text-[11px] font-black text-gray-900">{Number(row.volume).toFixed(2)}</p>
+                          <td className="px-4 py-6">
+                            <p className="text-[10px] font-black text-gray-900">{Number(row.volume).toFixed(2)}</p>
                           </td>
-                          <td className="px-8 py-6">
-                            <p className="text-[11px] font-bold text-gray-600">{Number(row.openPrice).toFixed(5)}</p>
+                          <td className="px-4 py-6">
+                            <p className="text-[10px] font-bold text-gray-600">{Number(row.openPrice).toFixed(5)}</p>
                           </td>
-                          <td className="px-8 py-6">
-                            <p className="text-[11px] font-bold text-gray-600">{Number(row.closeOrCurrentPrice).toFixed(5)}</p>
+                          <td className="px-4 py-6">
+                            <p className="text-[10px] font-bold text-gray-600">{Number(row.closeOrCurrentPrice).toFixed(5)}</p>
                           </td>
-                          <td className="px-8 py-6">
-                            <p className="text-[11px] font-bold text-gray-600">{Number(row.swap || 0).toFixed(2)}</p>
+                          <td className="px-4 py-6">
+                            <p className="text-[10px] font-bold text-gray-600 whitespace-nowrap">{Number(row.swap || 0).toFixed(2)} {strategyCurrency}</p>
                           </td>
-                          <td className="px-8 py-6 text-right">
-                            <p className={`text-[11px] font-black ${Number(row.profit) >= 0 ? 'text-[#00d09c]' : 'text-red-500'}`}>
-                              {Number(row.profit) >= 0 ? '+' : ''}{Number(row.profit).toFixed(2)}
+                          <td className="px-4 py-6 text-right">
+                            <p className={`text-[10px] font-black whitespace-nowrap ${Number(row.profit) >= 0 ? 'text-[#00d09c]' : 'text-red-500'}`}>
+                              {Number(row.profit) >= 0 ? '+' : ''}{Number(row.profit).toFixed(2)} {strategyCurrency}
                             </p>
                           </td>
                         </>
@@ -1348,7 +1359,7 @@ export default function CopierHistoryPage() {
             <div className="px-6 py-6 space-y-4">
               <div>
                 <label className="block text-[11px] font-black uppercase tracking-widest text-gray-400 mb-2">
-                  Amount (USD)
+                  Amount ({strategyCurrency})
                 </label>
                 <input
                   value={investmentAmount}
@@ -1359,6 +1370,12 @@ export default function CopierHistoryPage() {
                   disabled={investmentBusy}
                 />
               </div>
+
+              {isUSC && investmentAmount && Number.isFinite(Number(investmentAmount)) && (
+                <div className="text-[10px] font-bold text-blue-600 uppercase tracking-tight">
+                  Equivalent to approx. ${(Number(investmentAmount) / 100).toFixed(2)} USD
+                </div>
+              )}
 
               {investmentError && (
                 <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-[12px] font-bold">

@@ -233,6 +233,8 @@ export async function GET(
           updatedAt: normalizedUpdatedAt,
           closedAt: rs.closed_at || null,
           deletedAt: rs.deleted_at || null,
+          currency: strategy?.parameters?.currency || 'USD',
+          isUSC: strategy?.parameters?.currency === 'USC',
           metrics: {
             floatingProfit: Number(metrics?.floatingProfit || 0),
             realizedProfit: Number(metrics?.realizedProfit || 0),

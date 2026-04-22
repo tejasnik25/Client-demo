@@ -178,6 +178,9 @@ export async function GET() {
           // HARDCORE: Build investment timeline to apply historical lot sizes to realized profit
           const timeline = await getLotTimelineForUser(userId, id, unitFallback, r.id);
 
+          const strategyCurrency = (s as any)?.parameters?.currency || 'USD';
+          const isUSC = strategyCurrency === 'USC';
+
           const masterRealizedProfit = unsettledHistory.reduce((sum: number, t: any) => {
              const openTs = parseMt5DateToMs(t.time_open || t.open_time || t.time);
              const lotAtOpen = getLotForTime(openTs, timeline, userLotMultiplier);
@@ -270,27 +273,32 @@ export async function GET() {
         rsId: r.id,
         strategyId: id,
         name,
+        strategyName: s?.name || r.strategyName,
+        strategyImage: (s as any)?.parameters?.image || s?.imageUrl,
         orders: [],
         profit: metrics.realizedProfit,
-        adminStatus: r.adminStatus || r.admin_status || 'in-process',
-        status: r.status,
-        updatedAt: r.updatedAt || r.updated_at,
-        createdAt: r.createdAt || r.created_at,
-        plan: r.plan,
-        lotSize: Number(finalLotSize || 1),
+        floatingProfit: metrics.floatingProfit,
+        openTrades: metrics.openTrades,
+        totalTrades: metrics.totalTrades,
+        equity: metrics.equity,
+        balance: metrics.balance,
         capital: Number(deposit),
         deposit: Number(deposit),
+        currency: (s as any)?.parameters?.currency || (s as any)?.parameters?.currency_base || 'USD',
+        isUSC: (s as any)?.parameters?.currency === 'USC' || (s as any)?.parameters?.currency_base === 'USC',
         platform: r.platform ?? null,
         rejectionReason: r.rejectionReason ?? r.rejection_reason ?? null,
+        adminStatus: r.admin_status || r.adminStatus || 'in-process',
+        status: r.status,
+        plan: r.plan,
+        createdAt: r.created_at || r.createdAt,
+        updatedAt: r.updated_at || r.updatedAt,
+        lotSize: finalLotSize,
         modifications,
         snapshots,
         periods,
         metrics,
-        // Flatten metrics for backward compatibility with some UI components
         floatProfit: metrics.floatingProfit,
-        balance: metrics.balance,
-        equity: metrics.equity,
-        openTrades: metrics.openTrades,
       };
       console.log(`[RunningStrategiesAPI] Strategy ${obj.strategyId} for user ${userId} has adminStatus: ${obj.adminStatus}`);
       running.push(obj);

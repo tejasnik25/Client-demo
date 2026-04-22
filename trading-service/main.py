@@ -6,6 +6,7 @@ import json
 import os
 import argparse
 import sys
+import hashlib
 from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
@@ -19,23 +20,13 @@ except ImportError:
     print("⚠ Warning: mysql-connector-python not found. Database features will be disabled.")
 from dotenv import load_dotenv
 
-# Ensure Windows console encoding doesn't crash on emoji/unicode output
-try:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-except Exception:
-    pass
-
 # Load .env file
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 import MetaTrader5 as mt5
 import subprocess  # Added for robust launching
-import requests # Added for pushing data to Next.js API
 
 # DB CONFIG
 # Updated Defaults to match Production .env (Client_demo_25)
@@ -44,25 +35,7 @@ DB_USER = os.environ.get("DB_USER", "admin")
 DB_PASS = os.environ.get("DB_PASS", "Client_demo_25")
 DB_NAME = os.environ.get("DB_NAME", "stock_analysis_db")
 
-# API Key used by frontend/backend to authenticate with this service.
-# It must match the one used by the client (COPY_TRADING_API_KEY).
-API_KEY = os.environ.get("COPY_TRADING_API_KEY") or os.environ.get("API_KEY") or "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
-
-# Next.js Sync URL (for PUSHing data to Vercel)
-# Priority: ENV > hardcoded production URL > localhost fallback
-NEXTJS_SYNC_URL = os.environ.get("NEXTJS_SYNC_URL") or os.environ.get("NEXTAUTH_URL") or "https://copy-trade-project.vercel.app"
-if not NEXTJS_SYNC_URL.endswith("/"): NEXTJS_SYNC_URL += "/"
-NEXTJS_SYNC_ENDPOINT = f"{NEXTJS_SYNC_URL}api/trading-service/sync/trades"
-
-# We will also push to localhost if we are not already pushing to a localhost URL
-LOCAL_SYNC_ENDPOINT = "http://localhost:3000/api/trading-service/sync/trades"
-PUSH_TO_LOCAL = "localhost" not in NEXTJS_SYNC_URL and "127.0.0.1" not in NEXTJS_SYNC_URL
-
-def _print_startup_banner():
-    # Keep output ASCII-only and avoid printing during validation mode (subprocess must output pure JSON).
-    print(f"DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
-    print(f"API Key set: {'(hidden)' if API_KEY else '(missing)'}")
-    print(f"Next.js Sync Target: {NEXTJS_SYNC_ENDPOINT}")
+print(f"🔌 DB Config: Host={DB_HOST}, User={DB_USER}, DB={DB_NAME}")
 
 def update_slave_db_status(slave_id, status, error_reason=None):
     """
@@ -105,13 +78,6 @@ parser.add_argument("--validate-password", type=str, help="Password for validati
 parser.add_argument("--validate-server", type=str, help="Server for validation")
 args, unknown = parser.parse_known_args()
 
-# Print startup banner only for normal runs (not validation subprocess).
-if not (args.validate_id or args.validate_password or args.validate_server):
-    _print_startup_banner()
-
-# Set MT5 Path if not provided
-MT5_PATH = args.mt5_path or r"C:\Program Files\MetaTrader 5\terminal64.exe"
-
 # Logging Setup
 log_suffix = "main"
 if args.master_id:
@@ -132,6 +98,18 @@ def log_print(msg):
     print(msg)
     logging.info(msg)
 
+def get_script_fingerprint():
+    """
+    Returns the absolute script path and SHA-256 hash for runtime verification.
+    """
+    script_path = os.path.abspath(__file__)
+    try:
+        with open(script_path, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        return script_path, digest
+    except Exception as e:
+        return script_path, f"unavailable ({e})"
+
 # GLOBAL VARS
 STATUS_FILE_PREFIX = "status_"
 PERSISTENCE_FILE = "subscriptions_v2.json"
@@ -141,7 +119,6 @@ COPY_TRADE_MAGIC_NUMBER = 123456 # Unique ID for copied trades to prevent self-c
 # Persistent Cache for Trade History (Prevents Re-Copying closed trades)
 processed_orders_cache = {}
 MASTER_HISTORY_FILE = "master_history.json"
-master_last_check = {} # Track last check times for workers
 
 def load_master_history():
     if os.path.exists(MASTER_HISTORY_FILE):
@@ -158,23 +135,16 @@ def save_master_history(history_data, open_positions=None):
         existing = load_master_history()
         
         # history_data is a dict {master_id: [deals]}
+        # We store it under "history" key for that master_id
         for m_id, deals in history_data.items():
             if m_id not in existing:
                 existing[m_id] = {"history": [], "open_positions": []}
             
+            # If it's a dict structure already, handle it, otherwise wrap it
             if not isinstance(existing[m_id], dict):
                 existing[m_id] = {"history": existing[m_id], "open_positions": []}
-            
-            # APPEND and deduplicate by ticket
-            existing_history = existing[m_id].get("history", [])
-            existing_tickets = {d.get('ticket') for d in existing_history if d.get('ticket')}
-            
-            for deal in deals:
-                if deal.get('ticket') not in existing_tickets:
-                    existing_history.append(deal)
-                    existing_tickets.add(deal.get('ticket'))
-            
-            existing[m_id]["history"] = existing_history
+                
+            existing[m_id]["history"] = deals
             
         if open_positions:
             for m_id, positions in open_positions.items():
@@ -183,7 +153,7 @@ def save_master_history(history_data, open_positions=None):
                 if not isinstance(existing[m_id], dict):
                     existing[m_id] = {"history": existing[m_id], "open_positions": []}
                 
-                # For open positions, we overwrite because they are "current"
+                # Add server_time string to each open position for frontend consistency
                 for pos in positions:
                     if 'time' in pos and 'server_time' not in pos:
                         pos['server_time'] = datetime.fromtimestamp(pos['time']).strftime('%Y.%m.%d %H:%M:%S')
@@ -192,43 +162,6 @@ def save_master_history(history_data, open_positions=None):
 
         with open(MASTER_HISTORY_FILE, 'w') as f:
             json.dump(existing, f, indent=2)
-        
-        # [PUSH ARCHITECTURE] Push data to Next.js API
-        def push_sync():
-            try:
-                # Merge keys from both updates to ensure we push if EITHER changed
-                masters_to_push = set(history_data.keys())
-                if open_positions:
-                    masters_to_push.update(open_positions.keys())
-
-                for m_id in masters_to_push:
-                    if m_id in existing:
-                        m_data = existing[m_id]
-                        raw_deals = m_data.get("history", [])
-                        aggregated_history = aggregate_deals_to_positions(raw_deals)
-                        
-                        payload = {
-                            "master_id": m_id,
-                            "history": aggregated_history,
-                            "open_positions": m_data.get("open_positions", [])
-                        }
-                        headers = {"Authorization": f"Bearer {API_KEY}"}
-                        # Primary push (Production)
-                        res = requests.post(NEXTJS_SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
-                        if res.status_code != 200:
-                            log_print(f"⚠️ Production Push failed for {m_id}: {res.status_code} {res.text}")
-                        
-                        # Dual push to localhost for developer convenience
-                        if PUSH_TO_LOCAL:
-                            try:
-                                requests.post(LOCAL_SYNC_ENDPOINT, json=payload, headers=headers, timeout=2)
-                            except:
-                                pass # Silent fail if local dev server is not running
-            except Exception as push_err:
-                pass
-
-        threading.Thread(target=push_sync, daemon=True).start()
-
     except Exception as e:
         log_print(f"⚠ Failed to save master history: {e}")
 
@@ -254,7 +187,6 @@ def save_trade_cache():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global MT5_PATH
     load_subscriptions()
     load_trade_cache()
     
@@ -290,7 +222,7 @@ app.add_middleware(
 # ---------------------------------------------------------
 # If MT5 is installed in a custom location, set this path.
 # Example: r"C:\Program Files\MetaTrader 5\terminal64.exe"
-# NOTE: MT5_PATH is initialized above from args/env and should not be reset here.
+MT5_PATH = "" 
 FILTER_MASTER_ID = args.master_id # Set from CLI args
 # ---------------------------------------------------------
 
@@ -345,10 +277,8 @@ def get_subscriptions_from_db():
     # Copied from manager.py to ensure standalone main.py can fetch data
     try:
         if mysql:
-            # INCREASED TIMEOUT: Added connection_timeout to prevent hanging if RDS is slow or unreachable
             conn = mysql.connector.connect(
-                host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME,
-                connection_timeout=10
+                host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME, connection_timeout=5
             )
             cursor = conn.cursor(dictionary=True)
             
@@ -382,8 +312,7 @@ def get_subscriptions_from_db():
                  WHERE user_id = rs.user_id AND strategy_id = rs.strategy_id 
                  ORDER BY created_at DESC LIMIT 1
             )
-            WHERE rs.status IN ('active', 'in-process')
-            AND (rs.admin_status IS NULL OR rs.admin_status IN ('running', 'active', 'in-process'))
+            WHERE rs.status = 'active'
             """
             cursor.execute(query)
             rows = cursor.fetchall()
@@ -398,6 +327,8 @@ def get_subscriptions_from_db():
                     row['slave_id'] = str(row['slave_id']).replace('\u200e', '').strip()
                 if row['master_account_id']:
                     row['master_account_id'] = str(row['master_account_id']).replace('\u200e', '').strip()
+                if row['master_account_server']:
+                    row['master_account_server'] = row['master_account_server'].replace('\u200e', '').strip()
                 if row['slave_server']:
                     row['slave_server'] = row['slave_server'].replace('\u200e', '').strip()
 
@@ -548,6 +479,13 @@ def save_subscriptions():
         print(f"Failed to save subscriptions: {e}")
 
 
+@app.get("/")
+async def root():
+    return {"status": "online", "service": "MT5 Copy Trading Engine", "active_pairs": len(active_subscriptions)}
+
+# This must match the COPY_TRADING_API_KEY in your Next.js .env
+API_KEY = "9f236bab9fe640848a142f7d17a1960c8582d3ac18a96cc7ec86bb23c10ad6ad"
+
 def verify_api_key(
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None)
@@ -576,44 +514,6 @@ class SubscriptionRequest(BaseModel):
 
 class SubscriptionAction(BaseModel):
     action: str
-
-@app.get("/health", dependencies=[Depends(verify_api_key)])
-async def health_check():
-    """
-    Returns the health status of the service, including MT5 connection
-    and worker thread activity.
-    """
-    try:
-        with mt5_lock:
-            term_info = mt5.terminal_info()
-            acc_info = mt5.account_info()
-        
-        # Check Worker Activity
-        last_worker_tick = master_last_check.get("worker_tick", 0)
-        worker_alive = (time.time() - last_worker_tick) < 60 if last_worker_tick > 0 else False
-        
-        return {
-            "status": "online",
-            "mt5": {
-                "initialized": term_info is not None,
-                "connected": term_info.connected if term_info else False,
-                "trade_allowed": term_info.trade_allowed if term_info else False,
-                "current_login": acc_info.login if acc_info else None,
-                "broker": acc_info.server if acc_info else None
-            },
-            "worker": {
-                "active": worker_alive,
-                "last_tick": datetime.fromtimestamp(last_worker_tick).strftime('%Y-%m-%d %H:%M:%S') if last_worker_tick > 0 else "Never",
-                "subscriptions": len(active_subscriptions)
-            },
-            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-@app.get("/")
-async def root():
-    return {"status": "online", "service": "MT5 Copy Trading Engine", "active_pairs": len(active_subscriptions)}
 
 # ---------------------------------------------------------
 # HELPER: VOLUME NORMALIZATION
@@ -1010,20 +910,6 @@ def clean_string(s):
     # Users might have passwords starting/ending with space.
     return cleaned
 
-def normalize_mt5_path(path_value: str) -> str:
-    """
-    Normalize MT5 path to terminal64.exe when a directory is provided.
-    """
-    if not path_value:
-        return ""
-    try:
-        if os.path.isdir(path_value):
-            candidate = os.path.join(path_value, "terminal64.exe")
-            return candidate if os.path.exists(candidate) else path_value
-    except Exception:
-        pass
-    return path_value
-
 def safe_mt5_login(account_id, password, server):
     """
     Robust login with retry, status checks, and connection wait.
@@ -1031,45 +917,6 @@ def safe_mt5_login(account_id, password, server):
     """
     try:
         import MetaTrader5 as mt5
-        
-        # Initialize MT5 if not already
-        if not mt5.terminal_info():
-            init_path = normalize_mt5_path(MT5_PATH)
-            if init_path:
-                if not mt5.initialize(path=init_path):
-                    # Try auto-detecting a running MT5 terminal as a fallback
-                    detected = detect_running_mt5_path()
-                    if detected:
-                        detected = normalize_mt5_path(detected)
-                        if mt5.initialize(path=detected):
-                            # Update global path for subsequent calls
-                            try:
-                                globals()["MT5_PATH"] = detected
-                            except Exception:
-                                pass
-                        else:
-                            code, msg = mt5.last_error()
-                            return False, f"MT5 Initialize Failed with path: {init_path} ({code}: {msg})"
-                    else:
-                        code, msg = mt5.last_error()
-                        return False, f"MT5 Initialize Failed with path: {init_path} ({code}: {msg})"
-            else:
-                if not mt5.initialize():
-                    # Fallback to detected running terminal, if any
-                    detected = detect_running_mt5_path()
-                    if detected:
-                        detected = normalize_mt5_path(detected)
-                        if mt5.initialize(path=detected):
-                            try:
-                                globals()["MT5_PATH"] = detected
-                            except Exception:
-                                pass
-                        else:
-                            code, msg = mt5.last_error()
-                            return False, f"MT5 Initialize Failed ({code}: {msg})"
-                    else:
-                        code, msg = mt5.last_error()
-                        return False, f"MT5 Initialize Failed ({code}: {msg})"
         
         # 0. Clean Inputs (Crucial for Automation)
         account_id = clean_string(account_id)
@@ -1900,10 +1747,6 @@ def copy_trade_worker():
     master_last_check = {} # { m_id: timestamp }
     master_has_activity = {} # { m_id: bool }
 
-    # Track the last seen set of master positions (by ticket).
-    # When a ticket disappears, the master has closed a trade and we should refresh history immediately.
-    last_master_position_tickets: Dict[str, set] = {}
-
     # last_config_mtime is a GLOBAL variable, but we are shadowing it here as a local variable
     # This causes the error if we don't declare it global or use a different name.
     # However, since this is a loop, we want to track the local worker's view of the file.
@@ -1924,9 +1767,6 @@ def copy_trade_worker():
     worker_last_config_mtime = 0
 
     while True:
-        # Record tick for health check
-        master_last_check["worker_tick"] = time.time()
-        
         # 0. Auto-Reload Subscriptions (Hot-Reload)
         try:
             if os.path.exists(PERSISTENCE_FILE):
@@ -1978,7 +1818,7 @@ def copy_trade_worker():
 
             # DEBUG TRACE
             # log_print("   ... Worker Loop Tick ...") 
-            master_last_check["worker_tick"] = time.time()
+
             with mt5_lock:
                 # 1. Ensure MT5 is Initialized
                 
@@ -2004,19 +1844,17 @@ def copy_trade_worker():
                         log_print(f"   -> Using path: {MT5_PATH}")
 
                     # Attempt 1: Connect to existing terminal (or launch)
+                    # We loop here to aggressively close popups if init fails
                     for attempt in range(5):
                         try:
                             # Pre-emptive popup closing
                             close_popup_windows()
                             
-                            # CRITICAL: mt5.shutdown() is synchronous and can hang if terminal is stuck.
-                            # We'll use a timeout-based approach for initialization.
-                            try:
-                                mt5.shutdown()
-                            except: pass
+                            # Increased timeout for IPC
+                            # IMPORTANT: Must shutdown first to clear stale handles
+                            mt5.shutdown()
                             
-                            # Use a generous timeout for initialization (MT5 can take time to start)
-                            if mt5.initialize(timeout=120000, **path_arg): # Increased to 120s
+                            if mt5.initialize(timeout=60000, **path_arg):
                                 init_success = True
                                 log_print("   ✓ mt5.initialize() Success")
                                 break
@@ -2027,7 +1865,7 @@ def copy_trade_worker():
                                 # FAIL-SAFE: Try connecting without path (Active Terminal)
                                 if err[0] in [-10005, -10004]:
                                      log_print("     ⚠ IPC Error. Trying fallback: Connect to ANY active terminal...")
-                                     if mt5.initialize(timeout=120000):
+                                     if mt5.initialize(timeout=60000):
                                           log_print("     ✅ Fallback Success: Connected to active terminal!")
                                           init_success = True
                                           break
@@ -2290,24 +2128,12 @@ def copy_trade_worker():
                                 # This prevents infinite loops if we accidentally read Slave positions as Master
                                 master_positions = [p for p in pos if p.magic != 123456]
                                 
-                                # Detect if any master trades closed since last loop.
-                                # If so, force an immediate history refresh so the frontend sees the closure.
-                                current_tickets = set([str(p.ticket) for p in master_positions])
-                                last_tickets = last_master_position_tickets.get(str(m_id), set())
-                                history_needs_refresh = False
-                                if current_tickets != last_tickets:
-                                    # If tickets changed (added or removed), it means a trade was opened or closed.
-                                    # We should refresh history to keep the portal up-to-date.
-                                    history_needs_refresh = True
-                                last_master_position_tickets[str(m_id)] = current_tickets
-
                                 # [NEW] Save open positions for display
                                 # Convert to dict list for JSON serialization
                                 # Add server_time string to preserve MT5 server timing
                                 open_positions_list = []
                                 for p in master_positions:
                                     pd = p._asdict()
-                                    pd['type_str'] = "BUY" if pd.get('type') == 0 else "SELL"
                                     pd['server_time'] = datetime.fromtimestamp(pd.get('time', time.time())).strftime('%Y.%m.%d %H:%M:%S')
                                     open_positions_list.append(pd)
                                     
@@ -2326,44 +2152,51 @@ def copy_trade_worker():
                                 master_has_activity[m_id] = has_trades
                                 if has_trades:
                                     log_print(f"📊 Master {m_id} has {len(pos)} open positions.")
-
-                                # DEBUG: Check History regularly or when we detect an update (trade close/open)
-                                try:
-                                    if should_refresh_history or history_needs_refresh:
-                                        log_print(f"🕒 Periodic history update for Master {m_id}...")
-                                        # OPTIMIZATION: Fetch a shorter period for live requests to avoid timeouts.
-                                        # A full 30-day history can be slow. We do a quick 7-day fetch here.
-                                        # The full history can be fetched less frequently if needed.
-                                        from_date_hist = datetime.now() - timedelta(days=7)
-                                        # Fetch closed positions (not just deals) for the History page
-                                        history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
-                                        history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
-
-                                        # In MT5, "History" tab usually shows positions.
-                                        # To reconstruct positions from deals/orders is complex,
-                                        # but we can fetch history_deals and filter for those that close positions.
-                                        # However, the user specifically asked for "Position" page data from history.
-                                        # MT5 doesn't have a direct 'history_positions_get'.
-                                        # We use history_deals and provide fields that represent the closed position.
-
-                                        if history_deals:
-                                            # Save ALL history deals. aggregate_deals_to_positions will
-                                            # reconstruct the positions properly from the deals.
-                                            trade_deals = [d._asdict() for d in history_deals]
-                                            save_master_history({str(m_id): trade_deals})
-                                            master_last_check[f"{m_id}_history"] = now
-                                            log_print(f"✅ Saved {len(trade_deals)} history deals for Master {m_id}")
-
-                                    from_date = datetime.now() - timedelta(minutes=5)
-                                    history = mt5.history_deals_get(from_date, datetime.now())
-                                    if history:
-                                        log_print(f"   � Recent History (Last 5 mins): {len(history)} deals found.")
-                                        for deal in history[-3:]: # Show last 3
-                                            log_print(f"      - Deal {deal.ticket}: {deal.symbol} {deal.volume} {deal.type} (Profit: {deal.profit})")
-                                    else:
-                                        log_print("   ℹ No recent history (deals) found in last 5 minutes.")
-                                except Exception as hist_e:
-                                    log_print(f"   ⚠ History check failed: {hist_e}")
+                                else:
+                                    # DEBUG: Check History if no active trades
+                                    # Helps verify if trades are opening/closing instantly
+                                    try:
+                                        from datetime import datetime, timedelta
+                                        # [NEW] Check if we should refresh history for display
+                                        if should_refresh_history:
+                                            log_print(f"🕒 Periodic history update for Master {m_id}...")
+                                            from_date_hist = datetime.now() - timedelta(days=30)
+                                            # Fetch closed positions (not just deals) for the History page
+                                            history_orders = mt5.history_orders_get(from_date_hist, datetime.now())
+                                            history_deals = mt5.history_deals_get(from_date_hist, datetime.now())
+                                            
+                                            # In MT5, "History" tab usually shows positions. 
+                                            # To reconstruct positions from deals/orders is complex, 
+                                            # but we can fetch history_deals and filter for those that close positions.
+                                            # However, the user specifically asked for "Position" page data from history.
+                                            # MT5 doesn't have a direct 'history_positions_get'. 
+                                            # We use history_deals and provide fields that represent the closed position.
+                                            
+                                            if history_deals:
+                                                # Include both opening and closing deals for each position
+                                                # so we can reconstruct accurate open/close times.
+                                                trade_deals = []
+                                                for d in history_deals:
+                                                    try:
+                                                        if getattr(d, "position_id", 0):
+                                                            if d.entry in [mt5.DEAL_ENTRY_IN, mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT]:
+                                                                trade_deals.append(d._asdict())
+                                                    except Exception:
+                                                        pass
+                                                save_master_history({str(m_id): trade_deals})
+                                                master_last_check[f"{m_id}_history"] = now
+                                                log_print(f"✅ Saved {len(trade_deals)} closed position deals for Master {m_id}")
+                                        
+                                        from_date = datetime.now() - timedelta(minutes=5)
+                                        history = mt5.history_deals_get(from_date, datetime.now())
+                                        if history:
+                                            log_print(f"   � Recent History (Last 5 mins): {len(history)} deals found.")
+                                            for deal in history[-3:]: # Show last 3
+                                                 log_print(f"      - Deal {deal.ticket}: {deal.symbol} {deal.volume} {deal.type} (Profit: {deal.profit})")
+                                        else:
+                                            log_print("   ℹ No recent history (deals) found in last 5 minutes.")
+                                    except Exception as hist_e: 
+                                        log_print(f"   ⚠ History check failed: {hist_e}")
                             else:
                                 log_print(f"⚠ Could not get positions for Master {m_id}")
                         else:
@@ -2657,260 +2490,80 @@ async def list_server_definitions():
 def aggregate_deals_to_positions(deals):
     """
     Groups MT5 history deals into an aggregated 'Positions' view.
-    Only includes closed positions (those with a closing deal).
+    Ensures server timing is preserved and values match MT5.
     """
     positions = {}
     for d in deals:
         pid = d.get('position_id')
         if not pid: continue
         
+        # MT5 Deal types for ENTRY: 0=Entry In, 1=Entry Out, 2=Entry In/Out
+        # We focus on the timing and prices associated with the position ID
+        
         if pid not in positions:
+            # First deal for this position ID in history
             positions[pid] = {
                 'position_id': pid,
                 'symbol': d.get('symbol'),
+                'type': d.get('type'), # Initial type (Buy/Sell)
+                'volume': d.get('volume'),
+                'time_open': d.get('time'),
+                'time_close': d.get('time'),
+                'price_open': d.get('price'),
+                'price_close': d.get('price'),
+                'profit': d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0),
                 'magic': d.get('magic'),
                 'comment': d.get('comment'),
-                'deals': []
+                'server_time': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
+                # Add formatted server strings to avoid client-side timezone shifts
+                'server_time_open': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S'),
+                'server_time_close': datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
             }
-        
-        positions[pid]['deals'].append(d)
-    
-    # Now process each position
-    result = []
-    for pid, p in positions.items():
-        # Sort deals by time then by ticket to handle multiple deals in same second
-        deals_list = sorted(p['deals'], key=lambda x: (x.get('time', 0), x.get('ticket', 0)))
-        
-        open_deal = None
-        close_deal = None
-        total_profit = 0
-        total_commission = 0
-        total_swap = 0
-        total_volume = 0
-        
-        for d in deals_list:
-            entry = d.get('entry')
-            # mt5.DEAL_ENTRY_IN = 0
-            if entry == 0: 
-                if not open_deal:
-                    open_deal = d
-                total_volume += d.get('volume', 0)
-            # mt5.DEAL_ENTRY_OUT = 1, mt5.DEAL_ENTRY_INOUT = 2, mt5.DEAL_ENTRY_OUT_BY = 3
-            elif entry in [1, 2, 3]:
-                close_deal = d  # Last closing deal
+        else:
+            p = positions[pid]
+            # Update lifecycle based on entry time
+            if d.get('time') < p['time_open']:
+                p['time_open'] = d.get('time')
+                p['price_open'] = d.get('price')
+                p['server_time_open'] = datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
+            if d.get('time') > p['time_close']:
+                p['time_close'] = d.get('time')
+                p['price_close'] = d.get('price')
+                p['server_time_close'] = datetime.fromtimestamp(d.get('time')).strftime('%Y.%m.%d %H:%M:%S')
             
-            total_profit += d.get('profit', 0)
-            total_commission += d.get('commission', 0)
-            total_swap += d.get('swap', 0)
-        
-        # We only return closed positions (those that have both an entry and an exit)
-        if open_deal and close_deal:
-            # Determine type from the opening deal
-            # mt5.DEAL_TYPE_BUY = 0, mt5.DEAL_TYPE_SELL = 1
-            raw_type = open_deal.get('type')
-            trade_type = "BUY" if raw_type == 0 else "SELL"
-
-            # Open price from the very first deal
-            open_price = open_deal.get('price')
-            # Close price from the very last deal
-            close_price = close_deal.get('price')
-
-            # Ensure time_open and time_close are ALWAYS present
-            time_open = open_deal.get('time')
-            time_close = close_deal.get('time')
-
-            if time_open and time_close:
-                result.append({
-                    'position_id': pid,
-                    'symbol': open_deal.get('symbol'),
-                    'type': trade_type,
-                    'volume': total_volume,
-                    'time_open': time_open,
-                    'time_close': time_close,
-                    'price_open': open_price,
-                    'price_close': close_price,
-                    'profit': total_profit,
-                    'commission': total_commission,
-                    'swap': total_swap,
-                    'magic': open_deal.get('magic'),
-                    'comment': open_deal.get('comment'),
-                    'server_time_open': datetime.fromtimestamp(time_open).strftime('%Y.%m.%d %H:%M:%S'),
-                    'server_time_close': datetime.fromtimestamp(time_close).strftime('%Y.%m.%d %H:%M:%S')
-                })
+            # Accumulate values exactly as MT5 does
+            p['profit'] += (d.get('profit', 0) + d.get('commission', 0) + d.get('swap', 0))
+            
+            # Use the largest volume seen for the position as the display volume
+            if d.get('volume') > p['volume']:
+                p['volume'] = d.get('volume')
     
-    # Sort history by close time descending (latest closed trades first)
+    # Convert to list and sort by close time descending
+    result = list(positions.values())
     result.sort(key=lambda x: x['time_close'], reverse=True)
     return result
 
 @app.get("/master/{master_id}/history", dependencies=[Depends(verify_api_key)])
 async def get_master_history(master_id: str):
     """
-    Returns trade history (closed positions) and live open positions for a master account.
-    This endpoint always attempts a live fetch from MT5 first.
+    Returns the cached trade history (Positions and Open Trades) for a specific master account.
     """
-    master_id_str = str(master_id)
-    
-    # 1. ATTEMPT LIVE FETCH FROM MT5 (High Priority)
-    log_print(f"🔄 Fetching LIVE master history from MT5 for {master_id_str}...")
-    try:
-        with lock:
-            subs = [s for s in active_subscriptions if str(s.get('master', {}).get('id')) == master_id_str]
-
-        m_pass, m_server = None, None
-        if subs:
-            master_info = subs[0]['master']
-            m_pass = master_info.get('password') or master_info.get('pwd') or master_info.get('pass')
-            m_server = master_info.get('server')
-
-        # Fallback to DB for credentials if no active subscription
-        if not m_server and mysql:
-            try:
-                conn = mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME, connection_timeout=5)
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute(
-                    "SELECT mt_account_password, mt_account_server FROM wallet_transactions WHERE mt_account_id = %s ORDER BY created_at DESC LIMIT 1",
-                    (master_id_str,)
-                )
-                row = cursor.fetchone()
-                conn.close()
-                if row:
-                    m_pass = m_pass or row.get('mt_account_password')
-                    m_server = row.get('mt_account_server')
-                    if m_server: log_print(f"   ℹ Found credentials in DB for {master_id_str}")
-            except Exception as e:
-                log_print(f"   ⚠ DB credential lookup failed: {e}")
-
-        if master_id_str and m_server:
-            with mt5_lock:
-                logged, err = safe_mt5_login(master_id_str, m_pass, m_server)
-                if logged:
-                    # Fetch LIVE open positions
-                    raw_positions = mt5.positions_get() or []
-                    master_positions = [p for p in raw_positions if getattr(p, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
-                    open_positions = []
-                    for p in master_positions:
-                        pd = p._asdict()
-                        # Determine type
-                        # mt5.ORDER_TYPE_BUY = 0, mt5.ORDER_TYPE_SELL = 1
-                        pd['type_str'] = "BUY" if pd.get('type') == 0 else "SELL"
-                        # Add server_time
-                        pd['server_time'] = datetime.fromtimestamp(pd.get('time', time.time())).strftime('%Y.%m.%d %H:%M:%S')
-                        open_positions.append(pd)
-
-                    # Fetch LIVE history (extended range for older strategies)
-                    from_date = datetime.now() - timedelta(days=3650)
-                    deals = mt5.history_deals_get(from_date, datetime.now()) or []
-                    # Filter out deals with magic number 123456 (copied trades)
-                    raw_deals = [d._asdict() for d in deals if getattr(d, 'magic', None) != COPY_TRADE_MAGIC_NUMBER]
-
-                    log_print(f"   ✅ Fetched {len(open_positions)} open, {len(raw_deals)} raw history deals from MT5")
-
-                    # Aggregate deals to positions BEFORE saving and returning
-                    aggregated_history = aggregate_deals_to_positions(raw_deals)
-                    
-                    # Save to local cache for future fallbacks
-                    # Important: We save the RAW deals in the history file to allow re-aggregation if logic changes,
-                    # BUT the PUSH architecture uses the aggregated positions.
-                    save_master_history({master_id_str: raw_deals}, open_positions={master_id_str: open_positions})
-
-                    return {
-                        "master_id": master_id,
-                        "history": aggregated_history,
-                        "open_positions": open_positions
-                    }
-                else:
-                    log_print(f"   ❌ MT5 Login failed for {master_id_str}: {err}")
-    except Exception as live_err:
-        log_print(f"⚠ Live fetch error for {master_id_str}: {live_err}")
-
-    # 2. FALLBACK TO LOCAL CACHE (If MT5 fails)
-    log_print(f"⚠️ Falling back to cache for master {master_id_str}...")
     history_data = load_master_history()
-    master_data = history_data.get(master_id_str)
+    master_data = history_data.get(str(master_id), {"history": [], "open_positions": []})
     
-    if not master_data:
-        return {"master_id": master_id, "history": [], "open_positions": [], "error": "No live or cached data available"}
-
+    # If history is just a list (old format), wrap it
     if isinstance(master_data, list):
         master_data = {"history": master_data, "open_positions": []}
-
-    raw_deals = master_data.get("history", [])
-    open_positions = master_data.get("open_positions", [])
+        
+    # Aggregate deals to positions for the "History" tab
+    deals = master_data.get("history", [])
+    aggregated_positions = aggregate_deals_to_positions(deals)
     
     return {
-        "master_id": master_id,
-        "history": aggregate_deals_to_positions(raw_deals),
-        "open_positions": open_positions
+        "master_id": master_id, 
+        "history": aggregated_positions, # This now contains aggregated positions
+        "open_positions": master_data.get("open_positions", [])
     }
-
-@app.get("/subscriptions/{external_id}/history")
-async def get_master_history_by_external_id(external_id: str):
-    """
-    Fetch history filtered by the subscription's start time.
-    Only returns trades opened AFTER the subscription was created.
-    """
-    try:
-        with lock:
-            sub = next((s for s in active_subscriptions if s.get('externalId') == external_id), None)
-        
-        if not sub:
-            return {"error": "Subscription not found"}
-            
-        master_id = sub['master']['id']
-        start_time_str = sub.get('createdAt', '')
-        
-        # Parse subscription start time
-        start_time = None
-        if start_time_str:
-            try:
-                # Assuming MySQL format: YYYY-MM-DD HH:MM:SS
-                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
-            except:
-                try:
-                    # ISO format fallback
-                    start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-                except: pass
-
-        # Fetch full history for master
-        full_data = await get_master_history(master_id)
-        
-        if not start_time:
-            return full_data
-
-        # Filter history: only trades that OPENED after start_time
-        filtered_history = []
-        for pos in full_data.get('history', []):
-            open_time_str = pos.get('time_open') or pos.get('open_time')
-            if open_time_str:
-                try:
-                    # Positions from aggregate_deals_to_positions use '%Y.%m.%d %H:%M:%S'
-                    open_time = datetime.strptime(open_time_str, '%Y.%m.%d %H:%M:%S')
-                    if open_time >= start_time:
-                        filtered_history.append(pos)
-                except:
-                    filtered_history.append(pos) # Keep if can't parse
-            else:
-                filtered_history.append(pos)
-
-        # Filter open positions: only trades that OPENED after start_time
-        filtered_open = []
-        for pos in full_data.get('open_positions', []):
-            open_time_raw = pos.get('time') # Unix timestamp in seconds
-            if open_time_raw:
-                open_time = datetime.fromtimestamp(open_time_raw)
-                if open_time >= start_time:
-                    filtered_open.append(pos)
-            else:
-                filtered_open.append(pos)
-
-        return {
-            "master_id": master_id,
-            "history": filtered_history,
-            "open_positions": filtered_open,
-            "subscription_start": start_time_str
-        }
-    except Exception as e:
-        return {"error": str(e)}
 
 @app.get("/system/debug-files")
 async def debug_files_system():
@@ -3044,35 +2697,25 @@ async def delete_subscription(id: str, action: SubscriptionAction):
 
 @app.get("/subscriptions/{id}/status", dependencies=[Depends(verify_api_key)])
 async def get_status(id: str):
-    """Return the latest known status for the given subscription.
+    # reload_subscriptions_if_changed() # Removed to prevent blocking. Worker handles reloading.
+    with lock:
 
-    This endpoint is polled frequently by the frontend, so it must be reliable
-    and never raise an internal exception.
-    """
-    try:
-        # reload_subscriptions_if_changed() # Removed to prevent blocking. Worker handles reloading.
-        with lock:
-            exists = any(x['id'] == id for x in active_subscriptions)
-            if not exists:
-                return {"status": "disconnected", "detail": "Subscription not found"}
-
-            state = subscription_states.get(id)
-            if state:
-                # Ensure we only return JSON-serializable values
-                detail = state.get('detail') or state.get('error')
-                return {
-                    "status": state.get('status', 'error'),
-                    "detail": str(detail) if detail is not None else None,
-                    "updated_at": state.get('updated_at'),
-                    "master_positions": state.get('master_positions'),
-                    "slave_positions": state.get('slave_positions'),
-                    "last_action": str(state.get('last_action')) if state.get('last_action') is not None else None
-                }
-
-            return {"status": "initializing", "detail": "Waiting for worker cycle"}
-    except Exception as e:
-        log_print(f"⚠️ get_status({id}) failed: {e}")
-        return {"status": "error", "detail": str(e)}
+        exists = any(x['id'] == id for x in active_subscriptions)
+        if not exists:
+             return {"status": "disconnected", "detail": "Subscription not found"}
+        
+        state = subscription_states.get(id)
+        if state:
+            return {
+                "status": state['status'], 
+                "detail": state.get('detail') or state.get('error'), 
+                "updated_at": state.get('updated_at'),
+                "master_positions": state.get('master_positions'),
+                "slave_positions": state.get('slave_positions'),
+                "last_action": state.get('last_action')
+            }
+        
+        return {"status": "initializing", "detail": "Waiting for worker cycle"}
 
 @app.post("/system/reset", dependencies=[Depends(verify_api_key)])
 async def reset_system():
@@ -3089,6 +2732,10 @@ async def reset_system():
     return {"status": "success", "message": "All subscriptions cleared."}
 
 if __name__ == "__main__":
+    script_path, script_hash = get_script_fingerprint()
+    print(f"📄 Main Script: {script_path}")
+    print(f"🔐 Main SHA256: {script_hash}")
+
     # Unified Entry Point
     # Args are already parsed at the top level as 'args'
     
