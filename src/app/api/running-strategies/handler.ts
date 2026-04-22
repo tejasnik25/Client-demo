@@ -4,12 +4,15 @@ import { authOptions } from '@/lib/auth-options';
 import {
   getRunningStrategiesForUser,
   createRunningStrategy,
+  getStrategyById,
   getWalletBalance,
   updateRunningStrategyAdminStatus,
   createWalletTransaction,
   deleteRunningStrategyForUserStrategy,
   startRunningPeriod
 } from '@/db/dbService';
+
+const USC_PER_USD = 100;
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -51,9 +54,24 @@ export async function POST(req: Request) {
       return new NextResponse('Missing required fields', { status: 400 });
     }
 
+    const strategyCapital = Number(capital);
+    if (!Number.isFinite(strategyCapital) || strategyCapital <= 0) {
+      return new NextResponse('Invalid strategy capital', { status: 400 });
+    }
+
+    const strategy = await getStrategyById(strategyId);
+    if (!strategy) {
+      return new NextResponse('Strategy not found', { status: 404 });
+    }
+
+    const strategyCurrency = String((strategy as any)?.parameters?.currency || 'USD').toUpperCase() === 'USC' ? 'USC' : 'USD';
+    const walletChargeAmount = strategyCurrency === 'USC'
+      ? Number((strategyCapital / USC_PER_USD).toFixed(2))
+      : strategyCapital;
+
     // Validate available central wallet balance before purchase
     const availableBalance = await getWalletBalance(session.user.id);
-    if (Number(capital) > availableBalance) {
+    if (walletChargeAmount > availableBalance) {
       return new NextResponse('Insufficient central wallet balance for this strategy purchase', { status: 400 });
     }
 
@@ -69,7 +87,7 @@ export async function POST(req: Request) {
       session.user.id,
       strategyId,
       plan,
-      Number(capital),
+      strategyCapital,
       selectedLotSize,
       {}
     );
@@ -77,18 +95,21 @@ export async function POST(req: Request) {
     if (result.success && result.id) {
       // Deduct wallet balance for strategy purchase as a charge transaction.
       try {
-        if (Number(capital) > 0) {
+        if (walletChargeAmount > 0) {
+          const capitalMessage = strategyCurrency === 'USC'
+            ? `Reserved ${strategyCapital.toFixed(2)} USC capital for running strategy ${strategyId} (${result.id}) by charging $${walletChargeAmount.toFixed(2)} USD`
+            : `Reserved capital for running strategy ${strategyId} (${result.id})`;
           const chargeTxn = await createWalletTransaction({
             user_id: session.user.id,
-            amount: Number(capital),
-            capital: Number(capital),
+            amount: walletChargeAmount,
+            capital: strategyCapital,
             transaction_type: 'charge',
             status: 'completed',
             strategy_id: strategyId,
             lot_size: selectedLotSize,
             running_strategy_id: result.id,
             plan_level: plan,
-            admin_message: `Reserved capital for running strategy ${strategyId} (${result.id})`
+            admin_message: capitalMessage
           });
           if (!chargeTxn) {
             console.error('[RunningStrategiesAPI] Wallet charge transaction failed');

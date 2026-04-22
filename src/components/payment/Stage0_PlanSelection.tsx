@@ -12,10 +12,22 @@ interface Stage0Props {
   strategy: any;
 }
 
+const USC_PER_USD = 100;
+
 const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0Props) => {
   const router = useRouter();
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [purchasing, setPurchasing] = useState(false);
+  const strategyCurrency = String(strategy?.parameters?.currency || 'USD').toUpperCase();
+  const isUSC = strategyCurrency === 'USC';
+
+  const formatStrategyAmount = (amount: number) => (
+    isUSC ? `USC ${amount.toFixed(2)}` : `$${amount.toFixed(2)}`
+  );
+
+  const toWalletUSD = (strategyAmount: number) => (
+    isUSC ? Number((strategyAmount / USC_PER_USD).toFixed(2)) : strategyAmount
+  );
   
   useEffect(() => {
     fetch('/api/profile')
@@ -46,15 +58,17 @@ const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0P
 
   const applySelection = (lot: number) => {
     if (!basePrice) return;
-    const amount = basePrice * lot;
+    const strategyAmount = basePrice * lot;
+    const walletAmount = toWalletUSD(strategyAmount);
     setPaymentData((prev) => ({
       ...(prev || {}),
       strategyId: strategy?.id,
       strategyName: strategy?.name,
+      strategyCurrency,
       profit: strategy?.profit ?? 0,
       lotSize: lot,
-      payable: amount,
-      capital: amount, // Also set capital to the paid amount for display as balance
+      payable: walletAmount,
+      capital: strategyAmount,
     } as PaymentData));
   };
 
@@ -79,7 +93,7 @@ const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0P
           body: JSON.stringify({
             strategyId: paymentData.strategyId,
             plan: paymentData.plan || 'Pro',
-            capital: paymentData.payable,
+            capital: paymentData.capital ?? paymentData.payable,
             lotSize: paymentData.lotSize || 1,
           }),
         });
@@ -182,10 +196,10 @@ const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0P
                   {m === 1 ? 'Equal' : m === 2 ? 'Double' : 'Triple'} x{m}
                 </div>
                 <div className={`text-[10px] ${selectedMultiplier === m ? 'text-blue-100' : 'text-gray-500'} font-medium`}>
-                  ${(basePrice * m).toFixed(2)} required
+                  {formatStrategyAmount(basePrice * m)} investment
                 </div>
                 <div className={`text-[10px] mt-2 ${selectedMultiplier === m ? 'text-blue-200' : 'text-gray-400'}`}>
-                  ×{m} trade volume
+                  {isUSC ? `$${toWalletUSD(basePrice * m).toFixed(2)} wallet charge` : `×${m} trade volume`}
                 </div>
               </button>
             ))}
@@ -216,7 +230,8 @@ const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0P
             </div>
             {customLot && parseFloat(customLot) > 0 && (
               <p className="text-xs font-bold text-gray-500 ml-1">
-                Required investment: ${ (parseFloat(customLot) * basePrice).toFixed(2) }
+                Required investment: {formatStrategyAmount(parseFloat(customLot) * basePrice)}
+                {isUSC ? ` | Wallet charge: $${toWalletUSD(parseFloat(customLot) * basePrice).toFixed(2)}` : ''}
               </p>
             )}
           </div>
@@ -247,8 +262,15 @@ const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0P
           <div className="flex items-end gap-2 text-xs">
             <span className="text-gray-500 font-medium whitespace-nowrap">Required Investment</span>
             <div className="flex-1 border-b border-dotted border-gray-300 mb-1" />
-            <span className="text-gray-900 font-bold">${(paymentData?.payable || 0).toFixed(2)}</span>
+            <span className="text-gray-900 font-bold">{formatStrategyAmount(Number(paymentData?.capital || 0))}</span>
           </div>
+          {isUSC && (
+            <div className="flex items-end gap-2 text-xs">
+              <span className="text-gray-500 font-medium whitespace-nowrap">Wallet Charge</span>
+              <div className="flex-1 border-b border-dotted border-gray-300 mb-1" />
+              <span className="text-gray-900 font-bold">${(paymentData?.payable || 0).toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex items-end gap-2 text-xs">
             <span className="text-gray-500 font-medium whitespace-nowrap">Support funds</span>
             <div className="flex-1 border-b border-dotted border-gray-300 mb-1" />
@@ -277,4 +299,3 @@ const Stage0_PlanSelection = ({ setPaymentData, paymentData, strategy }: Stage0P
 };
 
 export default Stage0_PlanSelection;
-

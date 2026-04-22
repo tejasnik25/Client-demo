@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File;
     const icon = formData.get('icon') as File | null;
     const countryFlag = (formData.get('countryFlag') as string) || '';
+    const currency = ((formData.get('currency') as string) || 'USD').toUpperCase();
 
     // New metrics and tag
     const roi = formData.get('roi') ? Number(formData.get('roi') as string) : undefined;
@@ -243,6 +244,7 @@ export async function POST(req: NextRequest) {
       enabled,
       parameters: (() => {
         const params: Record<string, string> = {};
+        params.currency = currency === 'USC' ? 'USC' : 'USD';
         if (countryFlag) params.countryFlag = countryFlag;
         if (lotPricing) params.lotPricing = lotPricing;
         if (commissionPercent !== undefined && Number.isFinite(commissionPercent)) {
@@ -312,6 +314,7 @@ export async function PUT(req: NextRequest) {
     const icon = formData.get('icon') as File | null;
     const countryFlag = (formData.get('countryFlag') as string) || '';
     const lotPricing = (formData.get('lotPricing') as string) || '';
+    const currency = ((formData.get('currency') as string) || '').toUpperCase();
 
     const minCapital = formData.get('minCapital') ? Number(formData.get('minCapital') as string) : undefined;
     const avgDrawdown = formData.get('avgDrawdown') ? Number(formData.get('avgDrawdown') as string) : undefined;
@@ -398,6 +401,8 @@ export async function PUT(req: NextRequest) {
     }
 
     const contentUrl = formData.get('contentUrl') as string;
+    const existingForParams = await getStrategyById(id);
+    const existingParams = (existingForParams as any)?.parameters || {};
 
     // Prepare update object (do not override deprecated fields)
     const updates: any = {
@@ -499,13 +504,15 @@ export async function PUT(req: NextRequest) {
       Expert: { priceLabel: planExpertLabel, percent: planExpertPercent },
       Premium: { priceLabel: planPremiumLabel, percent: planPremiumPercent },
     };
-    if (countryFlag || lotPricing || (commissionPercent !== undefined && Number.isFinite(commissionPercent))) {
-      updates.parameters = {};
-      if (countryFlag) (updates.parameters as any).countryFlag = countryFlag;
-      if (lotPricing) (updates.parameters as any).lotPricing = lotPricing;
+    if (countryFlag || lotPricing || currency || (commissionPercent !== undefined && Number.isFinite(commissionPercent))) {
+      const nextParams: any = { ...existingParams };
+      if (countryFlag) nextParams.countryFlag = countryFlag;
+      if (lotPricing) nextParams.lotPricing = lotPricing;
+      if (currency) nextParams.currency = currency === 'USC' ? 'USC' : 'USD';
       if (commissionPercent !== undefined && Number.isFinite(commissionPercent)) {
-        (updates.parameters as any).commission = String(commissionPercent);
+        nextParams.commission = String(commissionPercent);
       }
+      updates.parameters = nextParams;
     }
 
     // Update strategy in database

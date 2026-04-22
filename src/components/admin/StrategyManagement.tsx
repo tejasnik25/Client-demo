@@ -38,6 +38,7 @@ const StrategyManagement: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [currentStrategy, setCurrentStrategy] = useState<Partial<Strategy>>({});
+  const [strategyCurrency, setStrategyCurrency] = useState<'USD' | 'USC'>('USD');
   // Local range strings for plan inputs; first number will be used for payments
   const [planRanges, setPlanRanges] = useState<{ Pro?: string; Expert?: string; Premium?: string }>({});
   // Percent values per plan for user-facing display
@@ -54,6 +55,16 @@ const StrategyManagement: React.FC = () => {
   const [contentType, setContentType] = useState<'html' | 'pdf' | 'text'>('html');
   const [countryFlag, setCountryFlag] = useState<string>('');
   const [commissionPercent, setCommissionPercent] = useState<string>('30');
+  const currencyPrefix = strategyCurrency === 'USC' ? 'USC ' : '$';
+  const baseLotPrice = Number((lotRows[0]?.amountUSD || '').replace(/,/g, ''));
+  const hasBaseLotPrice = Number.isFinite(baseLotPrice) && baseLotPrice > 0;
+  const derivedPlanPrices = hasBaseLotPrice
+    ? {
+        Pro: baseLotPrice,
+        Expert: baseLotPrice * 2,
+        Premium: baseLotPrice * 3,
+      }
+    : currentStrategy.planPrices;
 
   // Fetch strategies from the API
   const fetchStrategies = async () => {
@@ -108,6 +119,7 @@ const resetAddForm = () => {
     masterAccountServer: '',
     masterPlatform: 'mt5'
   });
+    setStrategyCurrency('USD');
     setPlanRanges({ Pro: '', Expert: '', Premium: '' });
     setParameters([{ key: '', value: '', id: `param-${Date.now()}` }]);
   setCommissionPercent('30');
@@ -175,6 +187,10 @@ const resetAddForm = () => {
       value,
       id: `param-${Date.now()}-${key}`
     })));
+    {
+      const cur = String((strategy.parameters as any)?.currency || 'USD').toUpperCase();
+      setStrategyCurrency(cur === 'USC' ? 'USC' : 'USD');
+    }
     try {
       const lp = (strategy.parameters as any)?.lotPricing;
       if (lp) {
@@ -349,28 +365,25 @@ const resetAddForm = () => {
       formData.append('mastersTag', String(currentStrategy.mastersTag || ''));
       if (currentStrategy.riskLevel) formData.append('riskLevel', String(currentStrategy.riskLevel));
 
-      // Plan price values
-      const planPriceObj = currentStrategy.planPrices || {};
-      if (planPriceObj.Pro !== undefined) formData.append('planPro', String(planPriceObj.Pro));
-      if (planPriceObj.Expert !== undefined) formData.append('planExpert', String(planPriceObj.Expert));
-      if (planPriceObj.Premium !== undefined) formData.append('planPremium', String(planPriceObj.Premium));
+      // Plan price values should stay aligned with the 1-lot base price preview.
+      const planPriceObj = hasBaseLotPrice
+        ? derivedPlanPrices
+        : (currentStrategy.planPrices || {});
+      if (planPriceObj?.Pro !== undefined) formData.append('planPro', String(planPriceObj.Pro));
+      if (planPriceObj?.Expert !== undefined) formData.append('planExpert', String(planPriceObj.Expert));
+      if (planPriceObj?.Premium !== undefined) formData.append('planPremium', String(planPriceObj.Premium));
 
       // Admin commission percent (single commission for the strategy)
       if (commissionPercent.trim().length > 0) {
         formData.append('commissionPercent', commissionPercent.trim());
       }
+      formData.append('currency', strategyCurrency);
 
       // Master Account Details
       if (currentStrategy.masterAccountId) formData.append('masterAccountId', currentStrategy.masterAccountId);
       if (currentStrategy.masterAccountPassword) formData.append('masterAccountPassword', currentStrategy.masterAccountPassword);
       if (currentStrategy.masterAccountServer) formData.append('masterAccountServer', currentStrategy.masterAccountServer);
       if (currentStrategy.masterPlatform) formData.append('masterPlatform', currentStrategy.masterPlatform);
-
-      // Plans: store explicit per-plan pricing from planPrices object
-      const planPrices = currentStrategy.planPrices || { Pro: undefined, Expert: undefined, Premium: undefined };
-      if (planPrices.Pro !== undefined) formData.append('planPro', String(planPrices.Pro));
-      if (planPrices.Expert !== undefined) formData.append('planExpert', String(planPrices.Expert));
-      if (planPrices.Premium !== undefined) formData.append('planPremium', String(planPrices.Premium));
 
       // Plan percentages (if set from planPercents)
       if (planPercents.Pro !== undefined) formData.append('planProPercent', String(planPercents.Pro));
@@ -915,6 +928,18 @@ const resetAddForm = () => {
                     <Input id="commissionPercent" name="commissionPercent" type="number" step="0.01" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="currency" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Currency</Label>
+                    <Select value={strategyCurrency} onValueChange={(value) => setStrategyCurrency((value as any) === 'USC' ? 'USC' : 'USD')}>
+                      <SelectTrigger className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold">
+                        <SelectValue placeholder="Currency" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border border-gray-100 rounded-xl shadow-lg">
+                        <SelectItem value="USD" className="font-bold">USD</SelectItem>
+                        <SelectItem value="USC" className="font-bold">USC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="copiers" className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Copiers</Label>
                     <Input id="copiers" name="copiers" type="number" value={String(currentStrategy.copiers ?? '')} onChange={handleInputChange} className="h-11 rounded-xl bg-white border border-gray-200 text-gray-900 font-bold" />
                   </div>
@@ -1009,7 +1034,7 @@ const resetAddForm = () => {
                 
                 <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 space-y-6">
                   <div className="max-w-md space-y-2">
-                    <Label className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Price for 1 Lot (USD) *</Label>
+                    <Label className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Price for 1 Lot ({strategyCurrency}) *</Label>
                     <Input
                       type="number"
                       value={(lotRows[0] && lotRows[0].amountUSD) || ''}
@@ -1023,19 +1048,19 @@ const resetAddForm = () => {
                     </p>
                   </div>
                   
-                  {((currentStrategy.planPrices?.Pro !== undefined && currentStrategy.planPrices?.Expert !== undefined && currentStrategy.planPrices?.Premium !== undefined) || (lotRows[0]?.amountUSD && Number(lotRows[0].amountUSD) > 0)) && (
+                  {((derivedPlanPrices?.Pro !== undefined && derivedPlanPrices?.Expert !== undefined && derivedPlanPrices?.Premium !== undefined) || hasBaseLotPrice) && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
                       <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
                         <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">Pro</span>
-                        <span className="text-xl font-black text-gray-900">${currentStrategy.planPrices?.Pro !== undefined ? Number(currentStrategy.planPrices.Pro).toFixed(2) : Number(lotRows[0]?.amountUSD || 0).toFixed(2)}</span>
+                        <span className="text-xl font-black text-gray-900">{currencyPrefix}{Number(derivedPlanPrices?.Pro || 0).toFixed(2)}</span>
                       </div>
                       <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
                         <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">Expert</span>
-                        <span className="text-xl font-black text-gray-900">${currentStrategy.planPrices?.Expert !== undefined ? Number(currentStrategy.planPrices.Expert).toFixed(2) : (Number(lotRows[0]?.amountUSD || 0) * 2).toFixed(2)}</span>
+                        <span className="text-xl font-black text-gray-900">{currencyPrefix}{Number(derivedPlanPrices?.Expert || 0).toFixed(2)}</span>
                       </div>
                       <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
                         <span className="block text-[10px] font-black text-gray-400 uppercase mb-1">Premium</span>
-                        <span className="text-xl font-black text-gray-900">${currentStrategy.planPrices?.Premium !== undefined ? Number(currentStrategy.planPrices.Premium).toFixed(2) : (Number(lotRows[0]?.amountUSD || 0) * 3).toFixed(2)}</span>
+                        <span className="text-xl font-black text-gray-900">{currencyPrefix}{Number(derivedPlanPrices?.Premium || 0).toFixed(2)}</span>
                       </div>
                     </div>
                   )}

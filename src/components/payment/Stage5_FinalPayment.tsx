@@ -37,6 +37,14 @@ const Stage5_FinalPayment = ({ onBack, paymentData, onSuccess }: Stage5Props) =>
   const [successTxId, setSuccessTxId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const strategyCurrency = String(paymentData?.strategyCurrency || 'USD').toUpperCase();
+  const isUSC = strategyCurrency === 'USC';
+  const strategyCapital = Number(paymentData?.capital || 0);
+  const walletCharge = Number(paymentData?.payable || 0);
+
+  const formatStrategyAmount = (amount: number) => (
+    isUSC ? `USC ${amount.toFixed(2)}` : `$${amount.toFixed(2)}`
+  );
 
   const handleCopy = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -45,7 +53,7 @@ const Stage5_FinalPayment = ({ onBack, paymentData, onSuccess }: Stage5Props) =>
   };
 
   const inrRate = useMemo(() => paymentData?.usdToInrRate || DEFAULT_USD_TO_INR, [paymentData]);
-  const inrAmount = useMemo(() => (paymentData?.payable || 0) * inrRate, [paymentData, inrRate]);
+  const inrAmount = useMemo(() => walletCharge * inrRate, [walletCharge, inrRate]);
 
   const getQR = () => {
     switch (paymentData.method) {
@@ -176,13 +184,18 @@ const Stage5_FinalPayment = ({ onBack, paymentData, onSuccess }: Stage5Props) =>
             </div>
 
             {/* Amount Info */}
+            <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+              <span className="text-gray-600">Strategy Capital</span>
+              <span className="font-semibold text-gray-900">{formatStrategyAmount(strategyCapital)}</span>
+            </div>
+
             <div className="space-y-1">
-              <span className="text-gray-600 text-sm">Total Amount</span>
+              <span className="text-gray-600 text-sm">{isUSC ? 'Wallet Charge (USD)' : 'Total Amount'}</span>
               <div className="flex items-center gap-2 bg-white p-2 rounded border border-gray-300">
-                <span className="font-mono text-lg flex-1 text-green-600">${paymentData.payable?.toFixed(2)}</span>
+                <span className="font-mono text-lg flex-1 text-green-600">${walletCharge.toFixed(2)}</span>
                 <button
                   type="button"
-                  onClick={() => handleCopy(paymentData.payable?.toFixed(2) || '', 'amount')}
+                  onClick={() => handleCopy(walletCharge.toFixed(2), 'amount')}
                   className="p-2 hover:bg-gray-100 rounded transition-colors text-gray-600 hover:text-gray-900"
                   title="Copy Amount"
                 >
@@ -219,8 +232,12 @@ const Stage5_FinalPayment = ({ onBack, paymentData, onSuccess }: Stage5Props) =>
           /* Non-USDT View (UPI, etc.) */
           <div className="w-full space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
              <div className="flex justify-between border-b border-gray-200 pb-2">
-               <span className="text-gray-600">Amount (USD)</span>
-               <span className="font-bold text-gray-900">${paymentData.payable?.toFixed(2)}</span>
+               <span className="text-gray-600">Strategy Capital</span>
+               <span className="font-bold text-gray-900">{formatStrategyAmount(strategyCapital)}</span>
+             </div>
+             <div className="flex justify-between border-b border-gray-200 pb-2">
+               <span className="text-gray-600">{isUSC ? 'Wallet Charge (USD)' : 'Amount (USD)'}</span>
+               <span className="font-bold text-gray-900">${walletCharge.toFixed(2)}</span>
              </div>
              <div className="flex justify-between border-b border-gray-200 pb-2">
                <span className="text-gray-600">Exchange Rate</span>

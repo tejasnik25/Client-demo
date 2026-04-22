@@ -1373,7 +1373,7 @@ export default function CopierHistoryPage() {
 
               {isUSC && investmentAmount && Number.isFinite(Number(investmentAmount)) && (
                 <div className="text-[10px] font-bold text-blue-600 uppercase tracking-tight">
-                  Equivalent to approx. ${(Number(investmentAmount) / 100).toFixed(2)} USD
+                  {investmentModal.action === 'add' ? 'Wallet Charge' : 'Wallet Refund'}: approx. ${(Number(investmentAmount) / 100).toFixed(2)} USD
                 </div>
               )}
 

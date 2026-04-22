@@ -14,6 +14,14 @@ interface Stage4Props {
 
 const Stage4_Review = ({ onNext, onBack, paymentData, onEditStage }: Stage4Props) => {
   const [confirmed, setConfirmed] = useState(false);
+  const strategyCurrency = String(paymentData?.strategyCurrency || 'USD').toUpperCase();
+  const isUSC = strategyCurrency === 'USC';
+  const strategyCapital = Number(paymentData?.capital || 0);
+  const walletCharge = Number(paymentData?.payable || 0);
+
+  const formatStrategyAmount = (amount: number) => (
+    isUSC ? `USC ${amount.toFixed(2)}` : `$${amount.toFixed(2)}`
+  );
 
   const handleProceed = () => {
     if (!confirmed) {
@@ -43,12 +51,16 @@ const Stage4_Review = ({ onNext, onBack, paymentData, onEditStage }: Stage4Props
             <span className="text-gray-900 font-semibold">{paymentData.method}</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-gray-200">
-            <span className="text-gray-600 font-medium">Total Amount:</span>
-            <span className="text-gray-900 font-semibold text-lg">${paymentData.payable?.toFixed(2)}</span>
+            <span className="text-gray-600 font-medium">Strategy Capital:</span>
+            <span className="text-gray-900 font-semibold text-lg">{formatStrategyAmount(strategyCapital)}</span>
+          </div>
+          <div className="flex justify-between items-center py-2 border-b border-gray-200">
+            <span className="text-gray-600 font-medium">{isUSC ? 'Wallet Charge:' : 'Total Amount:'}</span>
+            <span className="text-gray-900 font-semibold text-lg">${walletCharge.toFixed(2)}</span>
           </div>
           {paymentData.usdToInrRate && (
             <div className="pt-2">
-              <p className="text-xs text-gray-600">Approx ₹{(paymentData.payable * paymentData.usdToInrRate).toFixed(2)} at ₹{paymentData.usdToInrRate} per $1</p>
+              <p className="text-xs text-gray-600">Approx ₹{(walletCharge * paymentData.usdToInrRate).toFixed(2)} at ₹{paymentData.usdToInrRate} per $1</p>
             </div>
           )}
           <div className="flex space-x-2 mt-2">
